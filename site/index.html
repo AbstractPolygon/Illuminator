@@ -714,8 +714,12 @@ footer { border-top: 1px solid var(--line); padding-block: 32px 48px; color: var
     .then((releases) => {
       const have = new Set([...list.children].map((a) => a.dataset.version));
       let added = false;
+      const day = (iso) => new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
       for (const rel of releases) {
         const version = String(rel.tag_name).replace(/^v/i, '');
+        // A build already on the page takes the date of its release once it has been released.
+        const shown = rel.draft ? null : list.querySelector(`[data-version='${version}'] time`);
+        if (shown) { shown.dateTime = String(rel.published_at).slice(0, 10); shown.textContent = day(rel.published_at); }
         const items = rel.draft ? [] : notesOf(rel.body);
         if (!items.length || have.has(version)) continue;
         const a = document.createElement('article');
@@ -726,7 +730,7 @@ footer { border-top: 1px solid var(--line); padding-block: 32px 48px; color: var
         h.textContent = version;
         const t = document.createElement('time');
         t.dateTime = String(rel.published_at).slice(0, 10);
-        t.textContent = new Date(rel.published_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+        t.textContent = day(rel.published_at);
         head.append(h, t);
         const ul = document.createElement('ul');
         for (const text of items) { const li = document.createElement('li'); li.append(inline(text)); ul.append(li); }
