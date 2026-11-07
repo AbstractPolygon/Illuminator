@@ -1079,7 +1079,7 @@ async function superRes({ id, job, alpha = 0, scale, u = 0, v = 0, aperture = 0,
     keepStill = stillKey(keyParts);
     if (state.keptStill && state.keptStill.key === keepStill && state.keptStill.w === keptW && state.keptStill.h === keptH) {
       progress(label, 1);
-      finishGpu(state.keptStill.tex, keptW, keptH, packedKept, { id, type: 'result' }, csKept, true, stillCtx, undefined);
+      finishGpu(state.keptStill.tex, keptW, keptH, packedKept, { id, type: 'result', kept: true }, csKept, true, stillCtx, undefined);
       return undefined;
     }
     // Or kept next to the photo by an earlier session (desktop app).
@@ -1091,7 +1091,7 @@ async function superRes({ id, job, alpha = 0, scale, u = 0, v = 0, aperture = 0,
       if (disk) {
         state.keptStill = { key: keepStill, tex: state.gpu.keep(state.gpu.uploadRGB(disk, keptW, keptH), keptW, keptH, 'still'), w: keptW, h: keptH };
         progress(label, 1);
-        finishGpu(state.keptStill.tex, keptW, keptH, packedKept, { id, type: 'result' }, csKept, true, stillCtx, undefined);
+        finishGpu(state.keptStill.tex, keptW, keptH, packedKept, { id, type: 'result', kept: true }, csKept, true, stillCtx, undefined);
         return undefined;
       }
     }
@@ -1114,7 +1114,7 @@ async function superRes({ id, job, alpha = 0, scale, u = 0, v = 0, aperture = 0,
     if (tex) {
       state.lensOffsets = state.gpu.lensOffsets;
       if (state.jobs.superres !== job) return { cancelled: true };
-      await presentGpu(id, tex, params.W, params.H, { alpha, dof, bokeh, color, pxPerUnit: 14 * scale, masks: stillCtx, keepStill, distortionCorrected: true }, { id, type: 'result' });
+      await presentGpu(id, tex, params.W, params.H, { alpha, dof, bokeh, color, pxPerUnit: 14 * scale, masks: stillCtx, keepStill, distortionCorrected: true }, { id, type: 'result', get kept() { return !!(keepStill && state.keptStill && state.keptStill.key === keepStill); } });
       // The picture before its color pass, saved next to the photo (the page keeps the last two).
       if (diskHash && state.keptStill && state.keptStill.key === keepStill) {
         const { tex: kept, w: keptW, h: keptH } = state.keptStill;
@@ -1427,7 +1427,7 @@ async function lytroEdof({ id, job, scale = 3, color = null, masks = null, quiet
   if (keepKey) state.keptEdof = { key: keepKey, out: out.slice(), W, H };
   }
   const pixels = toPixels(reuse || disk ? out.slice() : out, W, H, { focus: 0, overrides: masks, view: viewOf(0, 0) }, cs, true);
-  post({ id, type: 'result', width: W, height: H, pixels: pixels.buffer }, [pixels.buffer]);
+  post({ id, type: 'result', width: W, height: H, pixels: pixels.buffer, kept: !!(keepKey && state.keptEdof && state.keptEdof.key === keepKey) }, [pixels.buffer]);
   // The picture before its color pass, saved next to the photo (the page keeps the last two).
   if (diskHash && !reuse && !disk && state.keptEdof && state.keptEdof.key === keepKey) postKeptPicture(diskHash, W, H, state.keptEdof.out);
   return undefined;
