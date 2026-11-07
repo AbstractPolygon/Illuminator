@@ -54,7 +54,7 @@ Read with `debugFlags().name`. In the worker, a harness usually prepends a line 
 | `noGpuEngine` | turns a stage off | app/js/worker.js:1352, app/js/worker.js:2253 |  |
 | `noGpuModulation` | turns a stage off | app/js/worker.js:2209 |  |
 | `noGpuNr` | turns a stage off | app/js/worker.js:401, app/js/worker.js:603 |  |
-| `noGpuRegions` | turns a stage off | app/js/worker.js:791 |  |
+| `noGpuRegions` | turns a stage off | app/js/worker.js:791, app/js/worker.js:3040 |  |
 | `noGpuSolve` | turns a stage off | app/js/worker.js:2429 |  |
 | `noGpuViews` | turns a stage off | app/js/worker.js:2253 |  |
 | `noisy` | tuning value | app/js/worker.js:2405 |  |

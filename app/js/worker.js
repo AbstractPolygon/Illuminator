@@ -3010,7 +3010,57 @@ async function setLut({ lut }) {
   return null;
 }
 
-const handlers = { stillStore, stillData, memoryLimits: (limits) => { setMemoryLimits(limits); return {}; }, setLut, setCalibrations, measureWhite: measureWhiteImage, open, frames, refocusFrames, superRes, lytroEdof, view, focusAt, depthMap, spreadMask, whiteBalanceAt, prepare, settings, setGrid, rawCrop, outputToSensor, readSection,
+// The browser can take the graphics context away (a driver reset, memory pressure, many tabs or windows). A renderer on a lost context only throws ("WebGL context is
+// lost"), so a request that finds it lost builds a new renderer on a fresh context and uploads the photo's data again (raw, sampler, LUT, veil, depth); where no context
+// can be made, the CPU does the work. A request that fails because the context was lost during it runs once more after that.
+function gpuContextLost() {
+  try {
+    return !!state.gpu && state.gpu.gl.isContextLost();
+  } catch {
+    return true;
+  }
+}
+
+// Returns true when the photo's refocus views were on the old renderer: they are built again on the new one by the caller (they take a moment).
+function recoverGpu({ keepPhoto = true } = {}) {
+  console.warn('The graphics context was lost: making a new one.');
+  const hadViews = !!state.refocusViews;
+  state.gpu = null;
+  state.kept = null;
+  state.refocusViews = null;
+  DEPTH_REGIONS.gpu = null;
+  dropKeptStills();
+  if (!keepPhoto || !state.lf) return false; // a photo opened next makes its own renderer
+  state.gpu = GpuRenderer.create(state.lf.cam) || false;
+  state.cpuFallbacks = new Map(state.cpuFallbacks || []);
+  if (!state.gpu) {
+    state.cpuFallbacks.set('The graphics card', 'its context was lost and no new one could be made');
+    return false;
+  }
+  DEPTH_REGIONS.gpu = !debugFlags().noGpuRegions ? regionsGpu(state.gpu, gpuFellBack) : null;
+  if (state.lut) state.gpu.setLut(state.lut);
+  if (state.veil) state.gpu.setVeil(state.veil);
+  if (state.lf.raw) state.gpu.setRaw(state.lf.raw, state.lf.cam, state.dev);
+  if (state.sampler) {
+    const vg = state.vignetting;
+    state.gpu.setSampler(state.sampler, (u, v) => vignettingGainAt(vg, u, v));
+  }
+  if (state.depth && state.sampler) state.gpu.setDepth(state.depth.alpha, state.sampler.outW, state.sampler.outH);
+  return hadViews;
+}
+
+async function recoverGpuFor(msg) {
+  if (recoverGpu({ keepPhoto: msg.type !== 'open' }) && state.gpu) await ensureRefocusViews(msg.id);
+}
+
+// For tests: loses the graphics context, as a driver reset would.
+async function loseGpu() {
+  const ext = state.gpu && state.gpu.gl.getExtension('WEBGL_lose_context');
+  if (ext) ext.loseContext();
+  return { lost: !!ext };
+}
+
+const handlers = { loseGpu, stillStore, stillData, memoryLimits: (limits) => { setMemoryLimits(limits); return {}; }, setLut, setCalibrations, measureWhite: measureWhiteImage, open, frames, refocusFrames, superRes, lytroEdof, view, focusAt, depthMap, spreadMask, whiteBalanceAt, prepare, settings, setGrid, rawCrop, outputToSensor, readSection,
   cancel: async ({ kind }) => { state.jobs[kind] = null; } };
 
 self.onmessage = async (event) => {
@@ -3019,7 +3069,15 @@ self.onmessage = async (event) => {
   if (msg.bits16) bits16Ids.add(msg.id);
   try {
     if (!handler) throw new Error(`Unknown request ${msg.type}`);
-    const result = await handler(msg);
+    if (gpuContextLost()) await recoverGpuFor(msg);
+    let result;
+    try {
+      result = await handler(msg);
+    } catch (err) {
+      if (!gpuContextLost() && !/context.{0,12}lost/i.test(String(err && err.message))) throw err;
+      await recoverGpuFor(msg);
+      result = await handler(msg);
+    }
     if (result !== undefined) post({ id: msg.id, type: 'result', result });
   } catch (err) {
     post({ id: msg.id, type: 'error', message: err && err.message ? err.message : String(err) });
