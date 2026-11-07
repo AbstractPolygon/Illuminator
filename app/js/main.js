@@ -24,6 +24,7 @@ import { TRACKS, FPS as DEFAULT_FPS, emptyAnimation, frameCount, valueAt, isSett
 // (the Frame rate setting).
 import { geometry, isIdentity, apply as applyMatrix, invert, rotateOrientation, flipOrientation, flipVerticalOrientation, fitAspect, FULL_CROP } from './core/geometry.js';
 import { hook, setHook } from './core/debugflags.js';
+import { preColorKey } from './core/precolorkey.js';
 import { colorSettings as buildColorSettings, renderSettings as buildRenderSettings, FRINGES } from './settingsmap.js';
 import { initStereo } from './ui/stereo.js';
 import { initFrameRate } from './ui/framerate.js';
@@ -1486,6 +1487,13 @@ async function stillFromFile(file) {
   }
 }
 
+// What decides the full sensor picture before its color pass, from the page's side (the worker keeps the picture under the same idea, worker.js): the settings that are not
+// color settings, the camera and the render's size. A change that leaves it alone only needs the color pass again.
+function stillPreKey(settings = buildRenderSettings({ el: $, num: (id) => +$(id).value }, localSettings())) {
+  const photo = state.current && state.current.photo;
+  return preColorKey(settings, [photo ? photo.photoId || photo.id : null, state.stillFrame ? 1 : 0], [state.stillFrame || cameraParams(), +$('still-scale').value, +$('still-passes').value]);
+}
+
 async function renderStill() {
   const scale = +$('still-scale').value;
   // The card's memory (Settings > Memory): a full sensor render of this size needs about this much.
@@ -1499,12 +1507,14 @@ async function renderStill() {
     const passes = +$('still-passes').value;
     const hash = stillHash(scale, passes);
     const photo = state.current && state.current.photo;
+    const preKey = stillPreKey();
     // The same render was made before: show it.
     if (hash) {
       const file = await state.lib.still(photo, hash);
       const img = file && (await stillFromFile(file));
       if (img && state.fullRes && state.current && state.current.photo === photo) {
         state.still = img;
+        state.stillKept = false;
         state.lensStill = { img, scale };
         if (!state.depthShown) {
           draw(img);
@@ -1521,6 +1531,10 @@ async function renderStill() {
     // Ignore a result that arrives after full resolution was switched off.
     if (msg && (msg.pixels || msg.bitmap) && state.fullRes) {
       state.still = toImageData(msg);
+      // The worker kept the picture before its color pass: a color change only asks for the color pass again (applySettings), with this picture left on show meanwhile.
+      state.stillKept = !!msg.kept;
+      state.stillPre = preKey;
+      setHook('stillRendered', { n: (hook('stillRendered')?.n || 0) + 1, kept: state.stillKept, keys: Object.keys(msg).join() }); // for tests: a full sensor picture arrived, and whether the worker kept it
       state.lensStill = { img: state.still, scale };
       if (!state.depthShown) {
         draw(state.still);
@@ -3603,7 +3617,15 @@ async function applySettings() {
   if (info) state.info = { ...state.info, ...info };
   showAutoFringe();
   showResolutionSizes();
-  // Back to the live view: Render makes a new full resolution still.
+  // A change to the color settings alone, with Auto render on and the picture before its color pass kept (the worker says so): the full sensor picture stays on show and is
+  // made again from the kept one, which takes moments. Any other change goes back to the live view until Render (or Auto render) makes a new still.
+  const colorOnly = state.fullRes && state.still && state.stillKept && state.stillPre === stillPreKey(settings) && $('auto-render').checked && !state.depthShown && !state.showingFrames && !state.playing;
+  setHook('stillColorOnly', { colorOnly: !!colorOnly, fullRes: state.fullRes, still: !!state.still, kept: state.stillKept, same: state.stillPre === stillPreKey(settings) }); // for tests
+  if (colorOnly) {
+    invalidateAnimation();
+    renderStill();
+    return;
+  }
   if (state.fullRes) setFullRes(false, { restore: false });
   state.still = null;
   invalidateAnimation();

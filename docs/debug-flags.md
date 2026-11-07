@@ -98,7 +98,7 @@ Read with `hook('name')`, published with `setHook('name', value)`.
 
 | Name | Kind | Used at | Comment in the code |
 |---|---|---|---|
-| `appliedSettings` | harness value | app/js/main.js:3584 | for tests: what the page sends the engine |
+| `appliedSettings` | harness value | app/js/main.js:3598 | for tests: what the page sends the engine |
 | `awbDump` | callback: receives a stage's result | app/js/worker.js:2301 |  |
 | `bankFS` | harness value | app/js/core/lytroedof.js:250 |  |
 | `bisgEngineMatrix` | harness value | app/js/core/lytroedof.js:803 |  |
@@ -136,9 +136,11 @@ Read with `hook('name')`, published with `setHook('name', value)`.
 | `rayDiag` | callback: receives a stage's result | app/js/core/lytroedof.js:1163, app/js/core/lytroedof.js:1166 |  |
 | `regionProbe` | callback: receives a stage's result | app/js/core/lytroedof.js:1173, app/js/core/lytroedof.js:1174 |  |
 | `robustStats` | callback: receives a stage's result | app/js/core/superres.js:685 |  |
-| `sharpAnyGpu` | harness value | app/js/main.js:1188 | (the flag: tests on a software renderer) |
+| `sharpAnyGpu` | harness value | app/js/main.js:1189 | (the flag: tests on a software renderer) |
 | `snapDump` | callback: receives a stage's result | app/js/core/segments.js:627 |  |
 | `state` | harness value | app/js/worker.js:96 | test harnesses |
+| `stillColorOnly` | harness value | app/js/main.js:3623 | for tests |
+| `stillRendered` | harness value | app/js/main.js:1537 | for tests: a full sensor picture arrived, and whether the worker kept it |
 | `useGeo` | override | app/js/worker.js:781 |  |
 | `viewColorsDump` | callback: receives a stage's result | app/js/core/depthmatch.js:131 |  |
 | `viewRawDump` | callback: receives a stage's result | app/js/core/depthmatch.js:114 |  |
