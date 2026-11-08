@@ -1082,6 +1082,121 @@ export function depthColorGuide(rgb) {
   return out;
 }
 
+// The coarse-first search over the trial depths. Most photos use a small part of the search range (the test photos 4 to 9 of 33 steps), so measuring every step wastes most
+// of the work. Every `stride`th step is measured first; the range the pixels' best steps fall in (all but a `tail` share at each end), a stride wider at each end, is then
+// measured step by step; and the range grows by a stride while more than a `tail` share of pixels still have their best step at or beyond an end. Pixels whose best
+// step is in the range get exactly the depth a full search gives; the steps never measured stand in the mean cost (the confidence) as straight lines between the measured
+// ones (bestDepth `weights`).
+export const DEPTH_FAST_SEARCH = { on: true, stride: 4, tail: 0.002 };
+
+// `steps`: the number of trial depths, `n`: pixels. first() gives the steps to measure first; then next(scores) (the scores measured so far, undefined where not measured)
+// gives the next ones, until it gives none; weights() then gives the weights for bestDepth.
+export function searchPlanner(steps, n, { stride = DEPTH_FAST_SEARCH.stride, tail = DEPTH_FAST_SEARCH.tail } = {}) {
+  const measured = new Uint8Array(steps);
+  const coarse = [];
+  for (let k = 0; k < steps; k += stride) coarse.push(k);
+  if (coarse[coarse.length - 1] !== steps - 1) coarse.push(steps - 1);
+  let lo = -1;
+  let hi = -1;
+  const mark = (ks) => {
+    for (const k of ks) measured[k] = 1;
+    return ks;
+  };
+  const unmeasured = (a, b) => {
+    const ks = [];
+    for (let k = a; k <= b; k++) if (!measured[k]) ks.push(k);
+    return ks;
+  };
+  return {
+    first: () => mark(coarse.slice()),
+    next(scores) {
+      // How much each step is the best step of the pixels that count, among the measured steps. A pixel counts as much as its depth is kept by finishDepth (the confidence
+      // from the measured steps, times DEPTH_FILL.trust, at most 1): in a blank area every depth looks alike and the best step is noise, which must not widen the range.
+      const bestAt = new Int16Array(n);
+      const gain = new Float32Array(n);
+      const mean = new Float32Array(n);
+      let measuredCount = 0;
+      for (let k = 0; k < steps; k++) if (scores[k]) measuredCount++;
+      for (let i = 0; i < n; i++) {
+        let best = -1;
+        let sum = 0;
+        for (let k = 0; k < steps; k++) {
+          const s = scores[k];
+          if (!s) continue;
+          sum -= s[i];
+          if (best < 0 || s[i] > scores[best][i]) best = k;
+        }
+        bestAt[i] = best;
+        mean[i] = sum / measuredCount;
+        gain[i] = Math.max(0, mean[i] + scores[best][i]);
+      }
+      const floor = nthSmallest(mean, n >> 1);
+      const count = new Float64Array(steps);
+      let total = 0;
+      for (let i = 0; i < n; i++) {
+        const c = Math.min(1, ((gain[i] / (mean[i] + floor)) ** 2) * DEPTH_FILL.trust);
+        count[bestAt[i]] += c;
+        total += c;
+      }
+      const limit = tail * total;
+      if (lo < 0) {
+        let acc = 0;
+        let a = 0;
+        for (let k = 0; k < steps; k++) {
+          acc += count[k];
+          if (acc > limit) {
+            a = k;
+            break;
+          }
+        }
+        acc = 0;
+        let b = steps - 1;
+        for (let k = steps - 1; k >= 0; k--) {
+          acc += count[k];
+          if (acc > limit) {
+            b = k;
+            break;
+          }
+        }
+        lo = Math.max(0, a - stride);
+        hi = Math.min(steps - 1, b + stride);
+        return mark(unmeasured(lo, hi));
+      }
+      let atLo = 0;
+      let atHi = 0;
+      for (let k = 0; k <= lo; k++) atLo += count[k];
+      for (let k = hi; k < steps; k++) atHi += count[k];
+      const ks = [];
+      if (atLo > limit && lo > 0) {
+        const nl = Math.max(0, lo - stride);
+        ks.push(...unmeasured(nl, lo - 1));
+        lo = nl;
+      }
+      if (atHi > limit && hi < steps - 1) {
+        const nh = Math.min(steps - 1, hi + stride);
+        ks.push(...unmeasured(hi + 1, nh));
+        hi = nh;
+      }
+      return mark(ks);
+    },
+    weights() {
+      const w = new Float64Array(steps);
+      let prev = -1;
+      for (let k = 0; k < steps; k++) {
+        if (!measured[k]) continue;
+        const gap = k - prev - 1;
+        w[k] += 1;
+        if (prev >= 0) {
+          w[prev] += gap / 2;
+          w[k] += gap / 2;
+        }
+        prev = k;
+      }
+      return w;
+    },
+  };
+}
+
 // The score (higher = better agreement) of one trial depth `alpha` at every pixel, for the plain match (no cross-based aggregation, no visibility masks): the angular variance
 // of the shifted detail images `lums` (`occl`: the best half of the aperture at depth edges), filtered by the guided filter (`guided`) or a box of radius `win`, negated.
 // The sequential estimate below and the one that shares the trial depths out to helper workers (estimateDepthPooled, js/depthpool.js) both score through this.
@@ -1117,6 +1232,19 @@ export function estimateDepth(views, width, height, { min = DEPTH_SEARCH.min, ma
   const flat = arms && DEPTH_EDGE.on ? flatness(depthColorGuide(Float32Array.from(views[Math.floor(views.length / 2)].rgb, (x) => x * views[Math.floor(views.length / 2)].gain)), width, height, DEPTH_EDGE) : null;
   const lprep = DEPTH_LCOST.on ? lytroCostPrepare(views, width, height) : null;
   const match = (lums, level, occl, win, from, span, masks = null) => {
+    // The plain match measures the trial depths coarse first (see DEPTH_FAST_SEARCH): the steps outside the range the picture uses are mostly left out.
+    if (DEPTH_FAST_SEARCH.on && !lprep && !masks && !arms && !DEPTH_TRWS.on && !DEPTH_MRF.on && alphas.length >= 12) {
+      const sparse = new Array(alphas.length);
+      const plan = searchPlanner(alphas.length, n);
+      let measured = 0;
+      for (let ks = plan.first(); ks.length; ks = plan.next(sparse)) {
+        for (const k of ks) {
+          if (onProgress) onProgress(from + span * Math.min(0.95, measured++ / (0.6 * alphas.length)));
+          sparse[k] = scoreStep({ lums, views, w: width, h: height, alpha: alphas[k], minLevel, level, occl, guide, win, guided });
+        }
+      }
+      return bestDepth(sparse, alphas, n, null, plan.weights());
+    }
     // Higher score = better agreement.
     const scores = alphas.map((a, k) => {
       if (onProgress) onProgress(from + (span * k) / steps);
@@ -1190,11 +1318,17 @@ export async function estimateDepthPooled(views, width, height, { min = DEPTH_SE
     await pool.load({ lums, views: viewInfo, level, minLevel, guide, w: width, h: height, win, occl, guided });
     const scores = new Array(steps);
     let done = 0;
-    await pool.run(alphas, (k, score) => {
+    const onScore = (k, score) => {
       scores[k] = score;
-      if (onProgress) onProgress(from + (span * ++done) / steps);
-    });
-    return bestDepth(scores, alphas, n);
+      if (onProgress) onProgress(from + span * Math.min(0.95, done++ / (DEPTH_FAST_SEARCH.on ? 0.6 * steps : steps)));
+    };
+    if (!(DEPTH_FAST_SEARCH.on && steps >= 12)) {
+      await pool.run(alphas, alphas.map((_, k) => k), onScore);
+      return bestDepth(scores, alphas, n);
+    }
+    const plan = searchPlanner(steps, n);
+    for (let ks = plan.first(); ks.length; ks = plan.next(scores)) await pool.run(alphas, ks, onScore);
+    return bestDepth(scores, alphas, n, null, plan.weights());
   };
   const detailImages = DEPTH_VIS.raw ? raw : raw.map((l) => detailOf(l, width, height).detail);
   const centerLocal = DEPTH_VIS.raw ? Float32Array.from(center, (x) => Math.max(x, 0) ** 0.5) : detailOf(center, width, height).local;
@@ -1216,22 +1350,26 @@ export async function estimateDepthPooled(views, width, height, { min = DEPTH_SE
 // the maker's tool takes the whole label from the smoothed volume and then
 // moves it by a parabola through the three match costs around that label
 // (only where the costs curve upward, and by less than one step).
-export function bestDepth(scores, alphas, n, dataScores = null) {
+// `scores` may leave trial depths out (undefined): the coarse-first search measures only some. Each measured one then stands for `weights[k]` steps in the mean cost (the
+// skipped steps between two measured ones, taken as the straight line between them; the weights add up to the number of steps).
+export function bestDepth(scores, alphas, n, dataScores = null, weights = null) {
   const steps = alphas.length;
   const alpha = new Float32Array(n);
   const cost = new Float32Array(n);
   const meanCost = new Float32Array(n);
   const step = alphas[1] - alphas[0];
   for (let i = 0; i < n; i++) {
-    let best = 0;
+    let best = -1;
     let sum = 0;
     for (let k = 0; k < steps; k++) {
-      sum -= scores[k][i];
-      if (scores[k][i] > scores[best][i]) best = k;
+      const s = scores[k];
+      if (!s) continue;
+      sum -= weights ? weights[k] * s[i] : s[i];
+      if (best < 0 || s[i] > scores[best][i]) best = k;
     }
     meanCost[i] = sum / steps;
     let offset = 0;
-    if (!DEPTH_LCOST.discrete && best > 0 && best < steps - 1) {
+    if (!DEPTH_LCOST.discrete && best > 0 && best < steps - 1 && scores[best - 1] && scores[best + 1]) {
       const a = scores[best - 1][i];
       const b = scores[best][i];
       const c = scores[best + 1][i];
