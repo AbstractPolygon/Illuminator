@@ -787,3 +787,6 @@ label.lut-amount { margin-top: 14px; }
 .queue-job.running { border-color: var(--accent); }
 .queue-job.done .queue-status { color: #6cc28c; }
 .queue-job.failed .queue-status { color: #c9696d; }
+
+/* Top bar: full screen, About and Settings sit close together */
+#fullscreen-btn, #about-btn, #settings-btn { margin-inline: -4px; }
