@@ -1,4 +1,5 @@
 // keyframes: moved out of main.js. initKeyframes() runs where the section used to, with what it uses from the rest of the page.
+import { cameraMove } from '../core/camerapresets.js';
 import { setKey, isSettingTrack, isMaskTrack, emptyAnimation, parseAnimation, valueAt, PRESETS, cubicBezier, frameCount, hasKeys, sample } from '../core/keyframes.js';
 
 export function initKeyframes({ $, getMasks, maskLabel, state, canRender, F_STOPS, scheduleSave, invalidateAnimation, backToCamera, renderCamera, showSliderValue, setMasks, renderMasks, showFNumber, showFocusPoint, applySettingsSoon, cameraChanged, layoutCanvas, drawCurves, setPlaying, showFrame, updateFrameLabel, plotBox, animationSettingsChanged, draw, apertureFor, view, bokehParams, colorSettings }) {
@@ -1135,6 +1136,21 @@ export function initKeyframes({ $, getMasks, maskLabel, state, canRender, F_STOP
     $('anim-length').value = kind === 'keyframes' ? frameCount(state.anim, state.fps) : +$(kind === 'focus' ? 'steps' : 'frames').value;
     $('anim-length').max = kind === 'focus' ? $('steps').max : String(Math.round(120 * state.fps) + 1);
   }
+
+  // A ready-made camera move (core/camerapresets.js): fills the viewpoint, zoom and pan keyframes, switches to Keyframes, and goes back to "Choose a move…". Saved like any
+  // other change, so it can be undone.
+  $('anim-preset').onchange = () => {
+    const id = $('anim-preset').value;
+    $('anim-preset').value = '';
+    if (!id || !state.info) return;
+    const anim = cameraMove(id, { radius: state.info.radius || 4.5, length: state.anim.length > 0 ? state.anim.length : 4, base: state.anim });
+    if (!anim) return;
+    state.anim = anim;
+    $('anim').value = 'keyframes';
+    clearSelection();
+    saveAnimation();
+    animationSettingsChanged();
+  };
 
   // Length in frames (as the play bar counts them).
   $('anim-length').onchange = () => {
