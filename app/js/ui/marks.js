@@ -21,6 +21,41 @@ export function initMarks({ $, state, renderLibrary, typing }) {
     return span;
   }
 
+  // What shows over a photo's thumbnail when the pointer is on it (or something in it has the keyboard focus): a checkbox at the top left that picks the photo (clear it to
+  // un-pick), and five stars along the bottom: click a star to rate, click the star that is lit to clear the rating. A picked photo keeps its checkbox shown.
+  function rater(photo) {
+    const m = marksOf(photo);
+    const layer = document.createElement('div');
+    layer.className = `rate-layer${m.flag === 'pick' ? ' picked' : ''}`;
+    layer.onclick = (e) => e.stopPropagation();
+    layer.ondblclick = (e) => e.stopPropagation();
+    const pick = document.createElement('label');
+    pick.className = 'pick';
+    pick.title = m.flag === 'pick' ? 'Picked: click to un-pick' : m.flag === 'reject' ? 'Rejected: click to pick' : 'Pick this photo';
+    const box = Object.assign(document.createElement('input'), { type: 'checkbox', checked: m.flag === 'pick' });
+    box.setAttribute('aria-label', `Picked: ${photo.name}`);
+    box.onchange = () => setFlag(photo, box.checked ? 'pick' : null);
+    pick.append(box);
+    const wrap = document.createElement('div');
+    wrap.className = 'rate';
+    wrap.setAttribute('role', 'group');
+    wrap.setAttribute('aria-label', `Rating of ${photo.name}`);
+    // (the highest star first: the stars before the hovered one light up with it, by the sibling rule in the style sheet)
+    for (let n = 5; n >= 1; n--) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = `star${n <= m.rating ? ' on' : ''}`;
+      b.textContent = '★';
+      b.setAttribute('aria-label', `${n} star${n === 1 ? '' : 's'}`);
+      b.setAttribute('aria-pressed', String(n === m.rating));
+      b.title = n === m.rating ? 'Click to clear the rating' : `${n} star${n === 1 ? '' : 's'}`;
+      b.onclick = () => setRating(photo, n === m.rating ? 0 : n);
+      wrap.append(b);
+    }
+    layer.append(pick, wrap);
+    return layer;
+  }
+
   async function change(photo, patch) {
     if (!state.lib || !photo) return;
     await state.lib.setMarks(photo, { ...marksOf(photo), ...patch });
@@ -105,5 +140,5 @@ export function initMarks({ $, state, renderLibrary, typing }) {
     e.preventDefault();
   });
 
-  return { applyFilter, badge, openMarks, renderKeywordList, isFiltering: () => isFiltering(state.filter) };
+  return { applyFilter, badge, rater, openMarks, renderKeywordList, isFiltering: () => isFiltering(state.filter) };
 }
