@@ -25,6 +25,8 @@ contextBridge.exposeInMainWorld('lytroNative', {
   chooseLibraryDir: () => ipcRenderer.invoke('choose-library-dir'),
   importFromCamera: (cameraId, fileIds) => ipcRenderer.invoke('import-from-camera', cameraId, fileIds),
   saveFile: (name, bytes) => ipcRenderer.invoke('save-file', name, bytes),
+  chooseOutputFolder: () => ipcRenderer.invoke('choose-output-folder'),
+  writeOutput: (folder, name, bytes) => ipcRenderer.invoke('write-output', folder, name, bytes),
   pickFolder: (title) => ipcRenderer.invoke('pick-folder', title),
   library: {
     list: (rel) => ipcRenderer.invoke('lib-list', rel),

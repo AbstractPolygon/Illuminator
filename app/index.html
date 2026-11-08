@@ -1001,7 +1001,27 @@
           </label>
         </details>
       </details>
+      <details id="queue-panel" class="panel queue-panel" data-panel="camera">
+        <summary><h2>Render queue</h2></summary>
+        <p class="hint">Pictures and videos made one after another in the background while you keep editing. A job uses the photo's settings as they are when you add it (library photos only).</p>
+        <div class="row">
+          <button id="queue-add-photo" type="button" title="Adds a picture of this photo, with the Photo and Full sensor settings as they are now" disabled>Add picture</button>
+          <button id="queue-add-video" type="button" title="Adds the animation of this photo as a video, with the Video settings as they are now" disabled>Add video</button>
+        </div>
+        <div id="queue-folder-row" class="row" hidden>
+          <span id="queue-folder" class="hint">No folder chosen</span>
+          <button id="queue-folder-btn" type="button">Choose folder…</button>
+        </div>
+        <ul id="queue-list" class="queue-list"></ul>
+        <p id="queue-summary" class="hint"></p>
+        <div class="row">
+          <button id="queue-toggle" type="button" class="primary" disabled>Start queue</button>
+          <button id="queue-clear" type="button" disabled>Clear finished</button>
+        </div>
+      </details>
+
       <div class="render-actions">
+
         <button id="render-btn" class="wide" title="Renders the picture at the Photo Size with the chosen Upscaling (a downloaded model enlarges it here); with Full sensor on, renders the full sensor still (F turns Full sensor on)" disabled>Render</button>
         <label id="auto-render-row" class="check" title="With Full sensor on, renders the full sensor still again by itself after each change"><input id="auto-render" type="checkbox" disabled> Auto render</label>
         <button id="png-btn" class="wide" disabled>Save PNG</button>

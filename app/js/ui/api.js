@@ -28,7 +28,7 @@ export function coerce(el, value) {
 }
 
 export function initScriptingApi(host) {
-  const { state, $, engine, version, openBytes, applyEdits, currentEdits, setCamera, setFullResMode, exportPhoto, speedReport } = host;
+  const { state, $, engine, version, openBytes, applyEdits, currentEdits, setCamera, setFullResMode, exportPhoto, exportVideo, speedReport } = host;
   const listeners = new Map();
   const plugins = [];
 
@@ -170,6 +170,14 @@ export function initScriptingApi(host) {
       if (quality != null) values['photo-quality'] = quality;
       await api.set(values);
       const file = await exportPhoto();
+      emit('exported', { name: file.name, type: file.type, size: file.bytes.length });
+      return file;
+    },
+
+    // The animation as a video with the Video settings (Render Settings > Video; the animation must be on): resolves { name, type, bytes }.
+    async exportVideo() {
+      need();
+      const file = await exportVideo();
       emit('exported', { name: file.name, type: file.type, size: file.bytes.length });
       return file;
     },
