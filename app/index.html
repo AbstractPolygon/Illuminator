@@ -64,6 +64,11 @@
       <ul id="album-list" class="albums"></ul>
       <button id="album-new" type="button" class="link-button">+ New album</button>
       <button id="library-import" type="button" class="link-button" title="Brings in the photos, edits and albums of a Lytro Desktop library">+ Import Lytro library…</button>
+      <h2>Looks</h2>
+      <ul id="look-list" class="albums"></ul>
+      <button id="look-save" type="button" class="link-button" title="Keeps the open photo's tone, color, sharpening and local adjustments as a look to put on other photos" disabled>+ Save look…</button>
+      <button id="look-import" type="button" class="link-button" title="Adds a look file (.illuminator-look) that someone shared">+ Import look…</button>
+      <input id="look-file" type="file" accept=".illuminator-look,.json,application/json" hidden>
       <h2 id="photos-title">All photos</h2>
       <div id="library-filter" class="library-filter">
         <select id="filter-rating" title="Show only photos with at least this rating" aria-label="Rating">
@@ -1103,6 +1108,23 @@
       <menu>
         <span class="spacer"></span>
         <button value="close" class="primary">Done</button>
+      </menu>
+    </form>
+  </dialog>
+
+  <dialog id="look-dialog">
+    <form method="dialog">
+      <h2>Save look</h2>
+      <label class="marks-row"><span>Name</span><input id="look-name" type="text" maxlength="80" placeholder="Warm evening" autocomplete="off"></label>
+      <p class="hint">A look keeps the tone, color, curves, film look and LUT. Choose what else goes in it:</p>
+      <label class="check"><input id="look-details" type="checkbox" checked> Sharpening and noise reduction</label>
+      <label class="check"><input id="look-local" type="checkbox" checked> Local adjustments</label>
+      <label class="check"><input id="look-wb" type="checkbox"> White balance</label>
+      <p class="hint">The focus, viewpoint, crop and export settings stay with each photo. Apply a look from the list under Library; it can be undone. <em>•••</em> next to a look saves it as a file to share.</p>
+      <menu>
+        <button value="cancel">Cancel</button>
+        <span class="spacer"></span>
+        <button id="look-ok" value="ok" class="primary">Save</button>
       </menu>
     </form>
   </dialog>

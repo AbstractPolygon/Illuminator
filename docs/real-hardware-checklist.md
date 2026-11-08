@@ -36,3 +36,8 @@ Use the same photo each time: a raw ILLUM photo with a sharp thin object in fron
 
 ## If something fails
 Send: the line above, the text of any notice, the graphics card and driver version (the Info panel and `chrome://gpu` in the browser version), and the photo if you can.
+
+## Looks
+
+- Save a look from an edited photo (try one with a LUT and local adjustments), put it on another photo with a click, undo it with Ctrl+Z.
+- Save it as a file, delete it, import the file again, and put it on a photo on another computer.
