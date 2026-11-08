@@ -58,6 +58,7 @@ import { debugFlags, hook, setHook } from './core/debugflags.js';
 import { preColorKey } from './core/precolorkey.js';
 import { helperCount, renderViews } from './viewpool.js';
 import { depthHelperCount, createDepthPool } from './depthpool.js';
+import { costHelperCount, pooledCostVolume } from './costpool.js';
 import { encodeKept, decodeKept, fingerprint, keptHash, hashBytes } from './core/keptpicture.js';
 
 // Requests whose picture is wanted at 16 bits per channel (see finishGpu).
@@ -1496,6 +1497,26 @@ async function renderFullSensor({ alpha, allInFocus, u, v, scale, passes, base, 
 // One picture for the interactive camera: a single view when the aperture
 // is closed, otherwise refocused at `alpha` through an aperture around (u, v).
 // `draft`: a quicker picture while the user drags (see main.js).
+// A photo's depth is measured when something first needs it (the depth of field, the depth map, a render). On a real graphics card it is also measured in the background
+// once the first picture of the photo has been shown and nothing has been asked for a moment, so the first change that needs it finds it done. Opening another photo
+// stops it at its next stage boundary. settings.prefetchDepth = false turns it off, true makes it run without a real graphics card too.
+let prefetchTimer = 0;
+function schedulePrefetch() {
+  const s = state.settings.prefetchDepth;
+  if (s === false || state.pp || !(s === true || hardwareGpu())) return;
+  if (state.depth && !state.depthFast) return;
+  clearTimeout(prefetchTimer);
+  const sampler = state.sampler;
+  prefetchTimer = setTimeout(async () => {
+    if (state.sampler !== sampler || state.depthJob || (state.depth && !state.depthFast)) return;
+    try {
+      await ensureDepth(0);
+    } catch (e) {
+      console.warn('The depth could not be measured in the background:', e && e.message);
+    }
+  }, 1500);
+}
+
 async function view({ id, u, v, alpha = 0, aperture = 0, dof = 0, bokeh, draft = false, deferNr = false, final = false }) {
   if (state.pp) return processedView({ id, u, v, alpha, aperture, dof, bokeh });
   requireRaw();
@@ -1526,6 +1547,7 @@ async function view({ id, u, v, alpha = 0, aperture = 0, dof = 0, bokeh, draft =
     }
     await presentGpu(id, tex, outW, outH, { alpha, dof, bokeh, pxPerUnit: viewPxPerUnit(), masks, keep: key, draft, mode }, message);
     state.gpu.endTiming();
+    if (!draft) schedulePrefetch();
     return undefined;
   }
   let rgb;
@@ -2107,6 +2129,7 @@ async function measureDepthOnce(id) {
     const lap = {};
     DEPTH_REGIONS.objects = state.settings.depthObjects ? await findObjects(id) : null;
     await tick();
+    if (state.sampler !== sampler0) return false; // another photo was opened meanwhile: stop at this stage boundary
     const report = (from, to) => (p) => post({ id, type: 'progress', stage: 'Measuring depth', progress: from + (to - from) * p });
     if (style === 'combined' || style === 'match') {
       const kept = state.depthCacheIn && state.depthCacheIn.alpha.length && state.depthCacheIn.key === depthCacheKey() && style === 'match' && engineDepthAvailable() ? state.depthCacheIn : null;
@@ -2114,6 +2137,7 @@ async function measureDepthOnce(id) {
       if (kept) state.engineViews = Object.assign([], { raster: { w: kept.w, h: kept.h } });
       else await prepareEngineViews(id);
       await tick();
+    if (state.sampler !== sampler0) return false; // another photo was opened meanwhile: stop at this stage boundary
     }
     lap.views = Date.now() - tDepth;
     try {
@@ -2121,8 +2145,9 @@ async function measureDepthOnce(id) {
         const classic = await measureClassic(id, fast, report(0, 0.4));
         lap.classic = Date.now() - tDepth - lap.views;
         await tick();
+    if (state.sampler !== sampler0) return false; // another photo was opened meanwhile: stop at this stage boundary
         const tMatch = Date.now();
-        const match = measureLytro(report(0.4, 0.95));
+        const match = await measureLytro(report(0.4, 0.95));
         lap.match = Date.now() - tMatch;
         lap.inFrame = state.frameMs;
         if (match && classic) {
@@ -2134,7 +2159,7 @@ async function measureDepthOnce(id) {
           state.depthRaw = classic || match || (await measureClassic(id, fast, report(0, 1), true));
         }
       } else if (style === 'match') {
-        state.depthRaw = measureLytro(report(0, 1)) || (await measureClassic(id, fast, report(0, 1)));
+        state.depthRaw = (await measureLytro(report(0, 1))) || (await measureClassic(id, fast, report(0, 1)));
       } else {
         state.depthRaw = await measureClassic(id, fast, report(0, 1));
       }
@@ -2150,6 +2175,7 @@ async function measureDepthOnce(id) {
     // filter and an MRF in its engine): the same here, on the depth as finally
     // measured, so every style gets it.
     await tick();
+    if (state.sampler !== sampler0) return false; // another photo was opened meanwhile: stop at this stage boundary
     if (state.sampler !== sampler0) return false;  // another photo was opened (or the detail changed) meanwhile
     const tSettle = Date.now();
     settleDepth(outW, outH, lap);
@@ -2483,7 +2509,7 @@ function postDepthCache() {
   post({ type: 'cache', photoId: state.lf.photoId, cache: { key: c ? c.key : depthCacheKey(), w: c ? c.w : 0, h: c ? c.h : 0, alpha, focusOffset, open, extra, lens: lensCopy } }, [alpha.buffer, ...extra.flatMap((e) => [e.alpha.buffer, e.confidence.buffer]), ...(lensCopy ? [lensCopy.dx.buffer, lensCopy.dy.buffer] : [])]);
 }
 
-function measureLytro(progress) {
+async function measureLytro(progress) {
   const raster = state.engineViews && state.engineViews.raster;
   const { outW, outH } = raster ? { outW: raster.w, outH: raster.h } : state.sampler;
   setDepthStyle('match');
@@ -2523,7 +2549,14 @@ function measureLytro(progress) {
     // The engine's own estimator on its views (core/enginedepth.js): in the engine's order, the centre last.
     const colors = viewColors(depthViews(), outW * outH, outW, outH);
     const ordered = [0, 1, 2, 3, 5, 6, 7, 8, 4].map((i) => colors[i]);
-    const lam = engineDepthMap(ordered, outW, outH, engineLabels(Number.isFinite(infinity) ? infinity : 5), (stage, p) => progress(0, 1 * p), state.gpu && !debugFlags().noGpuCost ? gpuCostVolume : null, state.gpu && !debugFlags().noGpuSolve ? (cost, guide, w, h, labels, prog) => { try { return engineSolveGpu(state.gpu, cost, guide, w, h, labels, prog); } catch (e) { gpuFellBack('The depth solver', e); throw e; } } : null);
+    const labelValues = engineLabels(Number.isFinite(infinity) ? infinity : 5);
+    // Without a graphics card the cost volume (the largest step on the CPU) is made by helper workers taking bands of rows (js/costpool.js), the same volume.
+    let sharedCost = null;
+    if (!(state.gpu && !debugFlags().noGpuCost) && state.settings.depthHelpers !== false && typeof Worker !== 'undefined') {
+      const helpers = costHelperCount(typeof navigator !== 'undefined' ? navigator.hardwareConcurrency : 0, outW * outH);
+      if (helpers > 0) sharedCost = await pooledCostVolume(ordered, outW, outH, labelValues, helpers, (p) => progress(0.3 * p));
+    }
+    const lam = engineDepthMap(ordered, outW, outH, labelValues, (stage, p) => progress(p), state.gpu && !debugFlags().noGpuCost ? gpuCostVolume : sharedCost ? () => sharedCost : null, state.gpu && !debugFlags().noGpuSolve ? (cost, guide, w, h, labels, prog) => { try { return engineSolveGpu(state.gpu, cost, guide, w, h, labels, prog); } catch (e) { gpuFellBack('The depth solver', e); throw e; } } : null);
     // pixels of blown-out highlights have no cost to solve from: they take their surroundings' depth (core/enginedepth.js fillBlownDepth)
     const filled = fillBlownDepth(lam, ordered[8], outW, outH);
     measured = { alpha: Float32Array.from(filled, (v) => v * LAMBDA_TO_ALPHA), cost: null, meanCost: null };
