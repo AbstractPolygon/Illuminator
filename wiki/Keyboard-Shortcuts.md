@@ -9,6 +9,8 @@
 | 0 | Fit to window (Lenslets: the whole sensor) |
 | 1 | Actual pixels (1:1) |
 | F | Full sensor on / off |
+| Shift + 1 to 5, Shift + 0 | Rate the open library photo, clear its rating |
+| Shift + P, Shift + X, Shift + U | Pick, reject, clear the flag of the open library photo |
 | D | Show the depth map on / off |
 | Enter | Crop: apply the frame |
 | Esc | Crop: cancel; white balance picker: cancel; menus: close |
