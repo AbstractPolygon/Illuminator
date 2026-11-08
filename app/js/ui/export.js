@@ -480,7 +480,10 @@ export function initExport({ state, $, canvas, ctx, layoutCanvas, showsCamera, s
       recorder.stop();
       await done;
       const ext = VIDEO_FORMATS[pick.format].ext;
-      download(new Blob(chunks, { type: mime }), `${baseName()}-${$('anim').value}${stereo ? stereoTag(mode) : ''}.${ext}`);
+      const made = new Blob(chunks, { type: mime });
+      // A recording with no pictures in it is a few bytes of header: say so instead of saving an empty file.
+      if (made.size < 1024) throw new Error(`No video was recorded: this computer could not encode ${VIDEO_FORMATS[pick.format].name} ${VIDEO_CODECS[pick.codec].name}. Choose another format or codec under Render Settings > Video.`);
+      download(made, `${baseName()}-${$('anim').value}${stereo ? stereoTag(mode) : ''}.${ext}`);
     } catch (err) {
       showError(err);
     } finally {

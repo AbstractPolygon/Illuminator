@@ -3912,7 +3912,7 @@ $('png-btn').onclick = savePng;
       if (!got) {
         captureDownloads(null);
         clearTimeout(timer);
-        reject(new Error('No video was made: turn on Animation and set it up first'));
+        reject(new Error('No video was made: Animation must be on and set up, and this computer must be able to record the chosen format'));
       }
     }, reject);
   }),

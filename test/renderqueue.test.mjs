@@ -119,3 +119,9 @@ test('a job with a look says so on its card', async () => {
   assert.deepEqual(describeSettings(spec), ['PNG', 'Native size', 'Look: Warm glow']);
   assert.deepEqual(describeSettings({ ...spec, look: null }), ['PNG', 'Native size']);
 });
+
+test('a video that borrows the open photo\'s animation says so', async () => {
+  const { describeSettings } = await import('../app/js/core/renderqueue.js');
+  const chips = describeSettings({ kind: 'video', edits: { rendering: { 'video-format': 'mp4', 'video-codec': 'h264' } }, animation: { 'anim-on': true }, look: { name: 'Warm' } });
+  assert.deepEqual(chips.slice(-2), ['Animation of the open photo', 'Look: Warm']);
+});

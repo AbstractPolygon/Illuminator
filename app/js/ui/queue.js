@@ -45,16 +45,14 @@ export function initQueue({ $, state, native, currentEdits, showNotice, showErro
     else {
       const saved = await state.lib.loadEdits(photo);
       edits = saved ? clone(saved) : null;
-      // The Video settings are the ones in the app now.
-      if (edits && kind === 'video') {
-        const now = currentEdits().rendering || {};
-        edits.rendering = { ...(edits.rendering || {}), ...Object.fromEntries(Object.entries(now).filter(([k]) => k.startsWith('video'))) };
-      }
     }
     const fullOn = $('fullres-on').checked && (open ? state.info.hasRaw : true);
+    // The Video settings are the ones in the app now, for every video (put on in the hidden copy: see runJob).
+    const videoSettings = kind === 'video' && !open ? Object.fromEntries(Object.entries(currentEdits().rendering || {}).filter(([k]) => k.startsWith('video'))) : null;
     return {
       kind,
       look,
+      videoSettings,
       photoId: photo.id,
       name: photo.name,
       edits,
@@ -79,13 +77,21 @@ export function initQueue({ $, state, native, currentEdits, showNotice, showErro
     const lookId = $('queue-look').value;
     const look = lookId && state.lib ? await state.lib.loadLook(lookId) : null;
     const specs = await Promise.all(photos.map((photo) => specFor(kind, photo, look)));
+    // A video of a photo that has no animation of its own uses the open photo's, when that has one (the same camera move for a whole album).
+    const lent = kind === 'video' && state.info && $('anim-on').checked ? clone(currentEdits().animation) : null;
     specs.forEach((spec, i) => {
       const photo = photos[i];
       const animated = photo === libraryPhoto() && state.info ? $('anim-on').checked : !!(spec.edits && spec.edits.animation && spec.edits.animation['anim-on']);
-      if (kind === 'video' && !animated) skipped++;
-      else queue.add(spec, { kind, title: spec.name });
+      if (kind === 'video' && !animated) {
+        if (!lent) {
+          skipped++;
+          return;
+        }
+        spec.animation = lent;
+      }
+      queue.add(spec, { kind, title: spec.name });
     });
-    if (skipped) showNotice('Some photos have no animation', `${skipped} of ${photos.length} ${photos.length === 1 ? 'photo has' : 'photos have'} Animation turned off, so no video was added for ${skipped === 1 ? 'it' : 'them'}. Turn it on in the Animation panel of each photo first.`);
+    if (skipped) showNotice('Some photos have no animation', `${skipped} of ${photos.length} ${photos.length === 1 ? 'photo has' : 'photos have'} Animation turned off, so no video was added for ${skipped === 1 ? 'it' : 'them'}. Turn Animation on for the open photo and its animation is used for them, or turn it on in each photo.`);
   }
 
   // A click on a photo in the library: with the view open, Ctrl/Command and Shift choose several without opening any (true: handled); a plain click chooses that one and opens it as usual.
@@ -179,6 +185,11 @@ export function initQueue({ $, state, native, currentEdits, showNotice, showErro
       step(0);
       await api.open(photo.name, bytes, { edits: job.spec.edits, sidecar });
       // The look goes on top of the photo's settings (or, for a photo never edited here, of the ones Lytro Desktop made).
+      if (job.spec.videoSettings) {
+        const cur = api.getEdits();
+        await api.setEdits({ ...cur, rendering: { ...(cur.rendering || {}), ...job.spec.videoSettings } });
+      }
+      if (job.spec.animation) await api.setEdits({ ...api.getEdits(), animation: job.spec.animation });
       if (job.spec.look) await api.setEdits(applyLookToEdits(api.getEdits(), job.spec.look));
       // (a job added for another photo in the library cannot know whether it has a raw light field: no full sensor render for one without)
       if (job.spec.fullSensor && api.info().raw) {
