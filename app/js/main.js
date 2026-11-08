@@ -3615,7 +3615,7 @@ $('webm-btn').onclick = exportVideo;
 // any setting), then everything is read back (the video format limits the
 // compressions offered).
 const QUICK_EXPORT = ['stereo-on', 'stereo-mode', 'stereo-baseline', 'depth-hq', 'detail', 'fullres-on', 'still-scale', 'still-passes',
-  'upscale-method', 'upscale-sharpen', 'photo-size', 'photo-format', 'photo-quality', 'video-size', 'video-codec', 'video-format', 'video-quality'];
+  'upscale-method', 'upscale-sharpen', 'photo-size', 'photo-format', 'photo-colorspace', 'photo-quality', 'video-size', 'video-codec', 'video-format', 'video-quality'];
 const QUICK_ROWS = ['stereo-on-row', 'depth-hq-row', 'fullres-panel', 'photo-quality-row'];
 const QUICK_BUTTONS = { 'qe-stereo-btn': 'stereo-btn', 'qe-render-btn': 'render-btn', 'qe-photo-btn': 'png-btn', 'qe-video-btn': 'webm-btn' };
 function showQuickExport() {
