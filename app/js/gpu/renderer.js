@@ -3024,7 +3024,7 @@ export class GpuRenderer {
   // Frees the full sensor still kept before its color pass (see worker.js stillKey).
   releaseKeptStill() {
     for (const [key, t] of this.pool) {
-      if (key.endsWith(':kept:still')) {
+      if (key.includes(':kept:still')) {
         this.gl.deleteTexture(t);
         this.pool.delete(key);
       }
