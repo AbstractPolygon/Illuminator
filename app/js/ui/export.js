@@ -6,6 +6,7 @@ import { download } from '../platform.js';
 import { fitsMemory, exportRam, memoryProblem } from '../core/memorybudget.js';
 import { aiUpscale, denoiseRgb16 } from '../core/aiupscale.js';
 import { encodePng16 } from '../core/png16.js';
+import { convertRgba8, convertRgb16, tagPng, tagJpeg } from '../core/colorspace.js';
 import { VIDEO_FORMATS, videoType, VIDEO_CODECS, videoFrame, chooseVideoType, videoBitrate } from '../core/video-format.js';
 import { toImageData } from '../engine.js';
 
@@ -71,10 +72,36 @@ export function initExport({ state, $, canvas, ctx, layoutCanvas, showsCamera, s
     saveAs8Bit(source, name);
   }
 
+  // Photo > Color space: the color space the saved photo is converted to and tagged with (core/colorspace.js); sRGB is the picture as it is.
+  const colorSpace = () => $('photo-colorspace').value || 'srgb';
+
+  // A canvas's encoded file (`blob`) with the profile of the color space in it (PNG or JPEG), as a blob again.
+  async function tagged(blob, jpeg, space) {
+    const bytes = new Uint8Array(await blob.arrayBuffer());
+    return new Blob([jpeg ? tagJpeg(bytes, space) : await tagPng(bytes, space)], { type: blob.type });
+  }
+
   function saveAs8Bit(source, name) {
     const jpeg = $('photo-format').value === 'jpeg';
     const type = jpeg ? 'image/jpeg' : 'image/png';
-    enlargeForSave(source).toBlob((blob) => download(blob, `${name}.${jpeg ? 'jpg' : 'png'}`), type, jpeg ? +$('photo-quality').value / 100 : undefined);
+    const quality = jpeg ? +$('photo-quality').value / 100 : undefined;
+    const file = `${name}.${jpeg ? 'jpg' : 'png'}`;
+    const space = colorSpace();
+    const big = enlargeForSave(source);
+    if (space === 'srgb') {
+      big.toBlob((blob) => download(blob, file), type, quality);
+      return;
+    }
+    // Through the pixels, converted to the space.
+    const w = big.width;
+    const h = big.height;
+    const c = new OffscreenCanvas(w, h);
+    const g = c.getContext('2d');
+    g.drawImage(big, 0, 0);
+    const data = g.getImageData(0, 0, w, h);
+    convertRgba8(data.data, space);
+    g.putImageData(data, 0, 0);
+    c.convertToBlob({ type, quality }).then((blob) => tagged(blob, jpeg, space)).then((blob) => download(blob, file)).catch(showError);
   }
 
   // The picture on show made again by the graphics card with the high and low byte of every value kept (worker finishGpu, bits16): the source of a 16-bit PNG, which then has the
@@ -141,7 +168,9 @@ export function initExport({ state, $, canvas, ctx, layoutCanvas, showsCamera, s
         if (big) ({ rgb, width, height } = big);
       }
       if (format === 'png16') {
-        const png = await encodePng16(rgb, width, height);
+        const space = colorSpace();
+        convertRgb16(rgb, space);
+        const png = await encodePng16(rgb, width, height, space);
         await download(new Blob([png], { type: 'image/png' }), `${name}.png`);
         return;
       }
@@ -154,10 +183,12 @@ export function initExport({ state, $, canvas, ctx, layoutCanvas, showsCamera, s
         data.data[j + 2] = (rgb[i + 2] + 128) >> 8;
         data.data[j + 3] = 255;
       }
+      const space = colorSpace();
+      convertRgba8(data.data, space);
       const c = new OffscreenCanvas(width, height);
       c.getContext('2d').putImageData(data, 0, 0);
       const blob = await c.convertToBlob(jpeg ? { type: 'image/jpeg', quality: +$('photo-quality').value / 100 } : { type: 'image/png' });
-      await download(blob, `${name}.${jpeg ? 'jpg' : 'png'}`);
+      await download(await tagged(blob, jpeg, space), `${name}.${jpeg ? 'jpg' : 'png'}`);
     } catch (err) {
       hideProgress();
       showError(err);

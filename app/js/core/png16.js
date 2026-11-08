@@ -2,6 +2,8 @@
 // rgb: Uint16Array (width * height * 3, the first row the top). Returns the file as a Uint8Array.
 // Marked sRGB (the picture is already in sRGB). Each row is stored with the Sub filter, which shrinks smooth pictures a little.
 
+import { pngProfileChunk } from './colorspace.js';
+
 const CRC_TABLE = (() => {
   const t = new Uint32Array(256);
   for (let n = 0; n < 256; n++) {
@@ -33,7 +35,8 @@ async function deflate(bytes) {
   return new Uint8Array(await new Response(stream).arrayBuffer());
 }
 
-export async function encodePng16(rgb, width, height) {
+// `profile`: the id of a color space (core/colorspace.js) to tag the picture with instead of sRGB (the values must already be in it).
+export async function encodePng16(rgb, width, height, profile = 'srgb') {
   if (rgb.length !== width * height * 3) throw new Error('encodePng16: the picture does not match its size');
   const stride = width * 6;
   const raw = new Uint8Array(height * (stride + 1));
@@ -57,7 +60,7 @@ export async function encodePng16(rgb, width, height) {
   const parts = [
     Uint8Array.of(137, 80, 78, 71, 13, 10, 26, 10),
     chunk('IHDR', header),
-    chunk('sRGB', Uint8Array.of(0)),
+    ...(profile && profile !== 'srgb' ? [await pngProfileChunk(profile)] : [chunk('sRGB', Uint8Array.of(0))]),
     chunk('IDAT', await deflate(raw)),
     chunk('IEND', new Uint8Array(0)),
   ];

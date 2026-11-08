@@ -910,6 +910,15 @@
               <option value="jpeg">JPEG</option>
             </select>
           </label>
+          <label title="The color space the saved photo is converted to and tagged with (its profile is saved in the file). The picture is made in sRGB, so a wider space does not add colors beyond sRGB's range; it suits software that works in that space, or editing at 16 bits">Color space
+            <select id="photo-colorspace">
+              <option value="srgb" selected>sRGB</option>
+              <option value="p3">Display P3</option>
+              <option value="adobe">Adobe RGB (1998)</option>
+              <option value="rec2020">Rec. 2020</option>
+              <option value="prophoto">ProPhoto RGB</option>
+            </select>
+          </label>
           <label id="photo-quality-row" title="JPEG quality: higher keeps more detail and makes bigger files" hidden>JPEG quality <output data-for="photo-quality" for="photo-quality">92</output>
             <input id="photo-quality" type="range" min="50" max="100" step="1" value="92" data-default="92">
           </label>
@@ -1031,6 +1040,7 @@
           <h3>Photo</h3>
           <label class="qe-row"><span>Size</span><select id="qe-photo-size"></select></label>
           <label class="qe-row"><span>File format</span><select id="qe-photo-format"></select></label>
+          <label class="qe-row"><span>Color space</span><select id="qe-photo-colorspace"></select></label>
           <label id="qe-photo-quality-row" class="qe-row"><span>JPEG quality</span><input id="qe-photo-quality" type="range"><output data-for="qe-photo-quality"></output></label>
         </div>
 
