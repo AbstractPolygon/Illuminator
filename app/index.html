@@ -739,6 +739,18 @@
         <label id="fps-custom" class="fps-custom" hidden>
           <input id="fps" type="number" min="1" max="240" step="0.001" value="24" data-default="24" aria-label="Custom frame rate in frames a second"> fps
         </label>
+        <label title="Fills the keyframes (viewpoint, zoom and pan) with a ready-made camera move, which you can then edit and export as a video. It replaces the viewpoint, zoom and pan keyframes only, and can be undone">Camera move
+          <select id="anim-preset">
+            <option value="" selected>Choose a move…</option>
+            <option value="orbit">Orbit</option>
+            <option value="parallax">Parallax sweep</option>
+            <option value="push">Slow push in</option>
+            <option value="pull">Slow pull out</option>
+            <option value="dolly">Dolly with parallax</option>
+            <option value="float">Float (figure eight)</option>
+            <option value="pan">Pan across</option>
+          </select>
+        </label>
         <label>Animate
           <select id="anim">
             <option value="viewpoint">Viewpoint</option>

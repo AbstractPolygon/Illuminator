@@ -9,6 +9,7 @@
   - *Viewpoint* moves the viewpoint along a *Path* (circle, left–right, up–down, figure eight, diagonal) by an *Amount*. *Amount* can be keyframed.
   - *Focus sweep* refocuses from *Near* to *Far* in a number of *Steps*. *Near* and *Far* can be keyframed; *Steps* sets the number of frames, so it cannot.
   - *Keyframes* follows keyframes you set in the keyframe editor (below). *Zoom*, *Pan X* and *Pan Y* frame the picture.
+- *Camera move* fills the keyframes with a ready-made move and switches to *Keyframes*: *Orbit*, *Parallax sweep*, *Slow push in*, *Slow pull out*, *Dolly with parallax*, *Float (figure eight)* or *Pan across*. A move sets the viewpoint, zoom and pan keyframes only (the other keyframes stay), takes the length the animation has, can be edited like any keyframes and undone, and exports as a video like any other animation. *Orbit*, *Parallax sweep* and *Float* end where they start, so they loop.
 
 ## Play bar
 
