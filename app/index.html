@@ -65,6 +65,26 @@
       <button id="album-new" type="button" class="link-button">+ New album</button>
       <button id="library-import" type="button" class="link-button" title="Brings in the photos, edits and albums of a Lytro Desktop library">+ Import Lytro library…</button>
       <h2 id="photos-title">All photos</h2>
+      <div id="library-filter" class="library-filter">
+        <select id="filter-rating" title="Show only photos with at least this rating" aria-label="Rating">
+          <option value="0">Any rating</option>
+          <option value="1">★ and up</option>
+          <option value="2">★★ and up</option>
+          <option value="3">★★★ and up</option>
+          <option value="4">★★★★ and up</option>
+          <option value="5">★★★★★</option>
+        </select>
+        <select id="filter-flag" title="Show photos by flag" aria-label="Flag">
+          <option value="">Any flag</option>
+          <option value="pick">Picked</option>
+          <option value="reject">Rejected</option>
+          <option value="notreject">Not rejected</option>
+          <option value="none">Unflagged</option>
+        </select>
+        <input id="filter-text" type="search" placeholder="Keyword or name" list="keyword-list" aria-label="Keyword or name" title="Shows photos with a keyword, or a name, containing this text">
+        <datalist id="keyword-list"></datalist>
+        <button id="filter-clear" type="button" class="link-button" hidden>Clear filter</button>
+      </div>
       <ul id="library-list"></ul>
       <p id="library-empty" class="hint"></p>
     </aside>
@@ -1047,6 +1067,28 @@
       <menu>
         <span class="spacer"></span>
         <button value="close" class="primary">Done</button>
+      </menu>
+    </form>
+  </dialog>
+
+  <dialog id="marks-dialog">
+    <form method="dialog">
+      <h2 id="marks-title">Rating, flag and keywords</h2>
+      <div class="marks-row"><span>Rating</span>
+        <div id="marks-stars" class="marks-stars" role="group" aria-label="Rating">
+          <button type="button" data-n="1" aria-label="1 star">★</button><button type="button" data-n="2" aria-label="2 stars">★</button><button type="button" data-n="3" aria-label="3 stars">★</button><button type="button" data-n="4" aria-label="4 stars">★</button><button type="button" data-n="5" aria-label="5 stars">★</button>
+        </div>
+        <button id="marks-clear-rating" type="button" class="link-button">Clear</button>
+      </div>
+      <label class="marks-row"><span>Flag</span>
+        <select id="marks-flag"><option value="">None</option><option value="pick">Picked</option><option value="reject">Rejected</option></select>
+      </label>
+      <label class="marks-row"><span>Keywords</span><input id="marks-keywords" type="text" list="keyword-list" placeholder="beach, sunset, family" maxlength="600"></label>
+      <p class="hint">Separate keywords with commas. The marks are also saved next to the photo as an XMP file that other programs (Lightroom, Bridge, digiKam) read. Keys for the open photo: Shift+1 to 5 rate, Shift+0 clears the rating, Shift+P picks, Shift+X rejects, Shift+U clears the flag.</p>
+      <menu>
+        <button value="cancel">Cancel</button>
+        <span class="spacer"></span>
+        <button value="ok" class="primary">Save</button>
       </menu>
     </form>
   </dialog>

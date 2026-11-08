@@ -202,3 +202,19 @@ test('keeps the last two full sensor pictures before their color pass next to th
   await lib.remove([p.id]);
   assert.deepEqual(await store.list('Photos'), []);
 });
+
+test('ratings, flags and keywords are kept, written as an XMP sidecar and survive a reload', async () => {
+  const store = memoryStorage();
+  const lib = await new Library(store, { readSummary }).load();
+  const [photo] = await lib.add([{ name: 'IMG_0001', label: 'IMG_0001', file: file('IMG_0001.LFR', 100) }]);
+  await lib.setMarks(photo, { rating: 4, flag: 'pick', keywords: 'beach, dog' });
+  const xmpPath = `Photos/${photo.id}/img_0001.xmp`;
+  assert.match(await store.readText(xmpPath), /xmp:Rating="4"/);
+  const again = await new Library(store, { readSummary }).load();
+  const back = again.get(photo.id);
+  assert.deepEqual([back.rating, back.flag, back.keywords], [4, 'pick', ['beach', 'dog']]);
+  // Clearing everything removes the sidecar and the fields.
+  await lib.setMarks(photo, {});
+  assert.equal(await store.readText(xmpPath), null);
+  assert.equal('rating' in photo || 'flag' in photo || 'keywords' in photo, false);
+});

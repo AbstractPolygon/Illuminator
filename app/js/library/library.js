@@ -12,7 +12,8 @@
 //
 // library.json:
 // { "format": "illuminator-library", "version": 1,
-//   "photos": [{ "id", "name", "file", "sidecar", "thumb", "depthMap", "depthRange", "stack", "size", "photoId", "added" }],
+//   "photos": [{ "id", "name", "file", "sidecar", "thumb", "depthMap", "depthRange", "stack", "size", "photoId", "added", "rating", "flag", "keywords" }],
+//   (rating 0-5, flag "pick" or "reject" and keywords are optional: core/marks.js; they are also written to Photos/<id>/<file name>.xmp)
 //   "albums": [{ "id", "name", "photos": [photo id, ...] }] }
 //
 // A photo's id is its folder name. The folder is the truth: photos found in
@@ -20,6 +21,7 @@
 // and photos whose folder has gone are dropped.
 
 import { groupPhotos, stem } from './scan.js';
+import { normalizeMarks, hasMarks, toXmp } from '../core/marks.js';
 import { writeZip, readZip, ARCHIVE_FORMAT, ARCHIVE_VERSION } from './archive.js';
 
 export const LIBRARY_FORMAT = 'illuminator-library';
@@ -329,6 +331,19 @@ export class Library {
     await this.save();
   }
 
+  // Ratings, flags and keywords (core/marks.js): kept on the photo's record and in an XMP sidecar next to the photo, which other programs read. Nothing set removes the sidecar.
+  async setMarks(photo, marks) {
+    const m = normalizeMarks(marks);
+    for (const key of ['rating', 'flag', 'keywords']) delete photo[key];
+    if (m.rating) photo.rating = m.rating;
+    if (m.flag) photo.flag = m.flag;
+    if (m.keywords.length) photo.keywords = m.keywords;
+    await this.save();
+    const xmp = `${PHOTOS}/${photo.id}/${stem(photo.file)}.xmp`;
+    if (hasMarks(m)) await this.store.writeText(xmp, toXmp(m));
+    else await this.store.remove(xmp).catch(() => {});
+  }
+
   async loadEdits(photo) {
     try {
       const text = await this.store.readText(`${PHOTOS}/${photo.id}/${EDITS_FILE}`);
@@ -411,7 +426,7 @@ export class Library {
       if (stack) files.push({ path: `${dir}/${p.stack}`, data: await asBlob(stack) });
       const edits = await this.store.readText(`${dir}/${EDITS_FILE}`).catch(() => null);
       if (edits) files.push({ path: `${dir}/${EDITS_FILE}`, data: edits });
-      photos.push({ folder: p.id, name: p.name, file: p.file, sidecar: sidecar ? p.sidecar : null, thumb: thumb ? p.thumb : null, depthMap: depth ? p.depthMap : null, depthRange: depth ? p.depthRange : null, stack: stack ? p.stack : null, edits: !!edits });
+      photos.push({ folder: p.id, rating: p.rating, flag: p.flag, keywords: p.keywords, name: p.name, file: p.file, sidecar: sidecar ? p.sidecar : null, thumb: thumb ? p.thumb : null, depthMap: depth ? p.depthMap : null, depthRange: depth ? p.depthRange : null, stack: stack ? p.stack : null, edits: !!edits });
     }
     const index = { format: ARCHIVE_FORMAT, version: ARCHIVE_VERSION, name: album.name, exported: new Date().toISOString(), photos };
     return writeZip([{ path: 'album.json', data: JSON.stringify(index, null, 2) }, ...files], { onProgress });
@@ -436,6 +451,13 @@ export class Library {
       const edits = items[i].meta.edits ? at(items[i].meta.folder, EDITS_FILE) : null;
       if (!edits || (await this.loadEdits(photos[i]))) continue;
       await this.store.writeText(`${PHOTOS}/${photos[i].id}/${EDITS_FILE}`, new TextDecoder().decode(await edits.arrayBuffer()));
+    }
+    // The marks the photos had (a photo already here keeps its own).
+    for (let i = 0; i < photos.length; i++) {
+      const meta = items[i].meta;
+      if ((meta.rating || meta.flag || (meta.keywords && meta.keywords.length)) && !(photos[i].rating || photos[i].flag || photos[i].keywords)) {
+        await this.setMarks(photos[i], { rating: meta.rating, flag: meta.flag, keywords: meta.keywords });
+      }
     }
     const name = String(index.name || 'Imported album');
     const album = this.albums.find((a) => a.name === name) || (await this.createAlbum(name));

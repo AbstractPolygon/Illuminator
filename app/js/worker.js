@@ -580,6 +580,9 @@ function nrOnGpu(tex, w, h, packed, cs, distortionCorrected, bits16 = false) {
 // `mode` (the noise reduction is a CPU filter that takes long at a large picture size): 'draft', shown while a slider or the picture is dragged, and 'defer', a view that is quick now with
 // the filter done by a later 'final' view (message.nrDeferred tells the page to ask for it), both leave it out; 'final' does it without the preview picture; otherwise a picture without it
 // is sent first as a preview frame, then the finished one.
+// The engine's noise reduction on the GPU taking longer than this to make a picture is put off while changes keep coming (see finishGpu).
+const NR_QUICK_MS = 120;
+
 function finishGpu(tex, w, h, packed, message, cs = state, distortionCorrected = false, ctx = undefined, mode = undefined) {
   // A picture saved at 16 bits per channel (the page asked with bits16): RGB values instead of an ImageBitmap; where a step can only run on the CPU the usual 8-bit picture comes back and the page says so.
   const bits16 = message && bits16Ids.has(message.id);
@@ -599,14 +602,18 @@ function finishGpu(tex, w, h, packed, message, cs = state, distortionCorrected =
     usm: state.detail && state.detail.engine && !state.pp ? usmMap() : null,
   });
   const nr = engineNrOn(cs, w);
-  // (where the filter is quick on the GPU, it is not put off)
-  if (nr && mode === 'defer' && state.gpuNr) mode = undefined;
+  // (where the filter is quick on the GPU, it is not put off; where it is slow, as at 2x on most cards, a change shows the picture without it at once and the filter follows when the changes stop)
+  if (nr && mode === 'defer' && state.gpuNr && !(state.gpuNrMs > NR_QUICK_MS)) mode = undefined;
   if (nr && (mode === 'draft' || mode === 'defer')) {
     if (mode === 'defer') message = { ...message, nrDeferred: true };
   } else if (nr) {
     if (!debugFlags().noGpuNr) {
       try {
+        const started = performance.now();
         const pic = nrOnGpu(tex, w, h, packed, cs, distortionCorrected, bits16);
+        state.gpu.gl.finish();
+        // How long it took, to tell whether the next change may wait for it (a final picture, or one saved, is not a guide).
+        if (mode !== 'final' && !bits16) state.gpuNrMs = performance.now() - started;
         state.gpuNr = true;
         send(pic);
         return;
