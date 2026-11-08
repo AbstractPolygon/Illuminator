@@ -59,3 +59,22 @@ test('the depths of other depth methods are kept beside the main one', () => {
   assert.deepEqual([...cut.alpha], [9, 8], 'the main depth survives a cut file');
   assert.equal(cut.extra.length, 1, 'only the complete extra depths are used');
 });
+
+test('the lens centers measured for a photo are kept with it and read back, with or without a depth', () => {
+  const rows = 3;
+  const cols = 4;
+  const lens = { key: 'k1', r0: -1, c0: 2, rows, cols, dx: Float32Array.from({ length: rows * cols }, (_, i) => i * 0.01), dy: Float32Array.from({ length: rows * cols }, (_, i) => -i * 0.02) };
+  // with a depth
+  const withDepth = decodeProcessed(encodeProcessed({ key: 'a', w: 2, h: 2, alpha: Float32Array.from([1, 2, 3, 4]), extra: [], lens }).buffer);
+  assert.deepEqual(Array.from(withDepth.alpha), [1, 2, 3, 4]);
+  assert.equal(withDepth.lens.key, 'k1');
+  assert.deepEqual([withDepth.lens.r0, withDepth.lens.c0, withDepth.lens.rows, withDepth.lens.cols], [-1, 2, rows, cols]);
+  assert.deepEqual(Array.from(withDepth.lens.dx), Array.from(lens.dx));
+  assert.deepEqual(Array.from(withDepth.lens.dy), Array.from(lens.dy));
+  // before any depth was measured (the lens centers alone make a usable cache)
+  const only = decodeProcessed(encodeProcessed({ key: 'a', w: 0, h: 0, alpha: new Float32Array(0), lens }).buffer);
+  assert.ok(only && only.lens && only.alpha.length === 0);
+  assert.deepEqual(Array.from(only.lens.dx), Array.from(lens.dx));
+  // a cache without them has none
+  assert.equal(decodeProcessed(encodeProcessed({ key: 'a', w: 1, h: 1, alpha: Float32Array.from([1]) }).buffer).lens, undefined);
+});

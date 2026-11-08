@@ -14,14 +14,15 @@ const FORMAT = 1;
 // `open` (any JSON) is what opening the photo works out and would otherwise work out again (the engine's colour units and white balance, with its own key);
 // w and h are 0 and alpha empty while the depth has not been measured yet. `extra` are the depths of other depth methods (each with the key it was measured with),
 // stored after the main depth as float32 (alpha, then confidence); an older reader skips them.
-export function encodeProcessed({ key, w, h, alpha, focusOffset, open, extra = [] }) {
+export function encodeProcessed({ key, w, h, alpha, focusOffset, open, extra = [], lens = null }) {
   const entries = extra.filter((e) => e.alpha && e.alpha.length === e.w * e.h && e.confidence && e.confidence.length === e.alpha.length);
   const header = new TextEncoder().encode(JSON.stringify({
     key, w, h, focusOffset: Number.isFinite(focusOffset) ? focusOffset : null, open: open || null,
     extra: entries.map((e) => ({ key: e.key, w: e.w, h: e.h, range: e.range || null, flat: !!e.flat })),
+    lens: lens ? { key: lens.key, r0: lens.r0, c0: lens.c0, rows: lens.rows, cols: lens.cols } : null,
   }));
   const padded = Math.ceil(header.length / 4) * 4;
-  const out = new Uint8Array(12 + padded + (alpha.length + entries.reduce((n, e) => n + 2 * e.alpha.length, 0)) * 4);
+  const out = new Uint8Array(12 + padded + (alpha.length + entries.reduce((n, e) => n + 2 * e.alpha.length, 0) + (lens ? lens.dx.length + lens.dy.length : 0)) * 4);
   const view = new DataView(out.buffer);
   view.setUint32(0, MAGIC, true);
   view.setUint32(4, FORMAT, true);
@@ -37,6 +38,11 @@ export function encodeProcessed({ key, w, h, alpha, focusOffset, open, extra = [
     put(e.alpha);
     put(e.confidence);
   }
+  // Where each microlens really is, measured once (core/superres.js LENS_CAL): the next session renders from the first picture without measuring again.
+  if (lens) {
+    put(lens.dx);
+    put(lens.dy);
+  }
   return out;
 }
 
@@ -51,7 +57,7 @@ export function decodeProcessed(buffer) {
     let at = 12 + Math.ceil(length / 4) * 4;
     const n = header.w * header.h;
     const listed = Array.isArray(header.extra) ? header.extra : [];
-    if (!(n >= 0) || (n === 0 && !header.open && !listed.length) || buffer.byteLength < at + n * 4) return null;
+    if (!(n >= 0) || (n === 0 && !header.open && !listed.length && !header.lens) || buffer.byteLength < at + n * 4) return null;
     const alpha = new Float32Array(buffer.slice(at, at + n * 4));
     at += n * 4;
     const extra = [];
@@ -61,7 +67,13 @@ export function decodeProcessed(buffer) {
       extra.push({ key: e.key, w: e.w, h: e.h, range: e.range || undefined, flat: !!e.flat, alpha: new Float32Array(buffer.slice(at, at + m * 4)), confidence: new Float32Array(buffer.slice(at + m * 4, at + 2 * m * 4)) });
       at += 2 * m * 4;
     }
-    return { key: header.key, w: header.w, h: header.h, focusOffset: Number.isFinite(header.focusOffset) ? header.focusOffset : undefined, open: header.open || undefined, alpha, extra };
+    let lens;
+    const l = header.lens;
+    if (l && l.rows > 0 && l.cols > 0 && buffer.byteLength >= at + 2 * l.rows * l.cols * 4) {
+      const m = l.rows * l.cols;
+      lens = { key: l.key, r0: l.r0, c0: l.c0, rows: l.rows, cols: l.cols, dx: new Float32Array(buffer.slice(at, at + m * 4)), dy: new Float32Array(buffer.slice(at + m * 4, at + 2 * m * 4)) };
+    }
+    return { key: header.key, w: header.w, h: header.h, focusOffset: Number.isFinite(header.focusOffset) ? header.focusOffset : undefined, open: header.open || undefined, alpha, extra, lens };
   } catch {
     return null;
   }

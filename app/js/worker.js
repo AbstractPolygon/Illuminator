@@ -58,7 +58,7 @@ import { debugFlags, hook, setHook } from './core/debugflags.js';
 import { preColorKey } from './core/precolorkey.js';
 import { helperCount, renderViews } from './viewpool.js';
 import { depthHelperCount, createDepthPool } from './depthpool.js';
-import { encodeKept, decodeKept, fingerprint, keptHash } from './core/keptpicture.js';
+import { encodeKept, decodeKept, fingerprint, keptHash, hashBytes } from './core/keptpicture.js';
 
 // Requests whose picture is wanted at 16 bits per channel (see finishGpu).
 const bits16Ids = new Set();
@@ -659,7 +659,7 @@ function rebuildSampler() {
   state.vignetting = null;
   // From the camera's calibration when it has the white image for this photo
   // (else measured from the photo at the first full render).
-  state.lensOffsets = lf.raw ? (exactOffsets ? null : calibratedLensOffsets()) : null;
+  state.lensOffsets = lf.raw ? (exactOffsets ? null : calibratedLensOffsets() || restoredLensOffsets()) : null;
   state.depth = null;
   state.depthRaw = null;
   state.modelDepth = null;
@@ -739,6 +739,8 @@ async function open({ id, bytes, synthetic, userDepth = null, depthCache = null 
   state.lf = null;
   // The processed version kept with the photo (core/processed-cache.js), if there is one: the depth the engine's way, and the focus offset.
   state.depthCacheIn = depthCache;
+  state.lensCacheIn = depthCache && depthCache.lens ? depthCache.lens : null;
+  state.lensOut = null;
   state.depthCacheOut = null;
   state.openOut = null;
   // The depth of each depth method measured so far, by what it was measured with (depthMethodKey): switching back to a method does not measure again. The Illuminator
@@ -1139,6 +1141,7 @@ async function superRes({ id, job, alpha = 0, scale, u = 0, v = 0, aperture = 0,
     });
     if (tex) {
       state.lensOffsets = state.gpu.lensOffsets;
+      noteLensOffsets();
       if (state.jobs.superres !== job) return { cancelled: true };
       await presentGpu(id, tex, params.W, params.H, { alpha, dof, bokeh, color, pxPerUnit: 14 * scale, masks: stillCtx, keepStill, distortionCorrected: true }, { id, type: 'result', get kept() { return !!(keepStill && state.keptStill && state.keptStill.key === keepStill); } });
       // The picture before its color pass, saved next to the photo (the page keeps the last two).
@@ -1472,6 +1475,7 @@ async function renderFullSensor({ alpha, allInFocus, u, v, scale, passes, base, 
     });
     if (tex) {
       state.lensOffsets = state.gpu.lensOffsets;
+      noteLensOffsets();
       state.gpu.gl.deleteTexture(tex);
       return null;
     }
@@ -1483,6 +1487,7 @@ async function renderFullSensor({ alpha, allInFocus, u, v, scale, passes, base, 
     gpuSplat: state.gpu ? (params) => state.gpu.splat(params) : undefined,
   });
   state.lensOffsets = sr.lensOffsets;
+  noteLensOffsets();
   // What the lens grid correction leaves of the dotted pattern (core/notch.js).
   removePeriodicPatternRepeatedly(sr.rgb, sr.width, sr.height);
   return sr;
@@ -1648,6 +1653,33 @@ async function lensShiftForPhoto(id) {
 
 // Lens centers for the open photo from the white image of its camera's
 // calibration (matched by the geometry file's SHA-1), or null.
+// What the lens centers measured for this photo depend on: the app's version (the measurement can change), the photo and its lens grid.
+function lensKey() {
+  const { lf } = state;
+  return JSON.stringify({ app: VERSION, photo: lf && lf.photoId, grid: lf && lf.grid });
+}
+
+// The lens centers kept with the photo by an earlier session (desktop app), when they fit this photo's lens table: rendering then starts from the calibrated centers and
+// does not render the photo once just to measure them.
+function restoredLensOffsets() {
+  const c = state.lensCacheIn;
+  const { lf } = state;
+  if (!c || !lf || !lf.photoId || c.key !== lensKey()) return null;
+  const t = lensTable(lf.grid, lf.cam);
+  if (t.rows !== c.rows || t.cols !== c.cols || t.r0 !== c.r0 || t.c0 !== c.c0 || c.dx.length !== t.dx.length || c.dy.length !== t.dy.length) return null;
+  t.dx.set(c.dx);
+  t.dy.set(c.dy);
+  return t;
+}
+
+// The photo's lens centers were measured (or changed): kept with the photo for the next session.
+function noteLensOffsets() {
+  const t = state.lensOffsets;
+  if (!t || state.exactOffsets || !state.lf || !state.lf.photoId || !t.dx) return;
+  state.lensOut = { key: lensKey(), r0: t.r0, c0: t.c0, rows: t.rows, cols: t.cols, dx: Float32Array.from(t.dx), dy: Float32Array.from(t.dy) };
+  postDepthCache();
+}
+
 function calibratedLensOffsets() {
   const { lf } = state;
   if (!useWhites) return null;
@@ -2235,6 +2267,18 @@ function engineDepthAvailable() {
 
 // The engine's demodulation plane for the photo (core/enginemod.js): the white image run through the engine's Fit (hot pixel list, per-colour means, response curve, disk
 // centre rescale). settings.engineModulation = false (or __lytro.rawModulation) keeps the plain white image.
+// The last demodulation plane built (see loadModulation), with what it was built from. The plane is a 16 bit value per sensor pixel: a full ILLUM sensor is 83 MB, kept
+// as one entry, and not at all for something larger than 128 MB.
+let modulationCache = null;
+const MODULATION_CACHE_BYTES = 128 * 1024 * 1024;
+function modulationKey(raw, hot, lf) {
+  const { cam, grid } = lf;
+  return [
+    hashBytes(raw), raw.length, hot ? hot.length : 0, hot ? hashBytes(Int32Array.from(hot.flat ? hot.flat() : hot)) : 0,
+    cam.width, cam.height, JSON.stringify([cam.black, cam.white, cam.wb, cam.cfa]), JSON.stringify(grid), state.gpu ? 'g' : 'c', VERSION,
+  ].join('|');
+}
+
 async function loadModulation(lf) {
   const raw = await lf.readModulation();
   const dbg = debugFlags();
@@ -2247,6 +2291,14 @@ async function loadModulation(lf) {
   }
   try {
     let plane = null;
+    // The plane depends only on the camera's white image, its hot pixel list, the sensor's black and white levels and the lens grid, not on the photo: the next photo of the
+    // same camera at the same zoom and focus finds it here (the last one is kept while it is small enough to keep).
+    const key = modulationKey(raw, hot, lf);
+    if (modulationCache && modulationCache.key === key && modulationCache.plane) {
+      plane = modulationCache.plane;
+      plane.frame = raw;
+      return plane;
+    }
     // On the graphics card where there is one (gpu/enginemod.js): the same plane to within 32 bit precision, without the six passes over the sensor on the CPU.
     if (state.gpu && state.settings.engineModulationGpu !== false && !dbg.noGpuModulation && engineModulationGpuAvailable(state.gpu, lf.cam)) {
       try {
@@ -2259,6 +2311,7 @@ async function loadModulation(lf) {
     if (!plane) plane = engineModulation(raw, lf.cam, state.dev, lf.grid, hot);
     // the engine's white balance reads the plain frame (its image is divided by the frame over its mean), not the demodulation plane
     plane.frame = raw;
+    modulationCache = plane.byteLength <= MODULATION_CACHE_BYTES ? { key, plane } : null;
     return plane;
   } catch (e) {
     console.error('ENGINEMOD failed', e && e.message);
@@ -2422,10 +2475,12 @@ function postDepthCache() {
     if (JSON.parse(key).style !== 'classic' || !e.raw.alpha || !e.raw.confidence) continue;
     extra.push({ key, w: e.w, h: e.h, range: e.raw.range, flat: !!e.raw.flat, alpha: Float32Array.from(e.raw.alpha), confidence: Float32Array.from(e.raw.confidence) });
   }
-  if (!c && !open && !extra.length) return;
+  const lens = state.lensOut || (state.lensCacheIn && state.lensCacheIn.key === lensKey() ? state.lensCacheIn : null);
+  if (!c && !open && !extra.length && !lens) return;
   const alpha = c ? Float32Array.from(c.alpha) : new Float32Array(0);
   const focusOffset = Number.isFinite(state.focusOffset) ? state.focusOffset : c && c.focusOffset;
-  post({ type: 'cache', photoId: state.lf.photoId, cache: { key: c ? c.key : depthCacheKey(), w: c ? c.w : 0, h: c ? c.h : 0, alpha, focusOffset, open, extra } }, [alpha.buffer, ...extra.flatMap((e) => [e.alpha.buffer, e.confidence.buffer])]);
+  const lensCopy = lens ? { ...lens, dx: Float32Array.from(lens.dx), dy: Float32Array.from(lens.dy) } : undefined;
+  post({ type: 'cache', photoId: state.lf.photoId, cache: { key: c ? c.key : depthCacheKey(), w: c ? c.w : 0, h: c ? c.h : 0, alpha, focusOffset, open, extra, lens: lensCopy } }, [alpha.buffer, ...extra.flatMap((e) => [e.alpha.buffer, e.confidence.buffer]), ...(lensCopy ? [lensCopy.dx.buffer, lensCopy.dy.buffer] : [])]);
 }
 
 function measureLytro(progress) {
