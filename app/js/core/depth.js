@@ -254,33 +254,88 @@ export function edgeAwareFill(values, conf, guide, w, h, sigmaS, sigmaR, iterati
   for (let y = 1; y < h; y++) {
     for (let x = 0; x < w; x++) dy[y * w + x] = 1 + ratio * diff(y * w + x, (y - 1) * w + x);
   }
-  const pass = (arr, a, d, step, count, starts) => {
+  // `f` holds a ** d for every pixel (the weight of the step to its neighbour), made once per iteration and shared by the two arrays.
+  const pass = (arr, f, step, count, starts) => {
     for (const s0 of starts) {
       for (let k = 1; k < count; k++) {
         const i = s0 + k * step;
-        const f = a ** d[i];
-        arr[i] += f * (arr[i - step] - arr[i]);
+        arr[i] += f[i] * (arr[i - step] - arr[i]);
       }
       for (let k = count - 2; k >= 0; k--) {
         const i = s0 + k * step;
-        const f = a ** d[i + step];
-        arr[i] += f * (arr[i + step] - arr[i]);
+        arr[i] += f[i + step] * (arr[i + step] - arr[i]);
       }
     }
   };
   const rows = Array.from({ length: h }, (_, y) => y * w);
   const cols = Array.from({ length: w }, (_, x) => x);
+  const fx = new Float64Array(n);
+  const fy = new Float64Array(n);
   for (let it = 0; it < iterations; it++) {
     const sigmaH = (sigmaS * Math.sqrt(3) * 2 ** (iterations - it - 1)) / Math.sqrt(4 ** iterations - 1);
     const a = Math.exp(-Math.SQRT2 / sigmaH);
+    for (let i = 0; i < n; i++) {
+      fx[i] = a ** dx[i];
+      fy[i] = a ** dy[i];
+    }
     for (const arr of [num, den]) {
-      pass(arr, a, dx, 1, w, rows);
-      pass(arr, a, dy, w, h, cols);
+      pass(arr, fx, 1, w, rows);
+      pass(arr, fy, w, h, cols);
     }
   }
   const out = new Float32Array(n);
   for (let i = 0; i < n; i++) out[i] = den[i] > 1e-12 ? num[i] / den[i] : values[i];
   return out;
+}
+
+// The k-th smallest value of `values` (what Float32Array.from(values).sort()[k] gives, without sorting all of them): quickselect on a copy. NaNs sort last, as in a sort.
+export function nthSmallest(values, k) {
+  const a = Float32Array.from(values);
+  let nan = 0;
+  for (let i = a.length - 1; i >= 0; i--) {
+    if (a[i] !== a[i]) {
+      a[i] = a[a.length - 1 - nan];
+      a[a.length - 1 - nan] = NaN;
+      nan++;
+    }
+  }
+  const n = a.length - nan;
+  if (k >= n) return NaN;
+  let lo = 0;
+  let hi = n - 1;
+  while (lo < hi) {
+    const pivot = a[(lo + hi) >> 1];
+    let i = lo;
+    let j = hi;
+    while (i <= j) {
+      while (a[i] < pivot) i++;
+      while (a[j] > pivot) j--;
+      if (i <= j) {
+        const tmp = a[i];
+        a[i] = a[j];
+        a[j] = tmp;
+        i++;
+        j--;
+      }
+    }
+    if (k <= j) hi = j;
+    else if (k >= i) lo = i;
+    else return a[k];
+  }
+  return a[k];
+}
+
+// Sorts the first n values of a small array in place (insertion sort: quicker than a typed array's sort for a window of 9 or 25 values).
+function sortSmall(a, n) {
+  for (let i = 1; i < n; i++) {
+    const x = a[i];
+    let j = i - 1;
+    while (j >= 0 && a[j] > x) {
+      a[j + 1] = a[j];
+      j--;
+    }
+    a[j + 1] = x;
+  }
 }
 
 // 5x5 median: removes isolated speckles of wrong depth.
@@ -294,7 +349,7 @@ function median5(src, w, h) {
         const yy = Math.min(h - 1, Math.max(0, y + dy));
         for (let dx = -2; dx <= 2; dx++) win[k++] = src[yy * w + Math.min(w - 1, Math.max(0, x + dx))];
       }
-      win.sort();
+      sortSmall(win, 25);
       out[y * w + x] = win[12];
     }
   }
@@ -1107,7 +1162,7 @@ export function median3(src, w, h) {
     for (let x = 1; x < w - 1; x++) {
       let k = 0;
       for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) v[k++] = src[(y + dy) * w + x + dx];
-      v.sort();
+      sortSmall(v, 9);
       out[y * w + x] = v[4];
     }
   }
@@ -1132,14 +1187,14 @@ export function finishDepth({ alpha, cost, meanCost }, width, height, guide, { r
   const n = width * height;
   const confidence = Float32Array.from(cost);
   if (DEPTH_DIRECT.on) {
-    const floor0 = Float32Array.from(meanCost).sort()[n >> 1];
+    const floor0 = nthSmallest(meanCost, n >> 1);
     for (let i = 0; i < n; i++) confidence[i] = (Math.max(0, meanCost[i] - confidence[i]) / (meanCost[i] + floor0)) ** 2;
     return { alpha: DEPTH_DIRECT.median ? median3(alpha, width, height) : Float32Array.from(alpha), confidence, range: [min, max], flat: false };
   }
   // A pronounced minimum is trustworthy; in blank regions every depth looks
   // alike apart from sensor noise. The median cost stands in for the noise
   // floor, so only differences well above it count.
-  const floor = Float32Array.from(meanCost).sort()[n >> 1];
+  const floor = nthSmallest(meanCost, n >> 1);
   for (let i = 0; i < n; i++) {
     const gain = Math.max(0, meanCost[i] - confidence[i]);
     confidence[i] = (gain / (meanCost[i] + floor)) ** 2;
