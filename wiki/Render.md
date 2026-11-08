@@ -61,6 +61,6 @@ Photo and Video are the last two subsections of *Render Settings*. Below Render 
 
   For a part of the picture other than the center, first crop to the same shape (Crop → *Aspect ratio*). Frames are enlarged with the [Upscaling](#upscaling) settings; frames larger than the video are reduced with a filter that keeps fine detail from flickering.
 - *Compression:* the codec. WebM: *VP9*, *VP8* or *AV1*; MP4: *H.264*, *H.265 (HEVC)* or *AV1*. Only the kinds this browser or computer can record are offered; the others are marked *not available here*. H.265 depends on the computer's video hardware.
-- *File format:* *WebM* (plays in browsers and most players) or *MP4* (plays nearly everywhere).
+- *File format:* *MP4* (plays nearly everywhere; the default, with *H.264*) or *WebM* (plays in browsers and most players).
 - *Quality:* the video's bitrate, 1 to 40 Mbit/s (16 by default). Higher keeps more detail and makes bigger files; for 4K, 30 or more works well.
 - *Export video* saves the animation, at the current *Resolution*, or with *Full sensor* on, every frame rendered from the whole sensor with its *Scale* and *Detail recovery*. See [[Exporting]].
