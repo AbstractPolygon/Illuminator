@@ -14,15 +14,16 @@ A stereo pair from two viewpoints across the lens, for photos and videos.
 
 ## Render Queue
 
-The *Render Queue* panel (right sidebar, below *Render Settings*) makes pictures and videos one after another in the background, so a long full sensor render or a video does not hold up your editing.
+The Render Queue makes pictures and videos one after another in the background, so a long full sensor render or a video does not hold up your editing. It has its own view, which takes the place of the photo: click the <img src="images/queue-view.png" width="20" height="20" alt="Render Queue"> icon to the left of *Quick export* (click it again, or any mode or photo, to go back).
 
 1. Set a library photo up as you want it (its settings, *Photo* format, color space and size, *Full sensor* with its *Scale* and *Detail recovery*, or the animation and *Video* settings).
-2. *Add picture* or *Add video* puts a job in the list. The job keeps the photo's settings as they are at that moment; carry on editing the photo, or other photos, as you like. A video needs *Animation* turned on.
-3. *Start queue* runs the jobs in order, one at a time. *Pause queue* lets the running job finish and starts no more. *▲* and *▼* reorder waiting jobs, *Cancel* stops a job, *Remove* and *Clear finished* tidy the list.
+2. *Add picture* or *Add video* (in the Render Queue view, or in the *Render Queue* section of the right sidebar, below *Render Settings*) puts a job in the list. The job keeps the photo's settings as they are at that moment; carry on editing the photo, or other photos, as you like. A video needs *Animation* turned on.
+3. The view shows a card for every job: the photo's thumbnail (marked with ▶ for a video), a bar with the percentage done and what it is doing, and its export settings (format, color space and size, *Full sensor* scale and recovery, aperture; for a video the format, compression, size and bitrate).
+4. *Start queue* runs the jobs in order, one at a time. *Pause queue* lets the running job finish and starts no more. *▲* and *▼* reorder waiting jobs, *Cancel* stops a job, *Remove* and *Clear finished* tidy the list.
 
 In the browser each finished file is saved as a download (named like the photo; a second one with the same name gets *(2)*). In the desktop app you choose a folder once per session (*Choose folder…*) and the files are written there without asking each time.
 
-The renders run in a hidden second copy of the app, with its own worker and graphics context, so the picture on screen stays live; the two copies share the computer's graphics card and memory, so a change on screen is slower while a job runs, and a full sensor render needs graphics memory for both copies (see *Settings > Memory*). The queue works for library photos only, is kept in memory (closing the app clears it), and the hidden copy measures the photo's depth itself, so the first job of a photo can take a while longer than a render in the app.
+The renders run in a hidden second copy of the app, with its own worker and graphics context, so the picture on screen stays live; the two copies share the computer's graphics card and memory, so a change on screen is slower while a job runs, and a full sensor render needs graphics memory for both copies (see *Settings > Memory*). The queue works for library photos only, is kept in memory (closing the app clears it), and the hidden copy measures the photo's depth itself, so the first job of a photo can take a while longer than a render in the app. The percentage is an estimate: each step (opening the photo, the full sensor render, saving or making the video) has its share of the bar.
 
 ## Quality
 
