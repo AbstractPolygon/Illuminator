@@ -501,6 +501,9 @@ footer { border-top: 1px solid var(--line); padding-block: 32px 48px; color: var
       <div><h3>Direct camera import</h3><p>Plug in a Lytro first gen or Illum camera and browse its photos with thumbnails before importing.</p></div>
       <div><h3>Depth your way</h3><p>Measure depth with Illuminator's various methods, Lytro Desktop's style, or a blend of the two, with additional object edge detection for cleaner outlines.</p></div>
       <div><h3>Quick to reopen</h3><p>The desktop app keeps each photo's measured depth and its latest full sensor renders, so a photo you have edited before reopens in moments.</p></div>
+      <div><h3>Rate, flag and find</h3><p>Rate photos with stars, mark picks and rejects, add keywords and filter your library by any of them. The marks are saved as XMP files that other programs read.</p></div>
+      <div><h3>Render queue</h3><p>Line up full sensor pictures and videos to be made one after another in the background while you keep editing.</p></div>
+      <div><h3>Command line &amp; scripting</h3><p>Batch render, convert and export from a terminal or a script with the desktop app, and drive Illuminator from your own plugins.</p></div>
       <div><h3>Free to use</h3><p>Free for (almost) any purpose under the PolyForm Shield license.</p></div>
     </div>
   </div>
@@ -574,6 +577,16 @@ footer { border-top: 1px solid var(--line); padding-block: 32px 48px; color: var
     <p class="eyebrow">Latest updates</p>
     <h2 style="font-size:clamp(30px,4vw,46px);font-weight:800;margin-top:10px">What's new.</h2>
     <div class="updates" id="updates-list">
+      <article class="upd" data-version="0.5.87">
+        <header><h3>0.5.87</h3><time datetime="2026-11-08">Nov 8, 2026</time></header>
+        <ul>
+        <li><strong>Faster focus changes.</strong> Picking a new focus point shows the new picture right away, and the cleaned-up version follows a moment later. In Full sensor mode a new focus point no longer renders the whole picture again.</li>
+        <li><strong>Find your photos.</strong> Rate photos with stars, mark them as picks or rejects, add keywords, and filter the library by any of them. Other programs can read the marks too.</li>
+        <li><strong>Render queue.</strong> Line up pictures and videos to be made one after another in the background while you keep editing.</li>
+        <li><strong>Easier depth work.</strong> A depth ruler shows where things sit in depth, and you can click it to focus. Focus peaking marks the sharp edges, and Depth masks can be set by clicking the picture.</li>
+        <li><strong>More ways to finish a photo.</strong> Haze for fog and distance, tilt presets such as a miniature look, a choice of color space when saving, and H.264 video by default.</li>
+        </ul>
+      </article>
       <article class="upd" data-version="0.5.86">
         <header><h3>0.5.86</h3><time datetime="2026-11-07">Nov 7, 2026</time></header>
         <ul>
@@ -594,12 +607,6 @@ footer { border-top: 1px solid var(--line); padding-block: 32px 48px; color: var
         <li><strong>Up to 32 blades.</strong> The Blades setting for bokeh now goes from 3 to 32 sides.</li>
         <li><strong>Credits name every model.</strong> About lists each optional upscaling and depth model with its author and license.</li>
         <li><strong>Dialogs scroll only their text.</strong> The title and buttons of the credits and settings stay in place.</li>
-        </ul>
-      </article>
-      <article class="upd" data-version="0.5.83">
-        <header><h3>0.5.83</h3><time datetime="2026-11-06">Nov 6, 2026</time></header>
-        <ul>
-        <li><strong>UI code refactor.</strong> The app's interface code was reorganized to make future updates easier.</li>
         </ul>
       </article>
     </div>
