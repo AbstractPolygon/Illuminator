@@ -9,8 +9,8 @@
 - **Other hosted pages, kept current with every change:** the app test page
   https://claude.ai/artifact/7iMs8Ui6dosv8Ao9CRk7iG and the plan https://claude.ai/artifact/GrYsxNJiktg2vkgxsg5zWK.
 - **Releases:** deploy the web app (pages.yml) before the desktop builds (desktop.yml).
-- **Do not revert or change a default the owner asked for without their permission** (the combined depth is the
-  default depth style).
+- **Do not revert or change a default the owner asked for without their permission** (the default depth style is Lytro Desktop's style,
+  "Classic Desktop"; the owner changed it from the blend on 2026-11-08).
 - **Comparison images** (website gallery, comparison page) are rendered with the app's defaults, so multi-view noise
   reduction stays on.
 - When the stop hook reports uncommitted changes, commit and push to `main`.
