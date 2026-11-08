@@ -232,6 +232,7 @@ function renderLibrary() {
     };
     const mark = marks && marks.badge(photo);
     li.append(img, name, more);
+    if (marks) li.append(marks.rater(photo));
     if (mark) li.append(mark);
     li.onclick = (e) => {
       // With the Render Queue view open, Ctrl/Command-click and Shift-click choose several photos to add (ui/queue.js).
@@ -382,6 +383,7 @@ function renderGrid(photos, album) {
       photoMenu(photo, more);
     };
     const mark = marks && marks.badge(photo);
+    if (marks) frame.append(marks.rater(photo));
     tile.append(frame, name, more);
     if (mark) tile.append(mark);
     tile.onclick = () => openItem(photo);

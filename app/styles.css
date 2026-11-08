@@ -779,6 +779,30 @@ label.lut-amount { margin-top: 14px; }
 #library-list li { flex-wrap: wrap; }
 #library-list .marks { flex-basis: 100%; padding-left: 74px; margin-top: -2px; }
 .photo-grid .tile .marks { text-align: center; }
+/* What shows over a thumbnail (ui/marks.js rater): a checkbox to pick at the top left and the stars centered along the bottom, with the pointer on the photo or when one has
+   the focus. The stars are in reverse order, so the hovered one and the ones after it in the markup (the lower ones) light up together. A picked photo keeps its checkbox. */
+.rate-layer { position: absolute; pointer-events: none; }
+.rate-layer > * { pointer-events: auto; }
+.rate-layer .pick, .rate-layer .rate { opacity: 0; transition: opacity 0.12s; }
+.rate-layer .pick { position: absolute; top: 3px; left: 3px; display: flex; padding: 2px; border-radius: 4px; background: rgba(10, 12, 15, 0.6); cursor: pointer; }
+.rate-layer .pick input { margin: 0; width: 14px; height: 14px; cursor: pointer; accent-color: #4caf7a; }
+.rate-layer .rate { position: absolute; left: 0; right: 0; bottom: 0; display: flex; flex-direction: row-reverse; justify-content: center; padding: 8px 0 2px; background: linear-gradient(transparent, rgba(10, 12, 15, 0.78)); border-radius: 0 0 4px 4px; }
+.rate .star { background: none; border: none; padding: 0 1px; font-size: 13px; line-height: 1.1; color: rgba(255, 255, 255, 0.45); cursor: pointer; }
+.rate .star.on { color: #e0b040; }
+.rate .star:hover, .rate .star:hover ~ .star { color: #f5c84c; }
+.rate .star:focus-visible, .pick input:focus-visible { outline: 1px solid var(--accent); border-radius: 3px; }
+#library-list li:hover .rate-layer .pick, #library-list li:hover .rate-layer .rate, #library-list li:focus-within .rate-layer .pick, #library-list li:focus-within .rate-layer .rate,
+.photo-grid .tile:hover .rate-layer .pick, .photo-grid .tile:hover .rate-layer .rate, .photo-grid .tile:focus-within .rate-layer .pick, .photo-grid .tile:focus-within .rate-layer .rate,
+.rate-layer.picked .pick { opacity: 1; }
+#library-list li .rate-layer { left: 4px; top: 4px; width: 64px; height: 44px; }
+#library-list li .rate-layer .rate { padding: 6px 0 1px; }
+#library-list li .rate .star { font-size: 11px; padding: 0 0.5px; }
+#library-list li .rate-layer .pick { top: 2px; left: 2px; padding: 1px; }
+#library-list li .rate-layer .pick input { width: 12px; height: 12px; }
+.photo-grid .tile .frame { position: relative; }
+.photo-grid .tile .rate-layer { inset: 0; }
+.photo-grid .tile .rate .star { font-size: 16px; padding: 0 2px; }
+@media (hover: none) { .rate-layer .pick, .rate-layer .rate { opacity: 1; } }
 .marks-row { display: flex; align-items: center; gap: 10px; }
 .marks-row > span { width: 70px; flex: none; color: var(--muted); }
 .marks-row input[type=text], .marks-row select { flex: 1; min-width: 0; }

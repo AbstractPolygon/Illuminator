@@ -43,3 +43,4 @@ Send: the line above, the text of any notice, the graphics card and driver versi
 - Save it as a file, delete it, import the file again, and put it on a photo on another computer.
 - Render Queue: choose an album with *Choose all*, pick a look, add the pictures, start the queue, and check the files have the look and the photos in the library do not.
 - Render Queue videos: open a photo with Animation on, choose an album, click *Choose all* and *Add video* (with and without a look), start the queue, and play the files. Try MP4 H.264 and WebM. Check the queue works while the window is in the background.
+- Ratings: point at a thumbnail in the list and in the grid, rate with a click on a star, clear it by clicking the lit star, pick with the checkbox; on a touchscreen the stars and checkbox should always show.
