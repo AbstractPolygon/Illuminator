@@ -7,7 +7,7 @@ import { RenderQueue, uniqueName, describeSettings, phasesFor, pickPhotos, first
 import { download } from '../platform.js';
 
 // The most photos one Add puts in the list.
-const MAX_AT_ONCE = 200;
+const MAX_AT_ONCE = 512;
 
 export function initQueue({ $, state, native, currentEdits, showNotice, showError, thumbFor, openPhoto, renderLibrary }) {
   const used = new Set();
