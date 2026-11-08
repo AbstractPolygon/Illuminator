@@ -6,7 +6,7 @@ export function initLivingFilters({ $, state, canRender, getMasks, showNotice, s
   // ordinary masks to adjust.
   function livingFilter(name) {
     const f = +$('focus').value;
-    const fx = (o) => ({ exposure: 0, contrast: 0, saturation: 0, temperature: 0, tint: 0, blur: 0, pixelate: 0, sketch: 0, ...o });
+    const fx = (o) => ({ exposure: 0, contrast: 0, saturation: 0, temperature: 0, tint: 0, haze: 0, blur: 0, pixelate: 0, sketch: 0, ...o });
     // Depth filters follow the focus: animate it and they move with it.
     const depth = (near, far, feather, invert, effect) => ({ ...defaultMask('depth'), near, far, feather, invert, follow: true, anchor: f, fx: fx(effect) });
     switch (name) {

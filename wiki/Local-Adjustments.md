@@ -25,7 +25,9 @@ Click a mask in the list to edit it.
 
 ## Effect
 
-*Exposure*, *Contrast*, *Saturation*, *Temperature* and *Tint*, plus three effects that work on the area around each pixel:
+*Exposure*, *Contrast*, *Saturation*, *Temperature* and *Tint*, *Haze*, plus three effects that work on the area around each pixel:
+
+- *Haze* fades what the mask covers toward a soft blue-gray, like fog or the air between you and a distant hill. Below zero it takes haze out and stretches the contrast. Put it on a *Depth* mask with a wide *Feather* and the far parts of the photo fall into fog while the subject stays clear; add *Temperature* for warm or cold haze, or *Saturation* and *Contrast* below zero for a gradual fade in color.
 
 - *Blur* softens what the mask covers.
 - *Pixelate* breaks it into square tiles.

@@ -64,3 +64,29 @@ test('blur and pixelate change only what the mask covers', async () => {
   const px = applySpatial(rgb, w, h, { masks: [{ ...m, fx: { ...m.fx, blur: 0, pixelate: 1 } }] });
   assert.equal(px[0], px[3]);
 });
+
+test('haze fogs toward the airlight, dehaze takes it back out, and the GPU gets it', async () => {
+  const { AIRLIGHT, packMasks } = await import('../app/js/core/local.js');
+  const fx = (haze) => ({ ...defaultMask('radial').fx, haze });
+  const dark = [0.02, 0.02, 0.02];
+  const fogged = [...dark];
+  const { applyEffects } = await import('../app/js/core/local.js');
+  applyEffects(fogged, fx(1), 1);
+  for (let c = 0; c < 3; c++) assert.ok(fogged[c] > dark[c] && fogged[c] < AIRLIGHT[c]);
+  // Half the weight, half the way.
+  const half = [...dark];
+  applyEffects(half, fx(1), 0.5);
+  assert.ok(half[0] < fogged[0]);
+  // Dehaze darkens a hazy pixel and keeps values from going negative.
+  const hazy = [0.3, 0.33, 0.4];
+  const clear = [...hazy];
+  applyEffects(clear, fx(-1), 1);
+  for (let c = 0; c < 3; c++) assert.ok(clear[c] >= 0 && clear[c] < hazy[c]);
+  const black = [0, 0, 0];
+  applyEffects(black, fx(-1), 1);
+  assert.deepEqual(black, [0, 0, 0]);
+  // A mask with only haze counts as active and reaches the shader in extra.y.
+  const m = { ...defaultMask('depth'), fx: fx(0.6) };
+  assert.equal(activeMasks([m]).length, 1);
+  assert.ok(Math.abs(packMasks([m]).extra[1] - 0.6) < 1e-6);
+});

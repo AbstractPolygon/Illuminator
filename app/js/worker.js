@@ -2979,6 +2979,56 @@ async function spreadMask({ id, alpha = 0, spread = 0, smooth = 0, tilt = [0, 0]
   return undefined;
 }
 
+// How much of the picture lies at each depth, for the depth ruler: counts
+// of the depth map's values in `bins` equal steps across the range the map
+// uses (all but the outermost 0.25% each side, padded a little, within
+// -1.6..1.6 and at least 0.4 wide). Only reads a depth map that exists
+// already (null counts otherwise), so it never holds up the picture.
+function depthHistogram({ bins = 96 }) {
+  let alpha = null;
+  if (state.pp) {
+    if (state.pp.hasDepth) {
+      if (!state.pp.alpha) state.pp.alpha = state.pp.alphaMap();
+      alpha = state.pp.alpha;
+    }
+  } else if (state.depth && state.depth.alpha) {
+    alpha = state.depth.alpha;
+  }
+  if (!alpha) return { counts: null, lo: -1.6, hi: 1.6 };
+  const MIN = -1.6;
+  const MAX = 1.6;
+  const fine = 640;
+  const fineCounts = new Uint32Array(fine);
+  const fk = fine / (MAX - MIN);
+  for (let i = 0; i < alpha.length; i++) {
+    const t = Math.floor((alpha[i] - MIN) * fk);
+    fineCounts[t < 0 ? 0 : t >= fine ? fine - 1 : t]++;
+  }
+  const cut = alpha.length * 0.0025;
+  let lo = 0;
+  for (let c = 0; lo < fine - 1 && c + fineCounts[lo] <= cut; lo++) c += fineCounts[lo];
+  let hi = fine - 1;
+  for (let c = 0; hi > lo && c + fineCounts[hi] <= cut; hi--) c += fineCounts[hi];
+  let a = MIN + lo / fk;
+  let b = MIN + (hi + 1) / fk;
+  const pad = 0.08 * (b - a);
+  a = Math.max(MIN, a - pad);
+  b = Math.min(MAX, b + pad);
+  if (b - a < 0.4) {
+    const mid = (a + b) / 2;
+    a = Math.max(MIN, mid - 0.2);
+    b = Math.min(MAX, a + 0.4);
+    a = Math.max(MIN, b - 0.4);
+  }
+  const counts = new Array(bins).fill(0);
+  const k = bins / (b - a);
+  for (let i = 0; i < alpha.length; i++) {
+    const t = Math.floor((alpha[i] - a) * k);
+    counts[t < 0 ? 0 : t >= bins ? bins - 1 : t]++;
+  }
+  return { counts, lo: a, hi: b };
+}
+
 // Focus value (alpha) that makes the picture sharp at output pixel (x, y)
 // of the camera view. Measured at the point itself; where the spot has no
 // texture to judge by, the (filled-in) depth map is used instead. The point
@@ -3244,7 +3294,7 @@ async function loseGpu() {
   return { lost: !!ext };
 }
 
-const handlers = { loseGpu, stillStore, stillData, memoryLimits: (limits) => { setMemoryLimits(limits); return {}; }, setLut, setCalibrations, measureWhite: measureWhiteImage, open, frames, refocusFrames, superRes, lytroEdof, superResPreview, view, focusAt, depthMap, spreadMask, whiteBalanceAt, prepare, settings, setGrid, rawCrop, outputToSensor, readSection,
+const handlers = { loseGpu, stillStore, stillData, memoryLimits: (limits) => { setMemoryLimits(limits); return {}; }, setLut, setCalibrations, measureWhite: measureWhiteImage, open, frames, refocusFrames, superRes, lytroEdof, superResPreview, view, focusAt, depthMap, spreadMask, depthHistogram, whiteBalanceAt, prepare, settings, setGrid, rawCrop, outputToSensor, readSection,
   cancel: async ({ kind }) => { state.jobs[kind] = null; } };
 
 self.onmessage = async (event) => {

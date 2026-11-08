@@ -12,7 +12,8 @@
 //           effect between near and far, fading over `feather`
 // Each mask: { id, kind, on, invert, strength (0..1, scales the effects),
 // ...shape, fx: { exposure (EV), contrast, saturation, temperature, tint
-// (each -1..1); blur, pixelate, sketch (each 0..1: spatial effects, see
+// (each -1..1); haze (-1..1: fog toward a soft blue-gray airlight, or
+// dehaze below 0); blur, pixelate, sketch (each 0..1: spatial effects, see
 // applySpatial) } }. A depth mask with `follow` set moves with the focus:
 // near and far shift by how far the focus is from `anchor`, the focus the
 // mask was made at. A radial mask with `followView` set moves a little
@@ -24,7 +25,7 @@ export const MASK_KINDS = ['radial', 'linear', 'depth'];
 const newId = () => Math.random().toString(36).slice(2, 10);
 
 export function defaultMask(kind) {
-  const base = { id: newId(), kind, on: true, invert: false, strength: 1, follow: false, anchor: 0, fx: { exposure: 0, contrast: 0, saturation: 0, temperature: 0, tint: 0, blur: 0, pixelate: 0, sketch: 0 } };
+  const base = { id: newId(), kind, on: true, invert: false, strength: 1, follow: false, anchor: 0, fx: { exposure: 0, contrast: 0, saturation: 0, temperature: 0, tint: 0, haze: 0, blur: 0, pixelate: 0, sketch: 0 } };
   if (kind === 'radial') return { ...base, x: 0.5, y: 0.5, w: 0.25, h: 0.25, feather: 0.5 };
   if (kind === 'linear') return { ...base, x: 0.5, y: 0.5, angle: 90, width: 0.3 };
   return { ...base, near: -0.3, far: 0.3, feather: 0.2 };
@@ -107,10 +108,28 @@ export function maskWeight(m, nx, ny, aspect, depth) {
   return m.invert ? 1 - w : w;
 }
 
+// The color distant haze fades toward (linear RGB).
+export const AIRLIGHT = [0.5, 0.56, 0.68];
+
 // Adjusts one linear RGB pixel `px` (length 3) by mask weight `w`.
 export function applyEffects(px, fx, w) {
   if (!(w > 0)) return;
   let [r, g, b] = px;
+  if (fx.haze) {
+    if (fx.haze > 0) {
+      // Fog: the picture fades toward the airlight.
+      const k = 0.75 * fx.haze * w;
+      r += (AIRLIGHT[0] - r) * k;
+      g += (AIRLIGHT[1] - g) * k;
+      b += (AIRLIGHT[2] - b) * k;
+    } else {
+      // Dehaze: take the airlight back out and stretch what is left.
+      const k = -0.5 * fx.haze * w;
+      r = Math.max(0, (r - AIRLIGHT[0] * k) / (1 - k));
+      g = Math.max(0, (g - AIRLIGHT[1] * k) / (1 - k));
+      b = Math.max(0, (b - AIRLIGHT[2] * k) / (1 - k));
+    }
+  }
   if (fx.exposure) {
     const k = 2 ** (fx.exposure * w);
     r *= k;
@@ -160,7 +179,7 @@ export function applyLocal(px, masks, nx, ny, aspect, depth, show = -1) {
 export function packMasks(masks) {
   const kinds = new Int32Array(MAX_MASKS).fill(-1);
   const shape = new Float32Array(MAX_MASKS * 4);
-  const extra = new Float32Array(MAX_MASKS * 4);
+  const extra = new Float32Array(MAX_MASKS * 4); // feather, haze, -, invert
   const fx = new Float32Array(MAX_MASKS * 4);
   const fx2 = new Float32Array(MAX_MASKS * 4);
   masks.slice(0, MAX_MASKS).forEach((m, i) => {
@@ -168,7 +187,7 @@ export function packMasks(masks) {
     if (m.kind === 'radial') shape.set([m.x, m.y, m.w, m.h], 4 * i);
     else if (m.kind === 'linear') shape.set([m.x, m.y, m.angle, m.width], 4 * i);
     else shape.set([m.near, m.far, m.feather, 0], 4 * i);
-    extra.set([m.kind === 'radial' ? m.feather : 0, 0, 0, m.invert ? 1 : 0], 4 * i);
+    extra.set([m.kind === 'radial' ? m.feather : 0, m.fx.haze || 0, 0, m.invert ? 1 : 0], 4 * i);
     fx.set([m.fx.exposure, m.fx.contrast, m.fx.saturation, m.fx.temperature], 4 * i);
     fx2.set([m.fx.tint, m.fx.blur || 0, m.fx.pixelate || 0, m.fx.sketch || 0], 4 * i);
   });
