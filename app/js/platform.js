@@ -194,7 +194,14 @@ export function isLightFieldName(name) {
   return LF_FILE.test(name);
 }
 
+// The scripting interface (ui/api.js) takes saved files itself instead of the browser's or the desktop app's save step.
+let downloadHook = null;
+export function captureDownloads(fn) {
+  downloadHook = fn;
+}
+
 export async function download(blob, name) {
+  if (downloadHook) return downloadHook(blob, name);
   if (native) {
     await native.saveFile(name, new Uint8Array(await blob.arrayBuffer()));
     return;

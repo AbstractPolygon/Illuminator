@@ -25,6 +25,7 @@ Because a Lytro photo is a light field, it keeps working like a camera after the
   - [[Render]]
   - [[Microlens Grid]]
 - [[Exporting]]
+- [[Command Line]]
 - [[Keyboard Shortcuts]]
 - [[File Formats]]
 - [[Troubleshooting]]

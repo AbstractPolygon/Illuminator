@@ -17,7 +17,8 @@
     "test": "node --test \"test/**/*.test.mjs\"",
     "render": "node scripts/lfr-render.mjs",
     "dist": "electron-builder",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "cli": "node scripts/illuminator.mjs"
   },
   "engines": {
     "node": ">=20"
