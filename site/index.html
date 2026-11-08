@@ -577,6 +577,14 @@ footer { border-top: 1px solid var(--line); padding-block: 32px 48px; color: var
     <p class="eyebrow">Latest updates</p>
     <h2 style="font-size:clamp(30px,4vw,46px);font-weight:800;margin-top:10px">What's new.</h2>
     <div class="updates" id="updates-list">
+      <article class="upd" data-version="0.5.90">
+        <header><h3>0.5.90</h3><time datetime="2026-11-08">Nov 8, 2026</time></header>
+        <ul>
+        <li><strong>Queue up to 512 photos at once.</strong> Choose them in the Render Queue view and add them all in one step, with each photo's saved edits.</li>
+        <li><strong>Queued photos keep their Lytro Desktop edits.</strong> A photo you never edited here now starts from the edits Lytro Desktop made, the same as when you open it.</li>
+        <li><strong>No more failed jobs for photos without raw data.</strong> A queued photo that has no raw light field skips the full sensor step instead of failing.</li>
+        </ul>
+      </article>
       <article class="upd" data-version="0.5.89">
         <header><h3>0.5.89</h3><time datetime="2026-11-08">Nov 8, 2026</time></header>
         <ul>
@@ -600,13 +608,6 @@ footer { border-top: 1px solid var(--line); padding-block: 32px 48px; color: var
         <li><strong>Render queue.</strong> Line up pictures and videos to be made one after another in the background while you keep editing.</li>
         <li><strong>Easier depth work.</strong> A depth ruler shows where things sit in depth, and you can click it to focus. Focus peaking marks the sharp edges, and Depth masks can be set by clicking the picture.</li>
         <li><strong>More ways to finish a photo.</strong> Haze for fog and distance, tilt presets such as a miniature look, a choice of color space when saving, and H.264 video by default.</li>
-        </ul>
-      </article>
-      <article class="upd" data-version="0.5.86">
-        <header><h3>0.5.86</h3><time datetime="2026-11-07">Nov 7, 2026</time></header>
-        <ul>
-        <li><strong>Recovers from a lost graphics card.</strong> If the computer takes the graphics card away for a moment, Illuminator now sets it up again and carries on, instead of stopping with "WebGL context is lost" and refusing to open photos.</li>
-        <li><strong>Full sensor edits stay on screen.</strong> With Auto render on, changing color, tone, sharpening or local adjustments keeps the full sensor picture in view while it updates, instead of dropping back to the live view first.</li>
         </ul>
       </article>
     </div>
