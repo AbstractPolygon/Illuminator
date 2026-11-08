@@ -89,6 +89,12 @@ export function initLooks({ $, state, showMenu, editName, confirmInMenu, current
     $('look-dialog').showModal();
     $('look-name').select();
   };
+  // Enter in the name saves (the form's default button would be Cancel, the first one).
+  $('look-name').addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    $('look-ok').click();
+  });
   $('look-dialog').addEventListener('close', async () => {
     if ($('look-dialog').returnValue !== 'ok' || !hasPhoto()) return;
     try {
