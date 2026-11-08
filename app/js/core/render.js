@@ -282,11 +282,31 @@ function sampleLenses(raw, cam, dev, lenses, grid, u, v, out) {
     }
     let acc = 0;
     let wsum = 0;
+    const inside = x0 - reach >= 0 && x0 + reach < width;
     for (let yy = y0 - reach; yy <= y0 + reach; yy++) {
       if (yy < 0 || yy >= height) continue;
       const wyy = wy[yy - y0 + reach];
       const crow = dev.cfa[yy & 1];
       const rowBase = yy * width;
+      if (inside) {
+        // The same sums for a window inside the sensor, with the two colors of this row's filter pattern looked up once instead of at every pixel.
+        const c0 = crow[0];
+        const c1 = crow[1];
+        const b0 = black[c0];
+        const b1 = black[c1];
+        const s0 = scale[c0];
+        const s1 = scale[c1];
+        const t0 = toY[c0];
+        const t1 = toY[c1];
+        for (let xx = x0 - reach; xx <= x0 + reach; xx++) {
+          const w = wyy * wx[xx - x0 + reach];
+          const odd = xx & 1;
+          const val = Math.min(clip, Math.max(0, (raw[rowBase + xx] - (odd ? b1 : b0)) * (odd ? s1 : s0)));
+          acc += w * val * (odd ? t1 : t0);
+          wsum += w;
+        }
+        continue;
+      }
       for (let xx = x0 - reach; xx <= x0 + reach; xx++) {
         if (xx < 0 || xx >= width) continue;
         const w = wyy * wx[xx - x0 + reach];
@@ -317,7 +337,15 @@ for (let i = 0; i < edgeTable.length; i++) edgeTable[i] = Math.exp(-(i * EDGE_MA
 function edgeAwareChroma(R, G, B, Y, out, rows, cols, r, sigma) {
   const n = rows * cols;
   const L = new Float32Array(n);
-  for (let i = 0; i < n; i++) L[i] = Math.sqrt(Math.max(0, 0.2126 * out[3 * i] + 0.7152 * out[3 * i + 1] + 0.0722 * out[3 * i + 2]));
+  // R, G, B and Y side by side: one cache line per neighbor instead of four.
+  const P = new Float32Array(4 * n);
+  for (let i = 0; i < n; i++) {
+    L[i] = Math.sqrt(Math.max(0, 0.2126 * out[3 * i] + 0.7152 * out[3 * i + 1] + 0.0722 * out[3 * i + 2]));
+    P[4 * i] = R[i];
+    P[4 * i + 1] = G[i];
+    P[4 * i + 2] = B[i];
+    P[4 * i + 3] = Y[i];
+  }
   // t = d^2 / (2 sigma^2) in table steps
   const scale = (1 / (2 * sigma * sigma)) * (EDGE_STEPS / EDGE_MAX);
   for (let y = 0; y < rows; y++) {
@@ -340,10 +368,11 @@ function edgeAwareChroma(R, G, B, Y, out, rows, cols, r, sigma) {
           if (t >= EDGE_STEPS) continue;
           const k = t | 0;
           const w = edgeTable[k] + (edgeTable[k + 1] - edgeTable[k]) * (t - k);
-          sr += R[j] * w;
-          sg += G[j] * w;
-          sb += B[j] * w;
-          sy += Y[j] * w;
+          const q = 4 * j;
+          sr += P[q] * w;
+          sg += P[q + 1] * w;
+          sb += P[q + 2] * w;
+          sy += P[q + 3] * w;
         }
       }
       if (!(sy > 1e-9)) continue;

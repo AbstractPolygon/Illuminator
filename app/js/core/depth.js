@@ -153,9 +153,9 @@ export function brightnessFloor(lum) {
 // spreading over the background in the depth map.
 function angularVariance(lums, views, w, h, alpha, floor, level, occlusion = true) {
   if (!occlusion) return angularVarianceOf(lums, views, w, h, alpha, floor, level, () => true);
-  const full = angularVarianceOf(lums, views, w, h, alpha, floor, level, () => true);
-  const halves = [(v) => v.u <= 0, (v) => v.u >= 0, (v) => v.v <= 0, (v) => v.v >= 0]
-    .map((keep) => angularVarianceOf(lums, views, w, h, alpha, floor, level, keep));
+  // The whole aperture and its four halves in one pass over the views (each view is interpolated once and added to every group it belongs to, in view order, so each sum
+  // is made of the same terms in the same order as when the groups are measured one by one).
+  const [full, ...halves] = angularVarianceGroups(lums, views, w, h, alpha, floor, level, [() => true, (v) => v.u <= 0, (v) => v.u >= 0, (v) => v.v <= 0, (v) => v.v >= 0]);
   const out = new Float32Array(w * h);
   for (let i = 0; i < out.length; i++) {
     let best = Infinity;
@@ -167,6 +167,61 @@ function angularVariance(lums, views, w, h, alpha, floor, level, occlusion = tru
   return out;
 }
 
+
+// One angular variance map per group of views (`keeps`: a test per group).
+function angularVarianceGroups(lums, views, w, h, alpha, floor, level, keeps) {
+  const g = keeps.length;
+  const sums = keeps.map(() => new Float32Array(w * h));
+  const sqs = keeps.map(() => new Float32Array(w * h));
+  const cnts = keeps.map(() => new Float32Array(w * h));
+  views.forEach((view, k) => {
+    const members = [];
+    for (let j = 0; j < g; j++) if (keeps[j](view)) members.push(j);
+    const m = members.length;
+    if (!m) return;
+    const lum = lums[k];
+    const sx = alpha * view.u * view.detail;
+    const sy = alpha * view.v * view.detail;
+    const ix = Math.floor(sx);
+    const iy = Math.floor(sy);
+    const ax = sx - ix;
+    const ay = sy - iy;
+    const x0 = Math.max(0, -ix);
+    const x1 = Math.min(w, w - ix - 1);
+    const y0 = Math.max(0, -iy);
+    const y1 = Math.min(h, h - iy - 1);
+    const S = members.map((j) => sums[j]);
+    const Q = members.map((j) => sqs[j]);
+    const C = members.map((j) => cnts[j]);
+    for (let y = y0; y < y1; y++) {
+      const src = (y + iy) * w + ix;
+      for (let x = x0; x < x1; x++) {
+        const s = src + x;
+        const v = (lum[s] * (1 - ax) + lum[s + 1] * ax) * (1 - ay) + (lum[s + w] * (1 - ax) + lum[s + w + 1] * ax) * ay;
+        const vv = v * v;
+        const d = y * w + x;
+        for (let j = 0; j < m; j++) {
+          S[j][d] += v;
+          Q[j][d] += vv;
+          C[j][d]++;
+        }
+      }
+    }
+  });
+  return keeps.map((_, j) => varianceOf(sums[j], sqs[j], cnts[j], level, floor));
+}
+
+// The variance per pixel from the sums, relative to the local brightness so dark and bright regions are judged alike, but not below `floor`: in dark areas that
+// amplifies noise.
+function varianceOf(sum, sq, cnt, level, floor) {
+  const out = new Float32Array(sum.length);
+  for (let i = 0; i < out.length; i++) {
+    const n = cnt[i] || 1;
+    const m = sum[i] / n;
+    out[i] = Math.max(0, sq[i] / n - m * m) / (level[i] * level[i] + floor);
+  }
+  return out;
+}
 
 function angularVarianceOf(lums, views, w, h, alpha, floor, level, keep) {
   const sum = new Float32Array(w * h);
