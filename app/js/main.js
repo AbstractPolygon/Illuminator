@@ -106,6 +106,7 @@ const lensView = { x: null, y: null, z: 4 };
 // ---------------------------------------------------------------- progress
 
 function showProgress(stage, p) {
+  emitEvent('progress', { stage, progress: p || 0 });
   $('progress').hidden = false;
   $('progress-text').textContent = stage;
   $('progress-fill').style.width = `${Math.round((p || 0) * 100)}%`;
@@ -240,6 +241,7 @@ function renderLibrary() {
   if (state.cameraView) renderCameraGrid();
   else renderGrid(photos, album);
   if (marks) marks.renderKeywordList();
+  if (queueUi && state.queueView) queueUi.render();
   const empty = $('library-empty');
   empty.hidden = photos.length > 0;
   if (everyone.length && !photos.length) empty.textContent = 'No photos match the filter.';
@@ -303,6 +305,7 @@ function renderAlbums() {
 const THUMB_SIZE_KEY = 'illuminator.thumbSize';
 
 function showGrid(on) {
+  if (on && queueUi) queueUi.setView(false);
   state.grid = on;
   document.querySelector('.stage').classList.toggle('grid', on);
   $('grid-view').hidden = !on;
@@ -684,6 +687,7 @@ async function importPhotos(entries, { album = state.album, replace = false } = 
 
 async function openItem(photo) {
   state.scripted = false;
+  if (queueUi) queueUi.setView(false);
   closeMenu();
   await calReady;
   const file = await state.lib.file(photo).catch(() => null);
@@ -2177,6 +2181,7 @@ function showSidebarEnabled() {
 
 function setMode(mode) {
   showSidebarEnabled();
+  if (queueUi) queueUi.setView(false);
   // The Lenslets view compares the sensor with the picture shown before.
   if (mode === 'lenslets' && state.mode === 'camera' && state.lastImage && !state.lastImage.pair) state.lensPicture = state.lastImage;
   state.mode = mode;
@@ -3864,7 +3869,7 @@ $('png-btn').onclick = savePng;
 }));
 
 // The render queue (ui/queue.js): not inside the hidden copy that does its renders.
-if (!QUEUE_RUNNER) queueUi = initQueue({ $, state, native, currentEdits: () => currentEdits(), showNotice: (...a) => showNotice(...a), showError: (...a) => showError(...a) });
+if (!QUEUE_RUNNER) queueUi = initQueue({ $, state, native, currentEdits: () => currentEdits(), showNotice: (...a) => showNotice(...a), showError: (...a) => showError(...a), thumbFor: (photo) => thumbFor(photo) });
 
 $('webm-btn').onclick = exportVideo;
 

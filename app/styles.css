@@ -779,14 +779,35 @@ label.lut-amount { margin-top: 14px; }
 .marks-stars button { background: none; border: none; font-size: 22px; line-height: 1; padding: 2px 3px; color: #4a4f57; cursor: pointer; }
 .marks-stars button.on { color: #e0b040; }
 
-/* Render queue */
-.queue-list { list-style: none; margin: 6px 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
-.queue-job { display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; font-size: 12px; }
-.queue-job .queue-status { grid-column: 1; color: var(--muted); word-break: break-word; }
-.queue-job .queue-actions { grid-column: 2; grid-row: 1 / span 2; display: flex; gap: 4px; align-items: center; }
-.queue-job.running { border-color: var(--accent); }
-.queue-job.done .queue-status { color: #6cc28c; }
-.queue-job.failed .queue-status { color: #c9696d; }
-
-/* Top bar: full screen, About and Settings sit close together */
-#fullscreen-btn, #about-btn, #settings-btn { margin-inline: -4px; }
+/* Render Queue: the view that takes the photo's place, and a card per job */
+.stage.queue > :not(.queue-view):not(.modes-row) { display: none; }
+.stage.queue .modes-row .zoom { visibility: hidden; }
+.queue-view { flex: 1; min-height: 0; overflow: auto; padding: 16px 20px 24px; display: flex; flex-direction: column; gap: 12px; }
+.queue-top { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.queue-top h2 { margin: 0; font-size: 18px; }
+.queue-folder { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.queue-cards { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.queue-card { display: grid; grid-template-columns: 112px minmax(0, 1fr) auto; gap: 14px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); align-items: start; }
+.queue-card.running { border-color: var(--accent); }
+.queue-thumb { position: relative; width: 112px; height: 78px; border-radius: 5px; background: #2a2e35; overflow: hidden; }
+.queue-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.queue-badge { position: absolute; right: 4px; bottom: 4px; font-size: 11px; line-height: 1; padding: 3px 5px; border-radius: 4px; background: rgba(18, 20, 23, 0.8); color: var(--text); }
+.queue-main { min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.queue-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.queue-title { font-weight: 600; word-break: break-all; }
+.queue-kind { color: var(--muted); font-size: 12px; }
+.queue-bar-row { display: flex; align-items: center; gap: 10px; }
+.queue-track { flex: 1; height: 8px; border-radius: 4px; background: #15181c; overflow: hidden; }
+.queue-fill { height: 100%; background: var(--accent); border-radius: 4px; transition: width 0.15s linear; }
+.queue-card.done .queue-fill { background: #6cc28c; }
+.queue-card.failed .queue-fill, .queue-card.cancelled .queue-fill { background: #c9696d; }
+.queue-percent { width: 3.2em; text-align: right; font-variant-numeric: tabular-nums; font-size: 12px; color: var(--muted); }
+.queue-status { font-size: 12px; color: var(--muted); word-break: break-word; }
+.queue-card.done .queue-status { color: #6cc28c; }
+.queue-card.failed .queue-status { color: #c9696d; }
+.queue-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.queue-chip { font-size: 11.5px; padding: 2px 8px; border-radius: 10px; background: #23272e; color: var(--text); }
+.queue-actions { display: flex; gap: 4px; align-items: center; justify-content: flex-end; min-width: 132px; }
+.queue-none { max-width: 60ch; }
+.queue-foot { display: flex; gap: 8px; }
+@media (max-width: 760px) { .queue-card { grid-template-columns: 80px minmax(0, 1fr); } .queue-thumb { width: 80px; height: 56px; } .queue-actions { grid-column: 1 / -1; } }

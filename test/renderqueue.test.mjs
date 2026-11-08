@@ -51,3 +51,33 @@ test('output names do not collide', () => {
   used.add('IMG_1 (2).png');
   assert.equal(uniqueName('IMG_1.png', used), 'IMG_1 (3).png');
 });
+
+test('progress only moves forward and a finished job is whole', async () => {
+  const q = new RenderQueue();
+  q.setPaused(false);
+  const j = q.add({ name: 'A' });
+  q.setProgress(j, 0.5, 'x');
+  assert.equal(j.progress, 0, 'only a running job has progress');
+  q.start(j);
+  q.setProgress(j, 0.5, 'Measuring depth');
+  q.setProgress(j, 0.2, 'Rendering');
+  assert.deepEqual([j.progress, j.stage], [0.5, 'Rendering']);
+  q.setProgress(j, 7);
+  assert.equal(j.progress, 1);
+  const k = q.add({ name: 'B' });
+  q.start(k);
+  q.setProgress(k, 0.4);
+  q.finish(k, 'B.png');
+  assert.deepEqual([k.progress, k.status], [1, 'done']);
+});
+
+test('a job card describes its export settings', async () => {
+  const { describeSettings, phasesFor } = await import('../app/js/core/renderqueue.js');
+  const photo = { kind: 'photo', edits: { camera: { fstop: 6 }, rendering: {} }, export: { format: 'jpeg', quality: 85, colorSpace: 'p3', size: 2 }, fullSensor: { scale: 2, passes: 1 } };
+  assert.deepEqual(describeSettings(photo), ['JPEG 85%', 'Display P3', '2×', 'Full sensor 2×, recovery 1', 'f/2.8']);
+  assert.deepEqual(describeSettings({ kind: 'photo', edits: {}, export: { format: 'png', colorSpace: 'srgb', size: 1 }, fullSensor: null }), ['PNG', 'Native size']);
+  const video = { kind: 'video', edits: { rendering: { 'video-format': 'mp4', 'video-codec': 'h264', 'video-size': '1080x1920', 'video-quality': 16 } } };
+  assert.deepEqual(describeSettings(video), ['MP4 · H.264', '1080 × 1920', '16 Mbit/s']);
+  assert.deepEqual(describeSettings({ kind: 'video', edits: { rendering: { 'video-size': '2160' } } }), ['Video', '2160p']);
+  for (const spec of [photo, video, { kind: 'photo' }]) assert.ok(Math.abs(phasesFor(spec).reduce((n, p) => n + p.weight, 0) - 1) < 1e-9);
+});

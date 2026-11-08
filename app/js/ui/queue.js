@@ -1,16 +1,18 @@
-// The render queue panel (Render Queue, right sidebar): pictures and videos of library photos that are made one after another in the background while editing goes
-// on. The renders run in a hidden second copy of the app (an iframe of this page with ?queue), which has its own worker and graphics context, so the live view of the
-// photo being edited is not held up. The copy is driven through the scripting interface (ui/api.js). The list and its rules are in core/renderqueue.js.
+// The Render Queue: pictures and videos of library photos that are made one after another in the background while editing goes on. It has its own view that takes the
+// place of the photo (the icon left of Quick export), with a card per job: a thumbnail, how far it has come, and its export settings; and a small section in the right
+// sidebar to add the open photo. The renders run in a hidden second copy of the app (an iframe of this page with ?queue), which has its own worker and graphics context,
+// so the live view of the photo being edited is not held up; it is driven through the scripting interface (ui/api.js). The list and its rules are in core/renderqueue.js.
 
-import { RenderQueue, uniqueName } from '../core/renderqueue.js';
+import { RenderQueue, uniqueName, describeSettings, phasesFor } from '../core/renderqueue.js';
 import { download } from '../platform.js';
 
-export function initQueue({ $, state, native, currentEdits, showNotice, showError }) {
+export function initQueue({ $, state, native, currentEdits, showNotice, showError, thumbFor }) {
   const used = new Set();
   let frame = null;
   let current = null; // { job, abort }
   let folder = null; // desktop: the folder chosen for the files
-  const queue = new RenderQueue({ onChange: () => render() });
+  let renderTimer = 0;
+  const queue = new RenderQueue({ onChange: () => scheduleRender() });
   queue.paused = true;
 
   // ---------------------------------------------------------------- what a job is
@@ -37,9 +39,7 @@ export function initQueue({ $, state, native, currentEdits, showNotice, showErro
       return;
     }
     const spec = specFor(kind);
-    const what = kind === 'video' ? 'video' : spec.fullSensor ? 'full sensor picture' : 'picture';
-    queue.add(spec, { kind, title: `${spec.name}: ${what}` });
-    $('queue-panel').open = true;
+    queue.add(spec, { kind, title: spec.name });
   }
 
   // ---------------------------------------------------------------- the hidden copy of the app
@@ -94,10 +94,34 @@ export function initQueue({ $, state, native, currentEdits, showNotice, showErro
     const bytes = new Uint8Array(await file.arrayBuffer());
     const el = await runnerFrame();
     const api = el.contentWindow.illuminator;
-    await api.open(photo.name, bytes, { edits: job.spec.edits });
-    if (job.spec.fullSensor) await api.fullSensor(job.spec.fullSensor);
-    const out = job.spec.kind === 'video' ? await api.exportVideo() : await api.export(job.spec.export);
-    return save(out);
+    // The bar: each step has its share; inside a step it follows what the hidden copy reports (never backwards).
+    const phases = phasesFor(job.spec);
+    let phase = 0;
+    let within = 0;
+    const show = (stage) => queue.setProgress(job, phases.slice(0, phase).reduce((n, p) => n + p.weight, 0) + phases[phase].weight * within, stage);
+    const names = { open: 'Opening the photo', render: 'Rendering from the full sensor', export: job.spec.kind === 'video' ? 'Making the video' : 'Saving the picture' };
+    const step = (n) => {
+      phase = n;
+      within = 0;
+      show(names[phases[n].name]);
+    };
+    const off = api.on('progress', ({ stage, progress }) => {
+      within = Math.max(within, Math.min(0.98, progress || 0));
+      show(stage || names[phases[phase].name]);
+    });
+    try {
+      step(0);
+      await api.open(photo.name, bytes, { edits: job.spec.edits });
+      if (job.spec.fullSensor) {
+        step(phases.findIndex((p) => p.name === 'render'));
+        await api.fullSensor(job.spec.fullSensor);
+      }
+      step(phases.length - 1);
+      const out = job.spec.kind === 'video' ? await api.exportVideo() : await api.export(job.spec.export);
+      return await save(out);
+    } finally {
+      off();
+    }
   }
 
   async function pump() {
@@ -126,7 +150,21 @@ export function initQueue({ $, state, native, currentEdits, showNotice, showErro
     pump();
   }
 
-  // ---------------------------------------------------------------- the panel
+  // ---------------------------------------------------------------- the view
+  function setView(on) {
+    on = !!on;
+    if (state.queueView === on) return;
+    state.queueView = on;
+    document.querySelector('.stage').classList.toggle('queue', on);
+    $('queue-view').hidden = !on;
+    for (const b of document.querySelectorAll('.queue-view-toggle')) {
+      b.classList.toggle('active', on);
+      b.setAttribute('aria-pressed', String(on));
+    }
+    if (on && state.playing) $('pause-btn').click();
+    render();
+  }
+
   const STATUS_TEXT = { waiting: 'Waiting', running: 'Running…', done: 'Done', failed: 'Failed', cancelled: 'Cancelled' };
 
   function button(text, title, onclick, cls = 'link-button') {
@@ -135,30 +173,77 @@ export function initQueue({ $, state, native, currentEdits, showNotice, showErro
     return b;
   }
 
+  function card(job) {
+    const li = document.createElement('li');
+    li.className = `queue-card ${job.status}`;
+    const photo = state.lib && state.lib.get(job.spec.photoId);
+    const url = photo && thumbFor ? thumbFor(photo) : null;
+    const thumb = document.createElement('div');
+    thumb.className = 'queue-thumb';
+    if (url) thumb.append(Object.assign(document.createElement('img'), { src: url, alt: '' }));
+    if (job.kind === 'video') thumb.append(Object.assign(document.createElement('span'), { className: 'queue-badge', textContent: '▶', title: 'Video' }));
+    const main = document.createElement('div');
+    main.className = 'queue-main';
+    const head = document.createElement('div');
+    head.className = 'queue-head';
+    head.append(
+      Object.assign(document.createElement('span'), { className: 'queue-title', textContent: job.title }),
+      Object.assign(document.createElement('span'), { className: 'queue-kind', textContent: job.kind === 'video' ? 'Video' : job.spec.fullSensor ? 'Full sensor picture' : 'Picture' }),
+    );
+    const percent = Math.round(job.progress * 100);
+    const bar = document.createElement('div');
+    bar.className = 'queue-bar-row';
+    const track = document.createElement('div');
+    track.className = 'queue-track';
+    track.setAttribute('role', 'progressbar');
+    track.setAttribute('aria-valuemin', '0');
+    track.setAttribute('aria-valuemax', '100');
+    track.setAttribute('aria-valuenow', String(percent));
+    track.append(Object.assign(document.createElement('div'), { className: 'queue-fill' }));
+    track.firstChild.style.width = `${percent}%`;
+    bar.append(track, Object.assign(document.createElement('span'), { className: 'queue-percent', textContent: `${percent}%` }));
+    const status = document.createElement('div');
+    status.className = 'queue-status';
+    status.textContent = job.status === 'failed' ? `Failed: ${job.error}`
+      : job.status === 'done' ? `Saved ${typeof job.output === 'string' ? job.output.split(/[\\/]/).pop() : ''}`.trim()
+        : job.status === 'running' ? job.stage || STATUS_TEXT.running : STATUS_TEXT[job.status];
+    const chips = document.createElement('div');
+    chips.className = 'queue-chips';
+    for (const text of describeSettings(job.spec)) chips.append(Object.assign(document.createElement('span'), { className: 'queue-chip', textContent: text }));
+    main.append(head, bar, status, chips);
+    const actions = document.createElement('div');
+    actions.className = 'queue-actions';
+    if (job.status === 'waiting') actions.append(button('▲', 'Earlier', () => queue.move(job.id, -1)), button('▼', 'Later', () => queue.move(job.id, 1)));
+    if (job.status === 'waiting' || job.status === 'running') actions.append(button('Cancel', 'Cancel this job', () => cancel(job)));
+    else actions.append(button('Remove', 'Remove from the list', () => queue.remove(job.id)));
+    li.append(thumb, main, actions);
+    return li;
+  }
+
+  function scheduleRender() {
+    if (renderTimer) return;
+    renderTimer = setTimeout(() => {
+      renderTimer = 0;
+      render();
+    }, 120);
+  }
+
   function render() {
-    $('queue-list').replaceChildren(...queue.jobs.map((job) => {
-      const li = document.createElement('li');
-      li.className = `queue-job ${job.status}`;
-      const title = Object.assign(document.createElement('span'), { className: 'queue-title', textContent: job.title });
-      const status = Object.assign(document.createElement('span'), { className: 'queue-status', textContent: job.status === 'failed' ? `Failed: ${job.error}` : job.status === 'done' && job.output ? `Saved ${typeof job.output === 'string' ? job.output.split(/[\\/]/).pop() : ''}` : STATUS_TEXT[job.status] });
-      const actions = document.createElement('span');
-      actions.className = 'queue-actions';
-      if (job.status === 'waiting') {
-        actions.append(button('▲', 'Earlier', () => queue.move(job.id, -1)), button('▼', 'Later', () => queue.move(job.id, 1)));
-      }
-      if (job.status === 'waiting' || job.status === 'running') actions.append(button('Cancel', 'Cancel this job', () => cancel(job)));
-      else actions.append(button('Remove', 'Remove from the list', () => queue.remove(job.id)));
-      li.append(title, status, actions);
-      return li;
-    }));
-    $('queue-summary').textContent = queue.summary();
+    const summary = queue.summary();
+    const canAdd = !!libraryPhoto() && !!state.info;
+    for (const id of ['queue-add-photo', 'queue-add-video', 'queue-add-photo-view', 'queue-add-video-view']) $(id).disabled = !canAdd;
+    $('queue-summary').textContent = summary;
+    const active = queue.jobs.filter((j) => j.status === 'waiting' || j.status === 'running').length;
+    $('queue-open').textContent = active ? `Open Render Queue (${active} waiting)` : 'Open Render Queue';
+    if (!state.queueView) return;
+    $('queue-view-summary').textContent = summary;
+    const list = $('queue-list');
+    list.replaceChildren(...queue.jobs.map(card));
+    $('queue-empty').hidden = queue.jobs.length > 0;
     const running = !queue.paused;
     $('queue-toggle').textContent = running && (queue.running || queue.counts().waiting) ? 'Pause queue' : 'Start queue';
     $('queue-toggle').disabled = !queue.jobs.some((j) => j.status === 'waiting' || j.status === 'running');
     $('queue-clear').disabled = !queue.jobs.some((j) => !['waiting', 'running'].includes(j.status));
-    const canAdd = !!libraryPhoto() && !!state.info;
-    $('queue-add-photo').disabled = !canAdd;
-    $('queue-add-video').disabled = !canAdd;
     $('queue-folder-row').hidden = !(native && native.chooseOutputFolder);
     $('queue-folder').textContent = folder ? folder : 'No folder chosen';
   }
@@ -176,8 +261,11 @@ export function initQueue({ $, state, native, currentEdits, showNotice, showErro
     return !!folder;
   }
 
-  $('queue-add-photo').onclick = () => add('photo');
-  $('queue-add-video').onclick = () => add('video');
+  for (const [id, kind] of [['queue-add-photo', 'photo'], ['queue-add-video', 'video'], ['queue-add-photo-view', 'photo'], ['queue-add-video-view', 'video']]) {
+    $(id).onclick = () => add(kind);
+  }
+  for (const b of document.querySelectorAll('.queue-view-toggle')) b.onclick = () => setView(!state.queueView);
+  $('queue-open').onclick = () => setView(true);
   $('queue-clear').onclick = () => queue.clearFinished();
   $('queue-folder-btn').onclick = () => chooseFolder();
   $('queue-toggle').onclick = async () => {
@@ -192,5 +280,5 @@ export function initQueue({ $, state, native, currentEdits, showNotice, showErro
   };
 
   render();
-  return { queue, render, add };
+  return { queue, render, add, setView };
 }
