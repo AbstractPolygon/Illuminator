@@ -162,7 +162,7 @@ export function describeSettings(spec) {
   const out = [];
   const edits = spec.edits || {};
   const camera = edits.camera || {};
-  const rendering = edits.rendering || {};
+  const rendering = { ...(edits.rendering || {}), ...(spec.videoSettings || {}) };
   if (spec.kind === 'video') {
     const format = rendering['video-format'];
     const codec = rendering['video-codec'];
@@ -181,6 +181,7 @@ export function describeSettings(spec) {
   if (spec.fullSensor) out.push(`Full sensor ${spec.fullSensor.scale}×${spec.fullSensor.passes ? `, recovery ${spec.fullSensor.passes}` : ''}`);
   const f = F_STOPS[+camera.fstop];
   if (f) out.push(`f/${f}`);
+  if (spec.animation) out.push('Animation of the open photo');
   if (spec.look && spec.look.name) out.push(`Look: ${spec.look.name}`);
   return out;
 }
