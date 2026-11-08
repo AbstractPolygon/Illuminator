@@ -1,3 +1,4 @@
+import { peakingPixels, PEAKING_MAX_PIXELS } from './core/peaking.js';
 import { VERSION } from './version.js';
 import { readEdits, writeEdits, editsStore, EDITS_FORMAT, EDITS_VERSION } from './edits.js';
 import { Engine, toImageData } from './engine.js';
@@ -861,6 +862,8 @@ function scheduleHistogram() {
   requestAnimationFrame(() => {
     histogramQueued = false;
     drawHistogram();
+    drawPeaking();
+    refreshDepthRuler();
   });
 }
 
@@ -1044,6 +1047,167 @@ async function updateSpreadOverlay() {
     }
   }
 }
+
+// ---------------------------------------------------------------- focus peaking
+
+// Focus peaking: marks the sharp edges of the picture in green. Looks at the
+// picture as shown (read small, about a million pixels at most): an edge is
+// marked where the brightness changes quickly from one pixel to the next,
+// which blurred edges do not. Drawn on its own canvas over the picture.
+let peakingScratch = null;
+function drawPeaking() {
+  const overlay = $('peaking-overlay');
+  const on = $('focus-peaking').checked && state.info && state.mode === 'camera' && !state.depthShown && !canvas.classList.contains('hidden') && !(state.lastImage && state.lastImage.pair);
+  overlay.hidden = !on;
+  if (!on) return;
+  const w = canvas.width;
+  const h = canvas.height;
+  if (!w || !h) return;
+  const k = Math.min(1, Math.sqrt(PEAKING_MAX_PIXELS / (w * h)));
+  const sw = Math.max(2, Math.round(w * k));
+  const sh = Math.max(2, Math.round(h * k));
+  peakingScratch ||= document.createElement('canvas');
+  if (peakingScratch.width !== sw || peakingScratch.height !== sh) {
+    peakingScratch.width = sw;
+    peakingScratch.height = sh;
+  }
+  const sctx = peakingScratch.getContext('2d', { willReadFrequently: true });
+  sctx.drawImage(canvas, 0, 0, w, h, 0, 0, sw, sh);
+  const data = sctx.getImageData(0, 0, sw, sh).data;
+  // Level 0..100 to a threshold from 0.30 (few edges) down to 0.03 (nearly every edge).
+  const threshold = 0.3 - 0.0027 * +$('peaking-level').value;
+  const out = peakingPixels(data, sw, sh, threshold);
+  if (overlay.width !== sw) overlay.width = sw;
+  if (overlay.height !== sh) overlay.height = sh;
+  overlay.getContext('2d').putImageData(new ImageData(out, sw, sh), 0, 0);
+  for (const key of ['width', 'height', 'left', 'top']) overlay.style[key] = canvas.style[key];
+}
+
+$('focus-peaking').onchange = drawPeaking;
+$('peaking-level').oninput = () => {
+  showSliderValue($('peaking-level'));
+  drawPeaking();
+};
+
+// ---------------------------------------------------------------- depth ruler
+
+// The depth ruler: a strip under the Depth settings with how much of the
+// picture lies at each depth (nearer left, blue; farther right, orange), the
+// focus as a line and the sharp range around it as a band. Click or drag to
+// focus there. The counts come from the depth map once it exists.
+const ruler = { info: null, key: '', counts: null, lo: -1.6, hi: 1.6, busy: false, ready: 0 };
+
+function drawDepthRuler() {
+  const row = $('depth-ruler-row');
+  const on = hasDepth() && state.mode === 'camera' && !!state.info;
+  row.hidden = !on;
+  if (!on) return;
+  const cv = $('depth-ruler');
+  // Drawn at the size it is shown, so the lettering stays sharp.
+  const dpr = window.devicePixelRatio || 1;
+  const W = Math.round(cv.clientWidth * dpr);
+  const H = Math.round(cv.clientHeight * dpr);
+  if (!W || !H) return;
+  if (cv.width !== W) cv.width = W;
+  if (cv.height !== H) cv.height = H;
+  const g = cv.getContext('2d');
+  g.clearRect(0, 0, W, H);
+  const { lo, hi } = ruler;
+  const xOf = (a) => ((Math.min(hi, Math.max(lo, a)) - lo) / (hi - lo)) * W;
+  const foot = Math.round(14 * dpr);
+  if (ruler.counts) {
+    const n = ruler.counts.length;
+    let max = 1;
+    for (const c of ruler.counts) max = Math.max(max, c);
+    for (let i = 0; i < n; i++) {
+      const t = i / (n - 1);
+      const bar = Math.sqrt(ruler.counts[i] / max) * (H - foot - 4 * dpr);
+      // Blue (near) through gray to orange (far).
+      g.fillStyle = t < 0.5 ? `rgb(${Math.round(60 + 2 * t * 120)}, ${Math.round(130 + 2 * t * 40)}, 255)` : `rgb(255, ${Math.round(170 - (t - 0.5) * 2 * 40)}, ${Math.round(160 - (t - 0.5) * 2 * 130)})`;
+      g.fillRect(Math.floor((i * W) / n), H - foot - bar, Math.ceil(W / n) - dpr, bar);
+    }
+  }
+  const focus = +$('focus').value;
+  const spread = hasDepth() ? focusField().spread : 0;
+  // The sharp range (and the soft edge around it).
+  g.fillStyle = 'rgba(255, 255, 255, 0.18)';
+  const x0 = xOf(focus - spread);
+  const x1 = xOf(focus + spread);
+  g.fillRect(x0, 0, Math.max(1, x1 - x0), H - foot);
+  g.fillStyle = '#fff';
+  g.fillRect(Math.round(xOf(focus)) - dpr, 0, 2 * dpr, H - foot);
+  g.fillStyle = 'rgba(255, 255, 255, 0.6)';
+  g.font = `${Math.round(11 * dpr)}px sans-serif`;
+  g.textBaseline = 'bottom';
+  g.textAlign = 'left';
+  g.fillText('Near', 3 * dpr, H - dpr);
+  g.textAlign = 'right';
+  g.fillText('Far', W - 3 * dpr, H - dpr);
+  g.textAlign = 'center';
+  g.fillText(focus.toFixed(2), Math.min(W - 24 * dpr, Math.max(24 * dpr, xOf(focus))), H - dpr);
+}
+
+// Fetches the counts again when the photo, its depth settings or its depth map changed.
+async function refreshDepthRuler() {
+  drawDepthRuler();
+  if (!(hasDepth() && state.mode === 'camera' && state.info) || ruler.busy) return;
+  const key = ['depth-smooth', 'depth-hq', 'depth-style', 'depth-blend', 'depth-objects', 'depth-objects-soft', 'depth-contrast', 'lytro-depth'].map((id) => ($(id).type === 'checkbox' ? $(id).checked : $(id).value)).join('|') + `|${ruler.ready}`;
+  if (ruler.info === state.info && ruler.key === key && ruler.counts) return;
+  const info = state.info;
+  if (ruler.info !== info) ruler.counts = null;
+  ruler.busy = true;
+  try {
+    const res = await engine.request('depthHistogram', {});
+    if (state.info !== info) return;
+    if (res && res.counts) {
+      ruler.counts = res.counts;
+      ruler.lo = res.lo;
+      ruler.hi = res.hi;
+      ruler.info = info;
+      ruler.key = key;
+      drawDepthRuler();
+    } else {
+      // No depth map yet: the next time a picture is drawn (or the depth is ready) asks again.
+      ruler.info = info;
+      ruler.key = '';
+    }
+  } catch {
+    // The ruler is only a guide.
+  } finally {
+    ruler.busy = false;
+  }
+}
+
+(() => {
+  const cv = $('depth-ruler');
+  let dragging = false;
+  const setFocusFrom = (event, final) => {
+    const r = cv.getBoundingClientRect();
+    const t = Math.min(1, Math.max(0, (event.clientX - r.left) / Math.max(1, r.width)));
+    $('focus').value = (ruler.lo + t * (ruler.hi - ruler.lo)).toFixed(2);
+    showSliderValue($('focus'));
+    drawDepthRuler();
+    cameraChanged({ final });
+  };
+  cv.addEventListener('pointerdown', (event) => {
+    if (!hasDepth()) return;
+    dragging = true;
+    cv.setPointerCapture(event.pointerId);
+    setFocusFrom(event, false);
+  });
+  cv.addEventListener('pointermove', (event) => {
+    if (dragging) setFocusFrom(event, false);
+  });
+  const stop = (event) => {
+    if (!dragging) return;
+    dragging = false;
+    setFocusFrom(event, true);
+  };
+  cv.addEventListener('pointerup', stop);
+  cv.addEventListener('pointercancel', () => {
+    dragging = false;
+  });
+})();
 
 // Depth slider: the depth of field. Lower is shallower (things away from
 // the focus blur faster), higher is deeper; each 50 steps is 4x the blur.
@@ -2152,6 +2316,7 @@ function layoutCanvas() {
   canvas.style.imageRendering = scale >= 2 ? 'pixelated' : 'auto';
   const overlay = $('spread-overlay');
   for (const k of ['width', 'height', 'left', 'top']) overlay.style[k] = canvas.style[k];
+  for (const k of ['width', 'height', 'left', 'top']) $('peaking-overlay').style[k] = canvas.style[k];
   canvas.classList.toggle('pannable', view.k > 1 && state.mode !== 'camera');
   $('zoom-label').textContent = view.k === 1 ? 'Fit' : `${Math.round(scale * 100)}%`;
   positionCropBox();
@@ -2270,6 +2435,8 @@ async function applyFocusAt(x, y, opening) {
 }
 
 engine.onDepthReady = (msg) => {
+  ruler.ready++;
+  refreshDepthRuler();
   if (lastClick && (lastClick.again || (msg && msg.reapply))) {
     lastClick.again = false;
     applyFocusAt(lastClick.x, lastClick.y, false);
@@ -2387,6 +2554,7 @@ function cameraChanged({ final }) {
   invalidateAnimation();
   scheduleSave();
   updateSpreadOverlay();
+  drawDepthRuler();
   if (state.fullRes) setFullRes(false, { restore: false });
   if (!state.depthShown) {
     backToCamera();

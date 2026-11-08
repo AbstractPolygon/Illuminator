@@ -11,7 +11,7 @@ export function initLocalAdjustments({ $, applySettingsSoon, scheduleSave, state
     linear: { x: ['ml-x', 100], y: ['ml-y', 100], angle: ['ml-angle', 1], width: ['ml-width', 100] },
     depth: { near: ['md-near', 100], far: ['md-far', 100], feather: ['md-feather', 100] },
   };
-  const FX_SLIDERS = { exposure: 'mx-exposure', contrast: 'mx-contrast', saturation: 'mx-saturation', temperature: 'mx-temperature', tint: 'mx-tint', blur: 'mx-blur', pixelate: 'mx-pixelate', sketch: 'mx-sketch' };
+  const FX_SLIDERS = { exposure: 'mx-exposure', contrast: 'mx-contrast', saturation: 'mx-saturation', temperature: 'mx-temperature', tint: 'mx-tint', haze: 'mx-haze', blur: 'mx-blur', pixelate: 'mx-pixelate', sketch: 'mx-sketch' };
 
   function getMasks() {
     return parseMasks($('local-masks').value);

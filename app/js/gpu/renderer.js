@@ -1038,7 +1038,7 @@ uniform float uLensEdge;   // easing of the correction past r = 0.75
 uniform int uMaskCount;
 uniform int uMaskKind[${MAX_MASKS}];  // 0 radial, 1 linear, 2 depth
 uniform vec4 uMaskShape[${MAX_MASKS}];
-uniform vec4 uMaskExtra[${MAX_MASKS}]; // feather (radial), -, -, invert
+uniform vec4 uMaskExtra[${MAX_MASKS}]; // feather (radial), haze, -, invert
 uniform vec4 uMaskFx[${MAX_MASKS}];   // exposure, contrast, saturation, temperature
 uniform vec4 uMaskFx2[${MAX_MASKS}];  // tint
 uniform int uMaskShow;
@@ -1171,6 +1171,9 @@ vec3 applyLocal(vec3 c, vec2 n, float aspect) {
     float w = maskWeight(i, n, aspect);
     if (w > 0.0) {
       vec4 fx = uMaskFx[i];
+      float haze = uMaskExtra[i].y;
+      if (haze > 0.0) c += (vec3(0.5, 0.56, 0.68) - c) * (0.75 * haze * w);
+      else if (haze < 0.0) c = max((c - vec3(0.5, 0.56, 0.68) * (-0.5 * haze * w)) / (1.0 + 0.5 * haze * w), vec3(0.0));
       c *= exp2(fx.x * w);
       c.r *= 1.0 + 0.25 * fx.w * w;
       c.b *= 1.0 - 0.25 * fx.w * w;

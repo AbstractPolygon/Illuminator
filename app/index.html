@@ -113,6 +113,7 @@
       <div id="drop-zone" class="viewer">
         <canvas id="view"></canvas>
         <canvas id="spread-overlay" hidden></canvas>
+        <canvas id="peaking-overlay" hidden></canvas>
         <div id="crop-box" class="crop-box" hidden>
           <div class="crop-grid"></div>
           <span data-h="nw"></span><span data-h="n"></span><span data-h="ne"></span><span data-h="e"></span>
@@ -485,6 +486,9 @@
             <label title="Shifts what the mask covers toward magenta or green">Tint <output data-for="mx-tint" for="mx-tint">0</output>
               <input id="mx-tint" type="range" min="-100" max="100" step="1" value="0" data-default="0">
             </label>
+            <label title="Fades what the mask covers toward a soft blue-gray, like fog or distance haze. Below zero it removes haze and stretches the contrast. With a Depth mask it fogs the far parts">Haze <output data-for="mx-haze" for="mx-haze">0</output>
+              <input id="mx-haze" type="range" min="-100" max="100" step="1" value="0" data-default="0">
+            </label>
             <label title="Softens what the mask covers">Blur <output data-for="mx-blur" for="mx-blur">0</output>
               <input id="mx-blur" type="range" min="0" max="100" step="1" value="0" data-default="0">
             </label>
@@ -510,6 +514,13 @@
             <input id="dof-depth" type="range" min="-100" max="100" step="1" value="0" data-default="0">
           </label>
           <input id="focus" type="hidden" value="0">
+          <div id="depth-ruler-row" class="depth-ruler" title="Where the picture lies in depth, nearer on the left (blue), farther on the right (orange). The line is the focus and the band the sharp range. Click or drag to focus there" hidden>
+            <canvas id="depth-ruler" width="520" height="72"></canvas>
+          </div>
+          <label class="check" title="Marks the sharp edges in the picture in green, so you can see what is in focus"><input id="focus-peaking" type="checkbox"> Focus peaking</label>
+          <label title="How strong an edge has to be to be marked: higher marks more">Peaking level <output data-for="peaking-level" for="peaking-level">60</output>
+            <input id="peaking-level" type="range" min="0" max="100" step="1" value="60">
+          </label>
           <label title="Smooths the depth map, following the picture’s edges">Smoothing <output for="depth-smooth" data-for="depth-smooth">30</output>
             <input id="depth-smooth" type="range" min="0" max="100" step="5" value="30" data-default="30">
           </label>

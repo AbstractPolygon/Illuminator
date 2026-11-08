@@ -352,7 +352,7 @@ export function recipeMasks(viewFx, unsupported = []) {
     if (!c || !Array.isArray(c.fxSequence) || masks.length >= 16) return;
     const effects = c.fxSequence.filter((e) => e && e.enable !== false);
     const shapes = effects.filter((e) => /Mask$/.test(e.kind || ''));
-    const fx = { exposure: 0, contrast: 0, saturation: 0, temperature: 0, tint: 0, blur: 0, pixelate: 0, sketch: 0 };
+    const fx = { exposure: 0, contrast: 0, saturation: 0, temperature: 0, tint: 0, haze: 0, blur: 0, pixelate: 0, sketch: 0 };
     for (const e of effects) {
       switch (e.kind) {
         case 'fxExposure':

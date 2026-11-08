@@ -39,10 +39,10 @@ export function initKeyframes({ $, getMasks, maskLabel, state, canRender, F_STOP
 
   // Every setting of a local adjustment (living filters included) has a
   // track too: 'mask:<id>:<attr>'.
-  const MASK_FX = ['exposure', 'contrast', 'saturation', 'temperature', 'tint', 'blur', 'pixelate', 'sketch'];
+  const MASK_FX = ['exposure', 'contrast', 'saturation', 'temperature', 'tint', 'haze', 'blur', 'pixelate', 'sketch'];
   const MASK_SHAPE = { radial: ['x', 'y', 'w', 'h', 'feather'], linear: ['x', 'y', 'angle', 'width'], depth: ['near', 'far', 'feather'] };
   const MASK_ATTR_NAMES = {
-    strength: 'Strength', exposure: 'Exposure', contrast: 'Contrast', saturation: 'Saturation', temperature: 'Temperature', tint: 'Tint', blur: 'Blur', pixelate: 'Pixelate', sketch: 'Sketch',
+    strength: 'Strength', exposure: 'Exposure', contrast: 'Contrast', saturation: 'Saturation', temperature: 'Temperature', tint: 'Tint', haze: 'Haze', blur: 'Blur', pixelate: 'Pixelate', sketch: 'Sketch',
     x: 'Center X', y: 'Center Y', w: 'Width', h: 'Height', feather: 'Feather', angle: 'Angle', width: 'Width', near: 'Near', far: 'Far',
   };
   const MASK_LIMITS = { strength: [0, 1], blur: [0, 1], pixelate: [0, 1], sketch: [0, 1], exposure: [-2, 2], x: [0, 1], y: [0, 1], w: [0.01, 1], h: [0.01, 1], feather: [0, 1], angle: [-180, 180], width: [0.01, 1], near: [-1.6, 1.6], far: [-1.6, 1.6] };
