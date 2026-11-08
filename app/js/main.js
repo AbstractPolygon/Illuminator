@@ -2,6 +2,7 @@ import { peakingPixels, PEAKING_MAX_PIXELS } from './core/peaking.js';
 import { VERSION } from './version.js';
 import { readEdits, writeEdits, editsStore, EDITS_FORMAT, EDITS_VERSION } from './edits.js';
 import { Engine, toImageData } from './engine.js';
+import { Timings, formatDuration, speedLimits, reportText } from './core/speedreport.js';
 import { blobReader, readPhotoSummary, openContainer } from './core/lfp.js';
 import { findRecipe, recipeToEdits } from './core/recipe.js';
 import { decodePngGray, parseDepthRange, stackDepth } from './core/userdepth.js';
@@ -667,6 +668,7 @@ async function openItem(photo) {
   }
   const sidecar = await state.lib.sidecar(photo).catch(() => null);
   state.current = { photo, name: photo.name, file, sidecar };
+  timings.clear(); // the speed report starts again with the photo
   state.wantThumb = !photo.thumb;
   if (state.grid) showGrid(false);
   renderLibrary();
@@ -768,6 +770,7 @@ function closePhoto() {
   $('placeholder').hidden = false;
   $('placeholder').innerHTML = '<p>Drop a Lytro <code>.LFR</code> or <code>.LFP</code> file here.</p>';
   $('info').replaceChildren();
+  $('speed').hidden = true;
   $('frame-label').textContent = '';
   setMode(state.mode);
 }
@@ -2217,6 +2220,7 @@ function showPhotoSizes() {
 
 function renderInfo() {
   showResolutionSizes();
+  scheduleSpeed();
   updateKeyButtons();
   const info = state.info;
   const rows = [];
@@ -2252,6 +2256,77 @@ function renderInfo() {
   }));
   renderGridInfo();
 }
+
+// ---------------------------------------------------------------- speed report
+
+// The Info panel's Speed block: how long each stage took on this computer (timed in the worker, engine.onTiming) and what limits it.
+const timings = new Timings();
+let speedFacts = null;
+let speedQueued = false;
+engine.onTiming = (msg) => {
+  timings.record(msg.stage, msg.ms, msg.where);
+  scheduleSpeed();
+};
+
+// At most about once a second, and only while the Info panel is open.
+function scheduleSpeed() {
+  if (speedQueued || !$('info').closest('details').open) return;
+  speedQueued = true;
+  setTimeout(() => {
+    speedQueued = false;
+    renderSpeed();
+  }, 800);
+}
+
+async function renderSpeed() {
+  const box = $('speed');
+  box.hidden = !state.info;
+  if (!state.info) return;
+  try {
+    speedFacts = await engine.request('speedFacts', {});
+  } catch {
+    // The report is only a guide: what it knew last time stays.
+  }
+  const facts = speedFacts || { renderer: 'CPU' };
+  const rows = timings.rows();
+  const dl = $('speed-stages');
+  const cells = rows.length ? rows.map((r) => [r.name, `${formatDuration(r.last)}${r.count > 1 ? ` (best ${formatDuration(r.best)})` : ''}`]) : [['No timings yet', 'they appear as you work']];
+  if (state.gpuMs != null) cells.push(['Graphics, per view', formatDuration(state.gpuMs)]);
+  dl.replaceChildren(...cells.flatMap(([k, v]) => {
+    const dt = document.createElement('dt');
+    dt.textContent = k;
+    const dd = document.createElement('dd');
+    dd.textContent = v;
+    return [dt, dd];
+  }));
+  $('speed-limits').replaceChildren(...speedLimits(facts, rows).map((l) => {
+    const li = document.createElement('li');
+    li.className = l.level;
+    li.textContent = l.text;
+    return li;
+  }));
+}
+
+$('info').closest('details').addEventListener('toggle', () => {
+  if ($('info').closest('details').open) renderSpeed();
+});
+
+$('speed-copy').onclick = async () => {
+  const text = reportText({
+    version: VERSION,
+    platform: typeof navigator !== 'undefined' ? navigator.userAgent : '',
+    facts: speedFacts || { renderer: 'CPU' },
+    rows: timings.rows(),
+    gpuMs: state.gpuMs,
+    photo: state.current ? state.current.name : '',
+  });
+  try {
+    await navigator.clipboard.writeText(text);
+    showNotice('Speed report copied', 'Paste it into a message.');
+  } catch {
+    showNotice('Speed report', text);
+  }
+};
 
 // GPU time of a recent camera view (measured where the browser allows it).
 function gpuTimeText() {

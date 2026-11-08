@@ -31,6 +31,11 @@ export class Engine {
       else this.request('stillData', { nonce: msg.nonce, bytes: null });
       return;
     }
+    // How long a stage took, for the speed report.
+    if (msg.type === 'timing') {
+      if (this.onTiming) this.onTiming(msg);
+      return;
+    }
     if (msg.type === 'depthReady') {
       if (this.onDepthReady) this.onDepthReady(msg);
       return;

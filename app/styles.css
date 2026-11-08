@@ -751,3 +751,13 @@ label.lut-amount { margin-top: 14px; }
 .mem-row { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; align-items: center; margin: 0 0 10px; }
 .mem-row input { grid-column: 1 / -1; width: 100%; }
 .mem-row output { font-variant-numeric: tabular-nums; color: var(--muted); }
+
+/* Info panel: the speed report */
+.speed { margin-top: 12px; display: flex; flex-direction: column; gap: 8px; }
+.speed h3 { margin: 0; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted, #9aa0a6); }
+#speed-stages dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
+.speed-limits { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; font-size: 12px; line-height: 1.4; }
+.speed-limits li { padding-left: 14px; position: relative; }
+.speed-limits li::before { content: ''; position: absolute; left: 2px; top: 0.5em; width: 6px; height: 6px; border-radius: 50%; background: #7a8088; }
+.speed-limits li.warn::before { background: #e0a030; }
+.speed-limits li.ok::before { background: #4caf7a; }

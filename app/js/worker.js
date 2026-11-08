@@ -59,6 +59,7 @@ import { preColorKey } from './core/precolorkey.js';
 import { helperCount, renderViews } from './viewpool.js';
 import { depthHelperCount, createDepthPool } from './depthpool.js';
 import { costHelperCount, pooledCostVolume } from './costpool.js';
+import { STAGE_NAMES } from './core/speedreport.js';
 import { encodeKept, decodeKept, fingerprint, keptHash, hashBytes } from './core/keptpicture.js';
 
 // Requests whose picture is wanted at 16 bits per channel (see finishGpu).
@@ -2126,8 +2127,33 @@ async function ensureDepth(id) {
   return promise;
 }
 
-// The stages of a measurement are separated by a tick (`tick`) so requests that arrived meanwhile (a colour change, a view) are served between them.
+// The speed report: a stage's time, and where it ran.
+function postTiming(stage, ms) {
+  post({ type: 'timing', stage, ms, where: state.gpu ? (hardwareGpu() ? 'graphics card' : 'software renderer') : 'processor' });
+}
+
+// What the speed report says about this computer.
+function speedFacts() {
+  return {
+    renderer: state.gpu ? `GPU (${state.gpu.name})` : 'CPU',
+    hardware: hardwareGpu(),
+    fallbacks: [...(state.cpuFallbacks || new Map())].map(([step, error]) => [step, String(error).slice(0, 120)]),
+    cores: (typeof navigator !== 'undefined' && navigator.hardwareConcurrency) || 0,
+    memoryGB: (typeof navigator !== 'undefined' && navigator.deviceMemory) || null,
+  };
+}
+
+// The measurement of a photo's depth, timed (one that was kept or recalled takes no time and is not counted).
 async function measureDepthOnce(id) {
+  const started = performance.now();
+  const ok = await measureDepthTimed(id);
+  const ms = performance.now() - started;
+  if (ok && ms > 50) postTiming('depth', ms);
+  return ok;
+}
+
+// The stages of a measurement are separated by a tick (`tick`) so requests that arrived meanwhile (a colour change, a view) are served between them.
+async function measureDepthTimed(id) {
   if (state.depth && !state.depthFast) return true;
   const sampler0 = state.sampler;
   if (state.depthFast) {
@@ -3294,7 +3320,7 @@ async function loseGpu() {
   return { lost: !!ext };
 }
 
-const handlers = { loseGpu, stillStore, stillData, memoryLimits: (limits) => { setMemoryLimits(limits); return {}; }, setLut, setCalibrations, measureWhite: measureWhiteImage, open, frames, refocusFrames, superRes, lytroEdof, superResPreview, view, focusAt, depthMap, spreadMask, depthHistogram, whiteBalanceAt, prepare, settings, setGrid, rawCrop, outputToSensor, readSection,
+const handlers = { loseGpu, stillStore, stillData, memoryLimits: (limits) => { setMemoryLimits(limits); return {}; }, setLut, setCalibrations, measureWhite: measureWhiteImage, open, frames, refocusFrames, superRes, lytroEdof, superResPreview, view, focusAt, depthMap, spreadMask, depthHistogram, speedFacts, whiteBalanceAt, prepare, settings, setGrid, rawCrop, outputToSensor, readSection,
   cancel: async ({ kind }) => { state.jobs[kind] = null; } };
 
 self.onmessage = async (event) => {
@@ -3305,6 +3331,7 @@ self.onmessage = async (event) => {
     if (!handler) throw new Error(`Unknown request ${msg.type}`);
     if (gpuContextLost()) await recoverGpuFor(msg);
     let result;
+    const started = performance.now();
     try {
       result = await handler(msg);
     } catch (err) {
@@ -3313,6 +3340,8 @@ self.onmessage = async (event) => {
       result = await handler(msg);
     }
     if (result !== undefined) post({ id: msg.id, type: 'result', result });
+    // The speed report (Info panel) keeps how long each stage took.
+    if (STAGE_NAMES[msg.type] && !(result && result.cancelled)) postTiming(msg.type, performance.now() - started);
   } catch (err) {
     post({ id: msg.id, type: 'error', message: err && err.message ? err.message : String(err) });
   } finally {
