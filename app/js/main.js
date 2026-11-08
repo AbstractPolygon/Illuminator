@@ -687,7 +687,6 @@ async function importPhotos(entries, { album = state.album, replace = false } = 
 
 async function openItem(photo) {
   state.scripted = false;
-  if (queueUi) queueUi.setView(false);
   closeMenu();
   await calReady;
   const file = await state.lib.file(photo).catch(() => null);
@@ -2181,7 +2180,6 @@ function showSidebarEnabled() {
 
 function setMode(mode) {
   showSidebarEnabled();
-  if (queueUi) queueUi.setView(false);
   // The Lenslets view compares the sensor with the picture shown before.
   if (mode === 'lenslets' && state.mode === 'camera' && state.lastImage && !state.lastImage.pair) state.lensPicture = state.lastImage;
   state.mode = mode;
@@ -2408,6 +2406,9 @@ function renderGridInfo() {
   $('grid-info').textContent = `Pitch ${fmt(g.pitch, 3)} px, row step ${fmt(g.rowStep, 3)} px, rotation ${fmt(g.rotation * 1000, 3)} mrad, ` +
     `center (${fmt(g.ox, 2)}, ${fmt(g.oy, 2)}). Alignment score ${fmt(info.gridQuality, 3)}.`;
 }
+
+// The Camera and Lenslets buttons take the Render Queue view back to the photo (opening a photo from the library does not).
+for (const b of document.querySelectorAll('#modes button')) b.addEventListener('click', () => queueUi && queueUi.setView(false), true);
 
 // ---------------------------------------------------------------- zoom
 

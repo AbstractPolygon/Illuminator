@@ -14,7 +14,7 @@ A stereo pair from two viewpoints across the lens, for photos and videos.
 
 ## Render Queue
 
-The Render Queue makes pictures and videos one after another in the background, so a long full sensor render or a video does not hold up your editing. It has its own view, which takes the place of the photo: click the <img src="images/queue-view.png" width="20" height="20" alt="Render Queue"> icon to the left of *Quick export* (click it again, or any mode or photo, to go back).
+The Render Queue makes pictures and videos one after another in the background, so a long full sensor render or a video does not hold up your editing. It has its own view, which takes the place of the photo: click the <img src="images/queue-view.png" width="20" height="20" alt="Render Queue"> icon to the left of *Quick export* (click it again, or the Camera or Lenslets button, to go back). Choosing a photo in the library keeps you in the Render Queue view, so you can pick photo after photo and add each to the queue; the view says which photo *Add picture* and *Add video* will use.
 
 1. Set a library photo up as you want it (its settings, *Photo* format, color space and size, *Full sensor* with its *Scale* and *Detail recovery*, or the animation and *Video* settings).
 2. *Add picture* or *Add video* (in the Render Queue view, or in the *Render Queue* section of the right sidebar, below *Render Settings*) puts a job in the list. The job keeps the photo's settings as they are at that moment; carry on editing the photo, or other photos, as you like. A video needs *Animation* turned on.
