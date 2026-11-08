@@ -514,7 +514,7 @@
             <input id="depth-smooth" type="range" min="0" max="100" step="5" value="30" data-default="30">
           </label>
           <label id="lytro-depth-row" class="check" title="Uses the depth map edited in Lytro Desktop, imported with the photo, instead of measuring depth" hidden><input id="lytro-depth" type="checkbox" checked> Lytro Desktop depth map</label>
-          <label id="depth-style-row" title="How the depth map is measured. Automatic: the engine's way for raw camera photos (Classic Desktop), the blend otherwise. Blended: the Illuminator and the Classic Desktop depth together, with a slider for the mix (more fine detail on some photos, slower). Illuminator: Illuminator's measurement, a plain cost volume. Classic Desktop: only the engine's measurement.">Depth method
+          <label id="depth-style-row" title="How the depth map is measured. Automatic: Lytro Desktop's style (Classic Desktop). Blended: the Illuminator and the Classic Desktop depth together, with a slider for the mix (more fine detail on some photos, slower). Illuminator: Illuminator's measurement, a plain cost volume. Classic Desktop: only the engine's measurement.">Depth method
             <select id="depth-style">
               <option value="auto" selected>Automatic</option>
               <option value="classic">Illuminator</option>

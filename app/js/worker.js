@@ -1655,7 +1655,8 @@ function useHotPixelFix(on) {
 function resolveDepthStyle(v) {
   // a depth model works on top of the automatic method's measurement
   if (methodDepthModel(v)) v = 'auto';
-  return v && v !== 'auto' && v !== 'guided' ? v : (engineDepthAvailable() ? 'match' : 'combined');
+  // Automatic is Lytro Desktop's style (Classic Desktop): the engine's own estimator for raw photos with its ray tables, the Lytro-style estimator for the rest.
+  return v && v !== 'auto' && v !== 'guided' ? v : 'match';
 }
 
 // The model's relative depth with the model's smoothing and curve settings applied, and fitted to the measured depth (kept until a setting or the measurement changes).
@@ -2020,12 +2021,10 @@ async function measureDepthOnce(id) {
     // Normal quality: the plain cost volume, about twice as fast; high adds
     // occlusion-aware matching and edge-aware filtering (core/depth.js).
     const fast = state.settings.depthQuality !== 'high';
-    // Combined is the default: the classic and the Lytro-style depth, blended
-    // (core/depthcombine.js). Without a real GPU the Lytro-style half would take
-    // minutes, so classic alone is measured there. ('match' measures the
-    // Lytro-style depth alone.)
-    // Raw photos with the engine's ray tables measure depth the engine's way by default (its views and its estimator, core/enginedepth.js:
-    // within 0.05 of Lytro Desktop's own pictures, the blend scores worse), on the CPU too.
+    // The default is Lytro Desktop's style ('match'): raw photos with the engine's ray tables measure depth the engine's way (its views and its estimator,
+    // core/enginedepth.js: within 0.05 of Lytro Desktop's own pictures, the blend scores worse), on the CPU too; other photos get the Lytro-style estimator. Without a
+    // real GPU that estimator would take minutes, so classic alone is measured there. 'Blended' (combined) mixes the classic and the Lytro-style depth
+    // (core/depthcombine.js) when chosen.
     const engineDefault = engineDepthAvailable();
     let style = resolveDepthStyle(state.settings.depthStyle);
     if ((style === 'combined' || (style === 'match' && !engineDefault)) && !hardwareGpu() && !hook('forceStyle')) style = 'classic';
