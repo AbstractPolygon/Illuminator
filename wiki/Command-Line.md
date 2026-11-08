@@ -37,7 +37,7 @@ Photos are made on the graphics card when the computer has one, as in the app; w
 | `--set setting=value` | Any setting from `controls`, for example `--set ev=0.5 --set tone-contrast=20`. Repeat for more. |
 | `--edits file.json` | An edits document saved by Illuminator, applied on top |
 | `--full-sensor`, `--scale`, `--passes` | Render from every sensor pixel, with its *Scale* and *Detail recovery* |
-| `--script file.js` | Runs a script in the app once the photo is open (see below). Without `-o` or `--format` it makes no picture of its own. |
+| `--script file.js` | Runs a script in the app once the photo is open (see below). Without `-o` or `--format` it makes no picture. |
 | `--timeout seconds` | Gives up on a photo after this long (1200 by default) |
 | `--exit-file file` | Writes the exit code to this file |
 | `--quiet` | Prints only errors |
