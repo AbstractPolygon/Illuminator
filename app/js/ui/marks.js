@@ -97,6 +97,12 @@ export function initMarks({ $, state, renderLibrary, typing }) {
     draftRating = 0;
     showStars();
   };
+  // Enter in the keywords saves (the form's default button would be Cancel, the first one).
+  $('marks-keywords').addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    $('marks-dialog').querySelector('button[value="ok"]').click();
+  });
   $('marks-dialog').addEventListener('close', async () => {
     const photo = editing;
     editing = null;
