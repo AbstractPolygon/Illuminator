@@ -580,6 +580,16 @@
         </details>
         <details class="subpanel">
           <summary><h3>Tilt</h3></summary>
+          <label title="One-click starting points for the tilt: a miniature-style band, a landscape tilt and more. They set the tilt, aperture and blur, and you adjust from there">Preset
+            <select id="tilt-preset">
+              <option value="" selected>Choose…</option>
+              <option value="miniature">Miniature (horizontal band)</option>
+              <option value="miniatureVertical">Miniature (vertical band)</option>
+              <option value="landscape">Landscape tilt</option>
+              <option value="diagonal">Diagonal tilt</option>
+              <option value="off">Tilt off</option>
+            </select>
+          </label>
           <label class="check"><input id="tilt-on" type="checkbox"> Enabled</label>
           <label title="How far the plane of focus tilts">Tilt <output data-for="tilt" for="tilt">0</output>
             <input id="tilt" type="range" min="-100" max="100" step="1" value="0" data-default="0">

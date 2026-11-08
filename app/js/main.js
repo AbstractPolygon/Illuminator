@@ -1,9 +1,11 @@
 import { peakingPixels, PEAKING_MAX_PIXELS } from './core/peaking.js';
 import { VERSION } from './version.js';
-import { readEdits, writeEdits, editsStore, EDITS_FORMAT, EDITS_VERSION } from './edits.js';
+import { readEdits, writeEdits, editsStore, EDITS_FORMAT, EDITS_VERSION, EDIT_GROUPS } from './edits.js';
+const EDIT_GROUPS_CAMERA = new Set(EDIT_GROUPS.camera);
 import { Engine, toImageData } from './engine.js';
 import { Timings, formatDuration, speedLimits, reportText } from './core/speedreport.js';
 import { initScriptingApi } from './ui/api.js';
+import { tiltPreset } from './core/tiltpresets.js';
 import { blobReader, readPhotoSummary, openContainer } from './core/lfp.js';
 import { findRecipe, recipeToEdits } from './core/recipe.js';
 import { decodePngGray, parseDepthRange, stackDepth } from './core/userdepth.js';
@@ -2154,7 +2156,7 @@ function setMode(mode) {
   for (const id of ['depth-btn', 'depth-grey', 'depth-contrast', 'spread-show', 'depth-smooth', 'depth-hq', 'depth-style', 'depth-blend', 'depth-model-blend', 'depth-objects', 'depth-objects-soft', 'depth-model-smooth', 'depth-model-curve', 'lytro-depth']) $(id).disabled = !depthTools;
   // Photos imported with a depth map edited in Lytro Desktop can use it.
   $('lytro-depth-row').hidden = !(state.info && state.info.userDepth);
-  for (const id of ['fstop', 'bokeh', 'dof-depth', 'highlights', 'spread', 'spread-smooth', 'spread-blur', 'tilt-on', 'tilt', 'tilt-rotation', 'tilt-show', ...BOKEH_SHAPE]) $(id).disabled = !depthTools || stack;
+  for (const id of ['fstop', 'bokeh', 'dof-depth', 'highlights', 'spread', 'spread-smooth', 'spread-blur', 'tilt-on', 'tilt-preset', 'tilt', 'tilt-rotation', 'tilt-show', ...BOKEH_SHAPE]) $(id).disabled = !depthTools || stack;
   if (!$('tilt-on').checked) for (const id of ['tilt', 'tilt-rotation', 'tilt-show']) $(id).disabled = true;
   $('mv-on').disabled = !raw;
   $('nr-hot').disabled = !raw;
@@ -2773,6 +2775,31 @@ $('tilt-on').onchange = () => {
   renderTimeline();
   invalidateAnimation();
   cameraChanged({ final: true });
+};
+
+// Tilt presets: sets the tilt, aperture, blur (and for a miniature, color) in one step, as one undoable change.
+$('tilt-preset').onchange = () => {
+  const id = $('tilt-preset').value;
+  $('tilt-preset').value = '';
+  const preset = tiltPreset(id);
+  if (!preset || !state.info || $('tilt-on').disabled && id !== 'off') return;
+  for (const [key, value] of Object.entries(preset.values)) {
+    if (key === 'fNumber') {
+      $('fstop').value = F_STOPS.indexOf(value);
+      showFNumber();
+      continue;
+    }
+    const el = $(key);
+    if (el.type === 'checkbox') el.checked = value;
+    else el.value = value;
+    if (el.type === 'range') showSliderValue(el);
+    // Settings outside the camera panel (color) take the change like a drag of their slider.
+    if (!EDIT_GROUPS_CAMERA.has(key)) {
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+      el.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+  }
+  $('tilt-on').onchange();
 };
 
 // ---------------------------------------------------------------- settings

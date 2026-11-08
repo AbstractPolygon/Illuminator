@@ -30,6 +30,8 @@ The light field controls. Each can be animated: the <img src="images/key-prev.pn
 
 Tilts the plane of focus, like a tilt-shift lens: *Tilt* is the amount, *Rotation* the direction. *Enabled* turns the tilt off and on without losing the settings.
 
+*Preset* gives one-click starting points: *Miniature (horizontal band)* and *Miniature (vertical band)* (a sharp band with strong blur on both sides, a wide aperture and richer color: the toy-model look), *Landscape tilt* (a gentle tilt that keeps the ground sharp from near to far), *Diagonal tilt*, and *Tilt off*. A preset sets the tilt, rotation, spread, aperture and blur (and for a miniature, *Saturation*) in one step, which one Undo takes back; adjust from there. How it looks depends on the photo's depth: a miniature works best on a scene that recedes, such as a street seen from above.
+
 *Show tilt* tints the picture by how far each part lies from the tilted plane of focus, blue nearer and orange farther, clear where it is in focus. It and *Show spread* switch each other off.
 
 ## Perspective
