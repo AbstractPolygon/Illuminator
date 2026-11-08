@@ -25,6 +25,11 @@ Use the same photo each time: a raw ILLUM photo with a sharp thin object in fron
 ## Desktop app only
 - [ ] Help > Check for Updates says what it finds; with an older version the update window lists "What's new" and the download for this computer.
 - [ ] The Windows installers: the .exe's last page and the .msi's last page both have "Add Illuminator to the desktop" beside "Run Illuminator"; unticked leaves the desktop clean.
+- [ ] Camera > Depth: the depth ruler shows the photo's depth spread, and clicking or dragging it moves the focus; Focus peaking marks sharp edges in green.
+- [ ] Info > Speed lists the stages with their times, and says a graphics card is in use (and nothing is holding it back); Copy speed report puts text on the clipboard.
+- [ ] Render Settings > Photo > Color space: a photo saved as Display P3 (PNG, 16-bit PNG and JPEG) opens in another program with that profile.
+- [ ] Local Adjustments > Haze: on a Depth mask with a wide Feather, the far parts fade into fog; below zero it removes haze.
+- [ ] Command line: `Illuminator --cli render photo.lfr -o out.png --exit-file code.txt` makes the picture, code.txt holds 0, and the process ends without a crash message.
 
 ## If something fails
 Send: the line above, the text of any notice, the graphics card and driver version (the Info panel and `chrome://gpu` in the browser version), and the photo if you can.
