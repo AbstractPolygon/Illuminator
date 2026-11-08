@@ -93,7 +93,7 @@ export function initLooks({ $, state, showMenu, editName, confirmInMenu, current
   $('look-name').addEventListener('keydown', (e) => {
     if (e.key !== 'Enter') return;
     e.preventDefault();
-    $('look-ok').click();
+    $('look-dialog').close('ok');
   });
   $('look-dialog').addEventListener('close', async () => {
     if ($('look-dialog').returnValue !== 'ok' || !hasPhoto()) return;
