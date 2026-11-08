@@ -24,7 +24,7 @@ import { removePeriodicPatternRepeatedly, removeLatticeByTiles } from './core/no
 import { snapDepthEdges, snapToObjects, softenObjectEdges, EDGE_SNAP_DEPTH } from './core/segments.js';
 import { methodDepthModel, readDepthModel } from './core/depthmodels.js';
 import { runDepthModel, fitModelDepth, shapeModelDepth, fuseModelDepth } from './core/depthmodel.js';
-import { shapeDepthContrast, setDepthStyle, estimateDepth, focusAtPoint, smoothDepth, finishDepth, depthGuide, depthColorGuide, luminance, brightnessFloor, DEPTH_SEARCH, DEPTH_LCOST, DEPTH_CBCA, DEPTH_TRWS, DEPTH_COARSE, DEPTH_STEP, DEPTH_REGIONS, combineCoarse } from './core/depth.js';
+import { shapeDepthContrast, setDepthStyle, estimateDepth, estimateDepthPooled, poolable, focusAtPoint, smoothDepth, finishDepth, depthGuide, depthColorGuide, luminance, brightnessFloor, DEPTH_SEARCH, DEPTH_LCOST, DEPTH_CBCA, DEPTH_TRWS, DEPTH_COARSE, DEPTH_STEP, DEPTH_REGIONS, combineCoarse } from './core/depth.js';
 import { applyDepthOfField } from './core/dof.js';
 import { defringe, autoDefringe } from './core/defringe.js';
 import { makeLook, whiteBalanceGains, DEFAULT_KELVIN, solveWhiteBalance, autoWhiteBalance } from './core/color.js';
@@ -57,6 +57,7 @@ import { lytroSplatGpu } from './gpu/lytroengine.js';
 import { debugFlags, hook, setHook } from './core/debugflags.js';
 import { preColorKey } from './core/precolorkey.js';
 import { helperCount, renderViews } from './viewpool.js';
+import { depthHelperCount, createDepthPool } from './depthpool.js';
 import { encodeKept, decodeKept, fingerprint, keptHash } from './core/keptpicture.js';
 
 // Requests whose picture is wanted at 16 bits per channel (see finishGpu).
@@ -1997,7 +1998,7 @@ async function ensureViewDepth(id) {
   if (!(await ensureRefocusViews(id))) return false;
   if (state.depth) return true;
   const { outW, outH } = state.sampler;
-  const quick = measureClassic(id, true, () => {});
+  const quick = await measureClassic(id, true, () => {});
   if (!quick || state.sampler.outW !== outW) return false;
   state.depthRaw = quick;
   state.depthFast = true;
@@ -2085,7 +2086,7 @@ async function measureDepthOnce(id) {
     lap.views = Date.now() - tDepth;
     try {
       if (style === 'combined') {
-        const classic = measureClassic(id, fast, report(0, 0.4));
+        const classic = await measureClassic(id, fast, report(0, 0.4));
         lap.classic = Date.now() - tDepth - lap.views;
         await tick();
         const tMatch = Date.now();
@@ -2098,12 +2099,12 @@ async function measureDepthOnce(id) {
           state.depthRaw = { ...match, engineMap: undefined, alpha: combineDepth(classic.alpha, match.alpha, outW, outH, undefined, state.settings.depthBlend ?? 0.5) };
           lap.combine = Date.now() - tCombine;
         } else {
-          state.depthRaw = classic || match || measureClassic(id, fast, report(0, 1), true);
+          state.depthRaw = classic || match || (await measureClassic(id, fast, report(0, 1), true));
         }
       } else if (style === 'match') {
-        state.depthRaw = measureLytro(report(0, 1)) || measureClassic(id, fast, report(0, 1));
+        state.depthRaw = measureLytro(report(0, 1)) || (await measureClassic(id, fast, report(0, 1)));
       } else {
-        state.depthRaw = measureClassic(id, fast, report(0, 1));
+        state.depthRaw = await measureClassic(id, fast, report(0, 1));
       }
     } finally {
       DEPTH_REGIONS.objects = null;
@@ -2171,7 +2172,7 @@ function hardwareGpu() {
 // The classic depth (plain cost volume; high quality adds occlusion-aware
 // matching, a coarse match and edge-aware filtering). On the GPU when there is
 // one. Returns the finished, unsmoothed depth.
-function measureClassic(id, fast, progress) {
+async function measureClassic(id, fast, progress) {
   const { outW, outH } = state.sampler;
   setDepthStyle('classic');
   DEPTH_PASSES.on = false;
@@ -2193,10 +2194,24 @@ function measureClassic(id, fast, progress) {
     }
     return finishDepth(measured, outW, outH, guide, { refine: !fast, color: depthColorGuide(rgb), median: state.gpu.weightedMedian.bind(state.gpu), fill: state.gpu.edgeAwareFill.bind(state.gpu), onProgress: share(0.8, 1) });
   }
-  return estimateDepth(state.refocusViews, outW, outH, {
-    ...(fast ? { occlusion: false, guided: false, refine: false } : {}),
-    onProgress: progress,
-  });
+  const opts = { ...(fast ? { occlusion: false, guided: false, refine: false } : {}), onProgress: progress };
+  // Without a graphics card the trial depths are scored by a few helper workers side by side (js/depthpool.js): the same scores as one worker makes in turn.
+  const views = state.refocusViews;
+  const helpers = state.settings.depthHelpers === false || typeof Worker === 'undefined' || !poolable() ? 0 : depthHelperCount(typeof navigator !== 'undefined' ? navigator.hardwareConcurrency : 0, views.length, outW * outH);
+  if (helpers > 0) {
+    const pool = await createDepthPool(helpers);
+    if (pool) {
+      try {
+        const done = await estimateDepthPooled(views, outW, outH, opts, pool);
+        if (done) return done;
+      } catch (e) {
+        console.warn('The helper workers could not measure the depth; measuring it here:', e && e.message);
+      } finally {
+        pool.close();
+      }
+    }
+  }
+  return estimateDepth(views, outW, outH, opts);
 }
 
 // The views the maker's tool measures depth from (read off its stack files: the seven perspective images

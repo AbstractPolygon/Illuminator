@@ -1082,6 +1082,22 @@ export function depthColorGuide(rgb) {
   return out;
 }
 
+// The score (higher = better agreement) of one trial depth `alpha` at every pixel, for the plain match (no cross-based aggregation, no visibility masks): the angular variance
+// of the shifted detail images `lums` (`occl`: the best half of the aperture at depth edges), filtered by the guided filter (`guided`) or a box of radius `win`, negated.
+// The sequential estimate below and the one that shares the trial depths out to helper workers (estimateDepthPooled, js/depthpool.js) both score through this.
+export function scoreStep({ lums, views, w, h, alpha, minLevel, level, occl, guide, win, guided }) {
+  const variance = angularVariance(lums, views, w, h, alpha, minLevel, level, occl);
+  const cost = guided ? guidedFilter(guide, variance, w, h, win + 1, 1e-3) : boxSum(variance, w, h, win);
+  for (let i = 0; i < cost.length; i++) cost[i] = -cost[i];
+  return cost;
+}
+
+// True when the depth measure is the plain match that estimateDepthPooled can share out (the styles that add cross-based aggregation, a smoothing solver, visibility masks
+// or a second pass over the used range keep to estimateDepth).
+export function poolable() {
+  return !(DEPTH_CBCA.on || DEPTH_LCOST.on || DEPTH_TRWS.on || DEPTH_MRF.on || DEPTH_VIS.on || (DEPTH_DIRECT.on && DEPTH_MATCH.adapt.on));
+}
+
 // views: [{ u, v, rgb, gain, detail }] as used by refocus().
 // Returns { alpha: Float32Array (per pixel), confidence: Float32Array }.
 // Options: occlusion (best half of the aperture at depth edges), guided
@@ -1104,6 +1120,7 @@ export function estimateDepth(views, width, height, { min = DEPTH_SEARCH.min, ma
     // Higher score = better agreement.
     const scores = alphas.map((a, k) => {
       if (onProgress) onProgress(from + (span * k) / steps);
+      if (!lprep && !masks && !arms) return scoreStep({ lums, views, w: width, h: height, alpha: a, minLevel, level, occl, guide, win, guided });
       const variance = lprep ? lytroCost(lprep, views, width, height, a, DEPTH_LCOST, masks) : masks ? maskedVariance(lums, views, masks, width, height, a, minLevel, level) : angularVariance(lums, views, width, height, a, minLevel, level, occl);
       const cost = arms ? blendFlat(variance, aggregateCross(variance, arms, DEPTH_CBCA.iterations), flat) : guided ? guidedFilter(guide, variance, width, height, win + 1, 1e-3) : boxSum(variance, width, height, win);
       for (let i = 0; i < n; i++) cost[i] = -cost[i];
@@ -1151,6 +1168,44 @@ export function estimateDepth(views, width, height, { min = DEPTH_SEARCH.min, ma
   }
   if (onProgress) onProgress(1);
   const cv = views[Math.floor(views.length / 2)];
+  const color = depthColorGuide(Float32Array.from(cv.rgb, (x) => x * cv.gain));
+  return finishDepth(measured, width, height, guide, { refine, min, max, color });
+}
+
+// estimateDepth with the trial depths scored by helper workers side by side. `pool`: { load(shared), run(alphas, onScore) } (js/depthpool.js). The same steps in the same
+// order of arithmetic: the result is the same as estimateDepth's. Returns null (use estimateDepth) when the style is not the plain match (see poolable).
+export async function estimateDepthPooled(views, width, height, { min = DEPTH_SEARCH.min, max = DEPTH_SEARCH.max, steps = DEPTH_SEARCH.steps, window = DEPTH_SEARCH.window, onProgress, ...opts } = {}, pool) {
+  if (!poolable()) return null;
+  const { occlusion = true, guided = true, refine = true } = opts;
+  const n = width * height;
+  const alphas = Array.from({ length: steps }, (_, i) => min + ((max - min) * i) / (steps - 1));
+  const raw = views.map((v) => luminance(v.rgb, n).map((x) => x * v.gain));
+  const mid = Math.floor(raw.length / 2);
+  const center = raw[mid];
+  const minLevel = brightnessFloor(center);
+  const guide = depthGuide(center);
+  const coarse = refine && DEPTH_COARSE.on;
+  const viewInfo = views.map((v) => ({ u: v.u, v: v.v, detail: v.detail }));
+  const match = async (lums, level, occl, win, from, span) => {
+    await pool.load({ lums, views: viewInfo, level, minLevel, guide, w: width, h: height, win, occl, guided });
+    const scores = new Array(steps);
+    let done = 0;
+    await pool.run(alphas, (k, score) => {
+      scores[k] = score;
+      if (onProgress) onProgress(from + (span * ++done) / steps);
+    });
+    return bestDepth(scores, alphas, n);
+  };
+  const detailImages = DEPTH_VIS.raw ? raw : raw.map((l) => detailOf(l, width, height).detail);
+  const centerLocal = DEPTH_VIS.raw ? Float32Array.from(center, (x) => Math.max(x, 0) ** 0.5) : detailOf(center, width, height).local;
+  let measured = await match(detailImages, centerLocal, occlusion, window, 0, coarse ? 0.6 : 1);
+  if (coarse) {
+    const blurred = raw.map((l) => boxSum(l, width, height, DEPTH_COARSE.blur));
+    const lums = blurred.map((l) => detailOf(l, width, height, DEPTH_COARSE.detail).detail);
+    measured = combineCoarse(measured, await match(lums, detailOf(blurred[mid], width, height, DEPTH_COARSE.detail).local, false, window + 1, 0.6, 0.4));
+  }
+  if (onProgress) onProgress(1);
+  const cv = views[mid];
   const color = depthColorGuide(Float32Array.from(cv.rgb, (x) => x * cv.gain));
   return finishDepth(measured, width, height, guide, { refine, min, max, color });
 }
