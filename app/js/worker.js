@@ -90,6 +90,10 @@ const state = {
   kept: null,
   // The last full sensor picture before its color pass (see stillKey): on the GPU (`keptStill`), or as RGB for the engine's all in focus picture (`keptEdof`).
   keptStill: null,
+  // The all in focus full sensor picture before its depth of field (it does not depend on the focus, so a change of focus makes only the blur and the color again): { key, tex, w, h }.
+  keptBase: null,
+  // The all in focus picture at the views' size that the full sensor render and its preview start from: { key, rgb }.
+  keptAifBase: null,
   keptEdof: null,
   // The desktop app keeps the pictures next to the photo (see keptHashFor).
   stillStore: false,
@@ -446,6 +450,8 @@ function stillKey(parts, skip = []) {
 // Frees the kept pictures (the photo or its sampler changed).
 function dropKeptStills() {
   state.keptStill = null;
+  state.keptBase = null;
+  state.keptAifBase = null;
   state.keptEdof = null;
   if (state.gpu && state.gpu.releaseKeptStill) state.gpu.releaseKeptStill();
 }
@@ -1005,8 +1011,19 @@ function refocusRGB(alpha, opts) {
 // from the two steps around its own depth. A single view alone leaves what
 // is far from the camera's focus (a fence just in front of the lens) soft.
 const FOCUS_STEP = 0.15;
+// (kept: it depends on the photo, its depth and the viewpoint, not on the focus, so the preview and the render of a changed focus use the one made before)
 async function allInFocusBase(id, u, v) {
   if (!state.depth || !(await ensureRefocusViews(id))) return equalize(render(u, v));
+  // (not the lens centers: they are measured by the first full sensor render, after this, and the refocused views do not use them)
+  const photo = [state.gen, objectId(state.sampler), objectId(state.depth), objectId(state.depthPlain), objectId(state.depthRaw), objectId(state.vignetting), state.focusOffset ?? null, debugFlags()];
+  const key = preColorKey(state.settings, photo, ['aif', u, v]);
+  if (state.keptAifBase && state.keptAifBase.key === key) return state.keptAifBase.rgb;
+  const rgb = await buildAllInFocusBase(id, u, v);
+  if (rgb) state.keptAifBase = { key, rgb };
+  return rgb;
+}
+
+async function buildAllInFocusBase(id, u, v) {
   const depth = state.depth.alpha;
   let lo = Infinity;
   let hi = -Infinity;
@@ -1160,6 +1177,8 @@ async function superRes({ id, job, alpha = 0, scale, u = 0, v = 0, aperture = 0,
   // The same picture was made just before (only color settings changed since): its color pass again, from the kept picture.
   const stillCtx = { focus: alpha, overrides: masks, view: viewOf(u, v) };
   let keepStill = null;
+  let baseKey = null;
+  let baseParts = null;
   let diskHash = null;
   if (state.gpu && !color && !quiet) {
     const csKept = colorState(color);
@@ -1168,6 +1187,11 @@ async function superRes({ id, job, alpha = 0, scale, u = 0, v = 0, aperture = 0,
     const { W: keptW, H: keptH } = superResParams(sampler, { scale });
     const keyParts = ['sr', scale, passes, alpha, u, v, aperture, dof, bokeh || null, state.detail, packedKept && packedKept.spatial ? packedKept : null, lensKey];
     keepStill = stillKey(keyParts);
+    // What the all in focus picture depends on: not the focus, the blur or the effects (only for the depth-based blur, aperture 0).
+    if (allInFocus) {
+      baseParts = ['srbase', scale, passes, u, v, state.detail, lensKey];
+      baseKey = stillKey(baseParts);
+    }
     if (state.keptStill && state.keptStill.key === keepStill && state.keptStill.w === keptW && state.keptStill.h === keptH) {
       progress(label, 1);
       finishGpu(state.keptStill.tex, keptW, keptH, packedKept, { id, type: 'result', kept: true }, csKept, true, stillCtx, undefined);
@@ -1186,6 +1210,14 @@ async function superRes({ id, job, alpha = 0, scale, u = 0, v = 0, aperture = 0,
         return undefined;
       }
     }
+  }
+  // The all in focus picture was made just before (only the focus, the blur or a color changed): the blur and the color pass again from it, without rendering the depth
+  // views, focusing every depth and splatting every ray once more.
+  if (baseKey && state.keptBase && state.keptBase.key === baseKey) {
+    const { tex: baseTex, w: baseW, h: baseH } = state.keptBase;
+    progress(label, 0.5);
+    await presentGpu(id, baseTex, baseW, baseH, { alpha, dof, bokeh, color, pxPerUnit: 14 * scale, masks: stillCtx, keepStill, distortionCorrected: true }, { id, type: 'result', get kept() { return !!(keepStill && state.keptStill && state.keptStill.key === keepStill); } });
+    return undefined;
   }
   const opts = apertureOptions({ u, v, aperture });
   // A refocused (not all in focus) base stays on the graphics card when the full render runs there.
@@ -1206,6 +1238,8 @@ async function superRes({ id, job, alpha = 0, scale, u = 0, v = 0, aperture = 0,
       state.lensOffsets = state.gpu.lensOffsets;
       noteLensOffsets();
       if (state.jobs.superres !== job) return { cancelled: true };
+      // (keyed after the render: it measures the lens centers on the first one, which the key covers)
+      if (baseKey) state.keptBase = { key: stillKey(baseParts), tex: state.gpu.keep(tex, params.W, params.H, 'stillbase'), w: params.W, h: params.H };
       await presentGpu(id, tex, params.W, params.H, { alpha, dof, bokeh, color, pxPerUnit: 14 * scale, masks: stillCtx, keepStill, distortionCorrected: true }, { id, type: 'result', get kept() { return !!(keepStill && state.keptStill && state.keptStill.key === keepStill); } });
       // The picture before its color pass, saved next to the photo (the page keeps the last two).
       if (diskHash && state.keptStill && state.keptStill.key === keepStill) {

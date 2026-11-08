@@ -40,7 +40,7 @@ Enlarging adds pixels, not detail. For the most detail, render with *Full sensor
 
 ## Speed
 
-Rendering runs on the GPU (WebGL 2); without it, on the CPU, much more slowly (the CPU path shares the work of building a photo's views among up to three helper workers, which are shut down when they are done). On computers with two graphics chips (many laptops) Illuminator asks for the faster one. While you drag a slider or the picture, strong depth of field blur is drawn as a quicker draft; the finished picture follows when you let go. [[Histogram and Info]] shows the renderer in use and, where the browser can measure it, the GPU time per view.
+With *Full sensor* on, a change of focus (or of the blur, the bokeh or the color) makes the picture again from the all-in-focus picture kept on the graphics card, so only the blur and the color pass are done again; the rays are not rendered and every depth is not focused once more. A change that alters the all-in-focus picture itself (the photo's depth settings, the scale, Detail recovery, the viewpoint) renders it again. Rendering runs on the GPU (WebGL 2); without it, on the CPU, much more slowly (the CPU path shares the work of building a photo's views among up to three helper workers, which are shut down when they are done). On computers with two graphics chips (many laptops) Illuminator asks for the faster one. While you drag a slider or the picture, strong depth of field blur is drawn as a quicker draft; the finished picture follows when you let go. [[Histogram and Info]] shows the renderer in use and, where the browser can measure it, the GPU time per view.
 
 ## Photo
 
