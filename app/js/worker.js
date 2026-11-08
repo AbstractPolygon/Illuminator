@@ -56,6 +56,7 @@ import { GpuRenderer } from './gpu/renderer.js';
 import { lytroSplatGpu } from './gpu/lytroengine.js';
 import { debugFlags, hook, setHook } from './core/debugflags.js';
 import { preColorKey } from './core/precolorkey.js';
+import { helperCount, renderViews } from './viewpool.js';
 import { encodeKept, decodeKept, fingerprint, keptHash } from './core/keptpicture.js';
 
 // Requests whose picture is wanted at 16 bits per channel (see finishGpu).
@@ -899,6 +900,30 @@ async function ensureRefocusViews(id) {
         await tick();
         return state.sampler === sampler ? state.gpu.views : null;
       }
+      // Without a graphics card the views are rendered by a few helper workers side by side (js/viewpool.js): the same views, made the same way. Where that cannot
+      // be done (too few cores, no nested workers) they are made here, one after the other.
+      const ringSamples = highlightSamples();
+      const helpers = state.settings.viewHelpers === false || typeof Worker === 'undefined' ? 0 : helperCount(typeof navigator !== 'undefined' ? navigator.hardwareConcurrency : 0, samples.length + ringSamples.length, state.lf.raw.byteLength);
+      if (helpers > 0) {
+        const jobs = [...samples.map(({ u, v }) => ({ u, v, scale: VIEW_SCALE })), ...ringSamples.map(({ u, v }) => ({ u, v }))];
+        const made = new Array(jobs.length);
+        let count = 0;
+        const ok = await renderViews({ raw: state.lf.raw, cam: state.lf.cam, dev: state.dev, sampler, centerMeans: state.centerMeans }, jobs, helpers, {
+          stillWanted: () => state.sampler === sampler,
+          onView: (index, r) => {
+            made[index] = r;
+            count++;
+            for (const l of listeners) post({ id: l, type: 'progress', stage: 'Preparing refocus', progress: count / jobs.length });
+          },
+        });
+        if (state.sampler !== sampler) return null;
+        if (ok) {
+          const views = samples.map(({ u, v }, i) => ({ u, v, rgb: made[i].rgb, gain: 1 / VIEW_SCALE, detail: state.settings.detail, trust: made[i].trust }));
+          views.ring = ringSamples.map(({ u, v }, i) => ({ u, v, rgb: made[samples.length + i].rgb, gain: 1, detail: state.settings.detail, trust: made[samples.length + i].trust }));
+          return views;
+        }
+        console.warn('The helper workers could not render the views; rendering them here.');
+      }
       const views = [];
       for (let i = 0; i < samples.length; i++) {
         if (state.sampler !== sampler) return null;
@@ -914,7 +939,7 @@ async function ensureRefocusViews(id) {
         await tick();
       }
       const ring = [];
-      for (const { u, v } of highlightSamples()) {
+      for (const { u, v } of ringSamples) {
         if (state.sampler !== sampler) return null;
         const raw = render(u, v);
         const trust = clipTrust(raw, state.dev.clip);
