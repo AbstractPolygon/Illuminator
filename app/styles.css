@@ -761,3 +761,20 @@ label.lut-amount { margin-top: 14px; }
 .speed-limits li::before { content: ''; position: absolute; left: 2px; top: 0.5em; width: 6px; height: 6px; border-radius: 50%; background: #7a8088; }
 .speed-limits li.warn::before { background: #e0a030; }
 .speed-limits li.ok::before { background: #4caf7a; }
+
+/* Library: ratings, flags, keywords */
+.library-filter { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.library-filter select, .library-filter input { min-width: 0; flex: 1 1 90px; font-size: 12px; }
+.library-filter input { flex-basis: 100%; }
+.marks { color: #e0b040; font-size: 11px; letter-spacing: 1px; white-space: nowrap; }
+.marks.pick { color: #6cc28c; }
+.marks.reject { color: #c9696d; }
+#library-list li { flex-wrap: wrap; }
+#library-list .marks { flex-basis: 100%; padding-left: 74px; margin-top: -2px; }
+.photo-grid .tile .marks { text-align: center; }
+.marks-row { display: flex; align-items: center; gap: 10px; }
+.marks-row > span { width: 70px; flex: none; color: var(--muted); }
+.marks-row input[type=text], .marks-row select { flex: 1; min-width: 0; }
+.marks-stars { display: flex; gap: 2px; }
+.marks-stars button { background: none; border: none; font-size: 22px; line-height: 1; padding: 2px 3px; color: #4a4f57; cursor: pointer; }
+.marks-stars button.on { color: #e0b040; }

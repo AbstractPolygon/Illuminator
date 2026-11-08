@@ -6,6 +6,7 @@ import { Engine, toImageData } from './engine.js';
 import { Timings, formatDuration, speedLimits, reportText } from './core/speedreport.js';
 import { initScriptingApi } from './ui/api.js';
 import { tiltPreset } from './core/tiltpresets.js';
+import { initMarks } from './ui/marks.js';
 import { blobReader, readPhotoSummary, openContainer } from './core/lfp.js';
 import { findRecipe, recipeToEdits } from './core/recipe.js';
 import { decodePngGray, parseDepthRange, stackDepth } from './core/userdepth.js';
@@ -52,6 +53,8 @@ const engine = new Engine();
 engine.onNotice = (text) => showNotice(text);
 // Events for scripts and plugins (ui/api.js), set once the interface exists.
 let emitEvent = () => {};
+// Ratings, flags and keywords of the library (ui/marks.js), set once the page is ready.
+let marks = null;
 const canvas = $('view');
 const ctx = canvas.getContext('2d', { willReadFrequently: true });
 
@@ -191,7 +194,8 @@ const cameraThumbs = new Map();
 function renderLibrary() {
   renderAlbums();
   const album = state.lib && state.album ? state.lib.album(state.album) : null;
-  const photos = state.lib ? state.lib.list(state.album) : [];
+  const everyone = state.lib ? state.lib.list(state.album) : [];
+  const photos = marks ? marks.applyFilter(everyone) : everyone;
   $('photos-title').textContent = album ? album.name : 'All photos';
   const current = state.current && state.current.photo;
   $('library-list').replaceChildren(...photos.map((photo) => {
@@ -213,7 +217,9 @@ function renderLibrary() {
       e.stopPropagation();
       photoMenu(photo, more);
     };
+    const mark = marks && marks.badge(photo);
     li.append(img, name, more);
+    if (mark) li.append(mark);
     li.onclick = () => openItem(photo);
     li.oncontextmenu = (e) => {
       e.preventDefault();
@@ -225,9 +231,11 @@ function renderLibrary() {
   renderCameraSection();
   if (state.cameraView) renderCameraGrid();
   else renderGrid(photos, album);
+  if (marks) marks.renderKeywordList();
   const empty = $('library-empty');
   empty.hidden = photos.length > 0;
-  if (album) empty.textContent = 'No photos in this album yet. Drag photos onto the album, or use ••• on a photo.';
+  if (everyone.length && !photos.length) empty.textContent = 'No photos match the filter.';
+  else if (album) empty.textContent = 'No photos in this album yet. Drag photos onto the album, or use ••• on a photo.';
   else if (state.lib && !state.lib.persistent) empty.textContent = `${EMPTY_LIBRARY} This browser cannot store a library, so photos are kept until the page is closed.`;
   else empty.textContent = EMPTY_LIBRARY;
 }
@@ -354,7 +362,9 @@ function renderGrid(photos, album) {
       e.stopPropagation();
       photoMenu(photo, more);
     };
+    const mark = marks && marks.badge(photo);
     tile.append(frame, name, more);
+    if (mark) tile.append(mark);
     tile.onclick = () => openItem(photo);
     tile.oncontextmenu = (e) => {
       e.preventDefault();
@@ -547,6 +557,7 @@ async function pasteSettings(photo) {
 function photoMenu(photo, button, at = null) {
   const items = [];
   // Settings first, so they stay in view however many albums there are.
+  items.push({ label: 'Rating, flag and keywords…', action: () => marks.openMarks(photo) });
   items.push({ label: 'Copy settings', action: () => copySettings(photo) });
   items.push({
     label: copiedSettings ? `Paste settings from ${copiedSettings.name}…` : 'Paste settings',
@@ -4321,6 +4332,8 @@ const undo = () => stepHistory(true);
 const redo = () => stepHistory(false);
 // Text fields keep their own undo.
 const typing = (el) => el && (el.isContentEditable || el.tagName === 'TEXTAREA' || (el.tagName === 'INPUT' && /^(text|search|number|email|url|password)$/.test(el.type)));
+marks = initMarks({ $, state, renderLibrary: () => renderLibrary(), typing });
+renderLibrary();
 let lastHistoryKey = 0;
 document.addEventListener('keydown', (e) => {
   if (!(e.ctrlKey || e.metaKey) || e.altKey || typing(document.activeElement)) return;
