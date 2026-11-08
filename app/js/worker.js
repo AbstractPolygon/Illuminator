@@ -55,7 +55,7 @@ import { parseMasks, activeMasks, packMasks, resolveMasks, hasSpatial, applySpat
 import { GpuRenderer } from './gpu/renderer.js';
 import { lytroSplatGpu } from './gpu/lytroengine.js';
 import { debugFlags, hook, setHook } from './core/debugflags.js';
-import { preColorKey } from './core/precolorkey.js';
+import { preColorKey, baseKept } from './core/precolorkey.js';
 import { helperCount, renderViews } from './viewpool.js';
 import { depthHelperCount, createDepthPool } from './depthpool.js';
 import { costHelperCount, pooledCostVolume } from './costpool.js';
@@ -1119,7 +1119,7 @@ async function superResPreview({ id, job, alpha = 0, u = 0, v = 0, aperture = 0,
   if (!state.vignetting) state.vignetting = estimateVignetting(lf.raw, lf.cam, dev, lf.grid);
   const allInFocus = aperture <= 0 && !!state.depth && !state.depthFast && state.focusOffset !== undefined;
   // The picture is made again from the kept all in focus picture within moments (only the focus, the blur or the effects changed): no quick look first.
-  if (aperture <= 0 && scale && state.keptBase && state.keptBase.key === superResBaseKey(scale, passes, u, v, colorState(color))) return { none: true };
+  if (aperture <= 0 && scale && baseKept(state.keptBase, superResBaseKey(scale, passes, u, v, colorState(color)))) return { none: true };
   const opts = apertureOptions({ u, v, aperture: aperture > 0 ? aperture : 0.25 });
   if (!(await ensureRefocusViews(id))) return { cancelled: true };
   if (state.jobs.preview !== job) return { cancelled: true };
@@ -1222,7 +1222,7 @@ async function superRes({ id, job, alpha = 0, scale, u = 0, v = 0, aperture = 0,
   }
   // The all in focus picture was made just before (only the focus, the blur or a color changed): the blur and the color pass again from it, without rendering the depth
   // views, focusing every depth and splatting every ray once more.
-  if (baseKey && state.keptBase && state.keptBase.key === baseKey) {
+  if (baseKept(state.keptBase, baseKey)) {
     const { tex: baseTex, w: baseW, h: baseH } = state.keptBase;
     progress(KEPT_LABEL, 0.5);
     await presentGpu(id, baseTex, baseW, baseH, { alpha, dof, bokeh, color, pxPerUnit: 14 * scale, masks: stillCtx, keepStill, distortionCorrected: true }, { id, type: 'result', get kept() { return !!(keepStill && state.keptStill && state.keptStill.key === keepStill); } });

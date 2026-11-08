@@ -6,6 +6,9 @@
 import { RenderQueue, uniqueName, describeSettings, phasesFor, pickPhotos, firstChosen } from '../core/renderqueue.js';
 import { download } from '../platform.js';
 
+// The most photos one Add puts in the list.
+const MAX_AT_ONCE = 200;
+
 export function initQueue({ $, state, native, currentEdits, showNotice, showError, thumbFor, openPhoto, renderLibrary }) {
   const used = new Set();
   let frame = null;
@@ -59,22 +62,25 @@ export function initQueue({ $, state, native, currentEdits, showNotice, showErro
   }
 
   async function add(kind) {
-    const photos = chosen().filter((p) => !(p === libraryPhoto() && !state.info));
+    let photos = chosen().filter((p) => !(p === libraryPhoto() && !state.info));
     if (!photos.length) return;
+    if (photos.length > MAX_AT_ONCE) {
+      showNotice('Too many photos at once', `${photos.length} photos are chosen; the first ${MAX_AT_ONCE} were added. Choose the rest and add them again.`);
+      photos = photos.slice(0, MAX_AT_ONCE);
+    }
     if (kind === 'video' && photos.length === 1 && libraryPhoto() === photos[0] && !$('anim-on').checked) {
       showNotice('Turn on Animation first', 'A video is made from the animation: turn it on in the Animation panel and set it up, then add the video to the queue.');
       return;
     }
     let skipped = 0;
-    for (const photo of photos) {
-      const spec = await specFor(kind, photo);
+    // (their saved edits are read together)
+    const specs = await Promise.all(photos.map((photo) => specFor(kind, photo)));
+    specs.forEach((spec, i) => {
+      const photo = photos[i];
       const animated = photo === libraryPhoto() && state.info ? $('anim-on').checked : !!(spec.edits && spec.edits.animation && spec.edits.animation['anim-on']);
-      if (kind === 'video' && !animated) {
-        skipped++;
-        continue;
-      }
-      queue.add(spec, { kind, title: spec.name });
-    }
+      if (kind === 'video' && !animated) skipped++;
+      else queue.add(spec, { kind, title: spec.name });
+    });
     if (skipped) showNotice('Some photos have no animation', `${skipped} of ${photos.length} ${photos.length === 1 ? 'photo has' : 'photos have'} Animation turned off, so no video was added for ${skipped === 1 ? 'it' : 'them'}. Turn it on in the Animation panel of each photo first.`);
   }
 
@@ -139,6 +145,8 @@ export function initQueue({ $, state, native, currentEdits, showNotice, showErro
     const file = await lib.file(photo);
     if (!file) throw new Error(`${photo.name} is missing from the library folder`);
     const bytes = new Uint8Array(await file.arrayBuffer());
+    // Lytro Desktop's edits kept with the photo (they are the starting point of a photo never edited here).
+    const sidecar = await lib.sidecar(photo).catch(() => null);
     const el = await runnerFrame();
     const api = el.contentWindow.illuminator;
     // The bar: each step has its share; inside a step it follows what the hidden copy reports (never backwards).
@@ -158,7 +166,7 @@ export function initQueue({ $, state, native, currentEdits, showNotice, showErro
     });
     try {
       step(0);
-      await api.open(photo.name, bytes, { edits: job.spec.edits });
+      await api.open(photo.name, bytes, { edits: job.spec.edits, sidecar });
       // (a job added for another photo in the library cannot know whether it has a raw light field: no full sensor render for one without)
       if (job.spec.fullSensor && api.info().raw) {
         step(phases.findIndex((p) => p.name === 'render'));

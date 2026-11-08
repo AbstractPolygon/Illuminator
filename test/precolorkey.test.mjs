@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { preColorKey, COLOR_PASS_SETTINGS } from '../app/js/core/precolorkey.js';
+import { preColorKey, baseKept, COLOR_PASS_SETTINGS } from '../app/js/core/precolorkey.js';
 import { COLOR_SETTINGS } from '../app/js/settingsmap.js';
 
 const base = {
@@ -30,4 +30,20 @@ test('a change to anything that shapes the picture makes a new key', () => {
 
 test('every row of the color table is a color pass setting', () => {
   for (const [path] of COLOR_SETTINGS) assert.ok(COLOR_PASS_SETTINGS.has(path.split('.')[0]), path);
+});
+
+test('the all in focus picture is kept for a changed focus, blur or color, not for a changed scale or viewpoint', () => {
+  const photo = ['gen1', 7];
+  const settings = { detail: 1, ev: 0, local: {}, depthSmoothing: 0.3 };
+  const base = (s, scale, u = 0) => preColorKey(s, photo, ['srbase', scale, 0, u, 0, 1, null]);
+  const kept = { key: base(settings, 2) };
+  // A color change (ev, local) leaves the key as it was; the request's focus and blur are not part of it at all.
+  assert.equal(baseKept(kept, base({ ...settings, ev: 1, local: { masks: [1] } }, 2)), true);
+  // A different scale, viewpoint or a non-color setting needs the picture made again.
+  assert.equal(baseKept(kept, base(settings, 3)), false);
+  assert.equal(baseKept(kept, base(settings, 2, 0.5)), false);
+  assert.equal(baseKept(kept, base({ ...settings, depthSmoothing: 0.6 }, 2)), false);
+  // Nothing kept, or no key: not kept.
+  assert.equal(baseKept(null, base(settings, 2)), false);
+  assert.equal(baseKept(kept, null), false);
 });
