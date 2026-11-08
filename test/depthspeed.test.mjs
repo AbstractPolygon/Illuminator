@@ -126,3 +126,33 @@ test('the coarse-first search widens to the whole range when the best steps are 
   for (let ks = plan.first(); ks.length; ks = plan.next(sparse)) for (const k of ks) sparse[k] = full[k];
   assert.equal(sparse.filter(Boolean).length, steps);
 });
+
+test('the engine cost volume made in bands of rows is the whole volume', async () => {
+  const { engineCostVolume, engineLabels } = await import('../app/js/core/enginedepth.js');
+  const { costHelperCount } = await import('../app/js/costpool.js');
+  const w = 18;
+  const h = 14;
+  const r = rng(21);
+  const base = Float32Array.from({ length: (w + 12) * (h + 12) }, () => 0.2 + 0.6 * r());
+  const views = Array.from({ length: 9 }, (_, k) => {
+    const rgb = new Float32Array(w * h * 3);
+    const dx = Math.round(Math.cos(k) * 2);
+    const dy = Math.round(Math.sin(k) * 2);
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const b = base[(y + 6 + dy) * (w + 12) + x + 6 + dx];
+        rgb.set([b, b * 0.9, b * 0.8], 3 * (y * w + x));
+      }
+    }
+    return rgb;
+  });
+  const labels = engineLabels(8);
+  const L = labels.length;
+  const whole = engineCostVolume(views, w, h, labels);
+  const bands = new Float32Array(whole.length);
+  for (const [y0, y1] of [[0, 5], [5, 6], [6, 14]]) bands.set(engineCostVolume(views, w, h, labels, undefined, { y0, y1 }), y0 * w * L);
+  assert.deepEqual(Array.from(bands), Array.from(whole));
+  assert.equal(costHelperCount(2, 100000), 0);
+  assert.equal(costHelperCount(8, 1000), 0);
+  assert.equal(costHelperCount(8, 270000), 3);
+});

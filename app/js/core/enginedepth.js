@@ -31,9 +31,13 @@ function floor32(x) {
 // 1.25 x (sum of the 4 largest of min(sad, 0.2) over the eight ring views), sad the L1 distance between the ring view's bilinear sample at
 // (x + lambda u, y + lambda v) and the centre pixel; every label of a pixel is zeroed when the mean ring colour of any label tops 0.95 in a channel,
 // and when the cost curve is flat (the label at the median rank within 0.075 of the best). Layout: ((y * w + x) * L + l).
-export function engineCostVolume(views, w, h, labels, opts = ENGINE_COST) {
+// `rows` ({ y0, y1 }): only those rows of pixels (the volume then holds just them, from the first of them), for sharing the work out (js/costpool.js); the pixels are independent,
+// so the rows together are the whole volume exactly.
+export function engineCostVolume(views, w, h, labels, opts = ENGINE_COST, rows = null) {
   const L = labels.length;
-  const out = new Float32Array(w * h * L);
+  const rowStart = rows ? rows.y0 : 0;
+  const rowEnd = rows ? rows.y1 : h;
+  const out = new Float32Array((rowEnd - rowStart) * w * L);
   const ref = views[8];
   const T = f32(opts.truncate);
   const scale = f32(opts.scale);
@@ -50,14 +54,14 @@ export function engineCostVolume(views, w, h, labels, opts = ENGINE_COST) {
   const vec = new Float32Array(L);
   const hm1 = h - 1;
   const wm1 = w - 1;
-  for (let y = 0; y < h; y++) {
+  for (let y = rowStart; y < rowEnd; y++) {
     for (let x = 0; x < w; x++) {
       const i = y * w + x;
       const rr = ref[3 * i];
       const rg = ref[3 * i + 1];
       const rb = ref[3 * i + 2];
       let blown = false;
-      const base = i * L;
+      const base = (i - rowStart * w) * L;
       for (let l = 0; l < L; l++) {
         let sr = 0;
         let sg = 0;
