@@ -799,8 +799,9 @@ label.lut-amount { margin-top: 14px; }
 #library-list li .rate .star { font-size: 11px; padding: 0 0.5px; }
 #library-list li .rate-layer .pick { top: 3px; left: 3px; padding: 2px; }
 #library-list li .rate-layer .pick input { width: 12px; height: 12px; }
-.photo-grid .tile .frame { position: relative; }
-.photo-grid .tile .rate-layer { inset: 0; }
+.photo-grid .tile .frame { position: relative; container-type: size; }
+/* the layer is the picture's own box inside the frame (the picture is centered and fitted, so there can be empty bands beside or above it) */
+.photo-grid .tile .rate-layer { left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(100cqw, calc(100cqh * var(--ar, 1.5))); height: min(100cqh, calc(100cqw / var(--ar, 1.5))); }
 .photo-grid .tile .rate .star { font-size: 16px; padding: 0 2px; }
 @media (hover: none) { .rate-layer .pick, .rate-layer .rate { opacity: 1; } }
 .marks-row { display: flex; align-items: center; gap: 10px; }
