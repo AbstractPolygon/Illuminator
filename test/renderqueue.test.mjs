@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { RenderQueue, uniqueName } from '../app/js/core/renderqueue.js';
+import { RenderQueue, uniqueName, pickPhotos, firstChosen } from '../app/js/core/renderqueue.js';
 
 test('jobs run one at a time, in order, once started', () => {
   let changes = 0;
@@ -80,4 +80,35 @@ test('a job card describes its export settings', async () => {
   assert.deepEqual(describeSettings(video), ['MP4 · H.264', '1080 × 1920', '16 Mbit/s']);
   assert.deepEqual(describeSettings({ kind: 'video', edits: { rendering: { 'video-size': '2160' } } }), ['Video', '2160p']);
   for (const spec of [photo, video, { kind: 'photo' }]) assert.ok(Math.abs(phasesFor(spec).reduce((n, p) => n + p.weight, 0) - 1) < 1e-9);
+});
+
+test('choosing photos for the queue: click, Ctrl/Command-click and Shift-click', () => {
+  const order = ['a', 'b', 'c', 'd', 'e'];
+  // A plain click chooses just that photo, and the caller opens it.
+  let r = pickPhotos({}, order, 'b', {});
+  assert.deepEqual(r, { selected: ['b'], anchor: 'b', handled: false });
+  // Ctrl or Command adds and removes, and nothing is opened.
+  r = pickPhotos(r, order, 'd', { additive: true });
+  assert.deepEqual(r, { selected: ['b', 'd'], anchor: 'd', handled: true });
+  r = pickPhotos(r, order, 'a', { additive: true });
+  assert.deepEqual(r.selected, ['a', 'b', 'd']);
+  r = pickPhotos(r, order, 'b', { additive: true });
+  assert.deepEqual(r.selected, ['a', 'd']);
+  // Shift takes the range from the anchor (either direction), replacing what was chosen; with Ctrl it joins it.
+  r = pickPhotos({ selected: ['a'], anchor: 'a' }, order, 'c', { shift: true });
+  assert.deepEqual(r, { selected: ['a', 'b', 'c'], anchor: 'a', handled: true });
+  r = pickPhotos({ selected: ['d'], anchor: 'd' }, order, 'b', { shift: true });
+  assert.deepEqual(r.selected, ['b', 'c', 'd']);
+  r = pickPhotos({ selected: ['a', 'e'], anchor: 'e' }, order, 'c', { shift: true, additive: true });
+  assert.deepEqual(r.selected, ['a', 'c', 'd', 'e']);
+  // Shift with nothing to range from just chooses that photo.
+  r = pickPhotos({}, order, 'c', { shift: true });
+  assert.deepEqual(r, { selected: ['c'], anchor: 'c', handled: true });
+});
+
+test('leaving the queue view keeps the first chosen photo, in the order listed', () => {
+  const order = ['a', 'b', 'c', 'd'];
+  assert.equal(firstChosen(order, ['d', 'b']), 'b');
+  assert.equal(firstChosen(order, ['x']), null);
+  assert.equal(firstChosen(order, []), null);
 });

@@ -207,9 +207,11 @@ function renderLibrary() {
   const photos = marks ? marks.applyFilter(everyone) : everyone;
   $('photos-title').textContent = album ? album.name : 'All photos';
   const current = state.current && state.current.photo;
+  state.listedPhotos = photos;
   $('library-list').replaceChildren(...photos.map((photo) => {
     const li = document.createElement('li');
     li.className = photo === current ? 'current' : '';
+    if (queueUi && queueUi.isPicked(photo)) li.classList.add('picked');
     li.draggable = true;
     li.ondragstart = (e) => {
       e.dataTransfer.setData(PHOTO_DRAG, photo.id);
@@ -229,7 +231,10 @@ function renderLibrary() {
     const mark = marks && marks.badge(photo);
     li.append(img, name, more);
     if (mark) li.append(mark);
-    li.onclick = () => openItem(photo);
+    li.onclick = (e) => {
+      // With the Render Queue view open, Ctrl/Command-click and Shift-click choose several photos to add (ui/queue.js).
+      if (!(queueUi && queueUi.pick(photo, e))) openItem(photo);
+    };
     li.oncontextmenu = (e) => {
       e.preventDefault();
       photoMenu(photo, more, { x: e.clientX, y: e.clientY });
@@ -305,7 +310,7 @@ function renderAlbums() {
 const THUMB_SIZE_KEY = 'illuminator.thumbSize';
 
 function showGrid(on) {
-  if (on && queueUi) queueUi.setView(false);
+  if (on && queueUi) queueUi.setView(false, { open: false });
   state.grid = on;
   document.querySelector('.stage').classList.toggle('grid', on);
   $('grid-view').hidden = !on;
@@ -1137,7 +1142,7 @@ function drawDepthRuler() {
   row.hidden = !on;
   if (!on) return;
   const cv = $('depth-ruler');
-  // Drawn at the size it is shown, so the lettering stays sharp.
+  // Drawn at the size it is shown (and again when that changes), so nothing is stretched.
   const dpr = window.devicePixelRatio || 1;
   const W = Math.round(cv.clientWidth * dpr);
   const H = Math.round(cv.clientHeight * dpr);
@@ -1148,37 +1153,78 @@ function drawDepthRuler() {
   g.clearRect(0, 0, W, H);
   const { lo, hi } = ruler;
   const xOf = (a) => ((Math.min(hi, Math.max(lo, a)) - lo) / (hi - lo)) * W;
-  const foot = Math.round(14 * dpr);
+  const focus = +$('focus').value;
+  const spread = hasDepth() ? focusField().spread : 0;
+  const pad = 5 * dpr;
+  const base = H - pad;
+  const x0 = xOf(focus - spread);
+  const x1 = xOf(focus + spread);
+  // Near (blue) through gray to far (orange), left to right.
+  const fill = g.createLinearGradient(0, 0, W, 0);
+  fill.addColorStop(0, '#4f9dff');
+  fill.addColorStop(0.5, '#b4bcc8');
+  fill.addColorStop(1, '#ff9a5a');
+  // The curve through the counts: smooth, filled below.
+  const curve = new Path2D();
+  const line = new Path2D();
   if (ruler.counts) {
     const n = ruler.counts.length;
     let max = 1;
     for (const c of ruler.counts) max = Math.max(max, c);
-    for (let i = 0; i < n; i++) {
-      const t = i / (n - 1);
-      const bar = Math.sqrt(ruler.counts[i] / max) * (H - foot - 4 * dpr);
-      // Blue (near) through gray to orange (far).
-      g.fillStyle = t < 0.5 ? `rgb(${Math.round(60 + 2 * t * 120)}, ${Math.round(130 + 2 * t * 40)}, 255)` : `rgb(255, ${Math.round(170 - (t - 0.5) * 2 * 40)}, ${Math.round(160 - (t - 0.5) * 2 * 130)})`;
-      g.fillRect(Math.floor((i * W) / n), H - foot - bar, Math.ceil(W / n) - dpr, bar);
-    }
+    const pts = Array.from({ length: n }, (_, i) => [(i / (n - 1)) * W, base - Math.sqrt(ruler.counts[i] / max) * (H - 2 * pad - 2 * dpr)]);
+    line.moveTo(pts[0][0], pts[0][1]);
+    for (let i = 1; i < n - 1; i++) line.quadraticCurveTo(pts[i][0], pts[i][1], (pts[i][0] + pts[i + 1][0]) / 2, (pts[i][1] + pts[i + 1][1]) / 2);
+    line.lineTo(pts[n - 1][0], pts[n - 1][1]);
+    curve.addPath(line);
+    curve.lineTo(W, base);
+    curve.lineTo(0, base);
+    curve.closePath();
   }
-  const focus = +$('focus').value;
-  const spread = hasDepth() ? focusField().spread : 0;
-  // The sharp range (and the soft edge around it).
-  g.fillStyle = 'rgba(255, 255, 255, 0.18)';
-  const x0 = xOf(focus - spread);
-  const x1 = xOf(focus + spread);
-  g.fillRect(x0, 0, Math.max(1, x1 - x0), H - foot);
+  // Outside the sharp range the curve is dim; inside it is lit.
+  g.save();
+  g.globalAlpha = 0.32;
+  g.fillStyle = fill;
+  g.fill(curve);
+  g.restore();
+  g.save();
+  g.beginPath();
+  g.rect(x0, 0, Math.max(1, x1 - x0), H);
+  g.clip();
+  g.fillStyle = fill;
+  g.fill(curve);
+  g.restore();
+  g.lineWidth = 1.5 * dpr;
+  g.lineJoin = 'round';
+  g.strokeStyle = fill;
+  g.globalAlpha = 0.55;
+  g.stroke(line);
+  g.globalAlpha = 1;
+  g.save();
+  g.beginPath();
+  g.rect(x0, 0, Math.max(1, x1 - x0), H);
+  g.clip();
+  g.stroke(line);
+  g.restore();
+  // The ground line, and the sharp range along it.
+  g.fillStyle = 'rgba(255, 255, 255, 0.25)';
+  g.fillRect(0, base, W, dpr);
+  g.fillStyle = 'rgba(255, 255, 255, 0.85)';
+  g.fillRect(x0, base - dpr, Math.max(2 * dpr, x1 - x0), 3 * dpr);
+  // The focus: a line with a knob on top.
+  const fx = Math.round(xOf(focus));
   g.fillStyle = '#fff';
-  g.fillRect(Math.round(xOf(focus)) - dpr, 0, 2 * dpr, H - foot);
-  g.fillStyle = 'rgba(255, 255, 255, 0.6)';
-  g.font = `${Math.round(11 * dpr)}px sans-serif`;
-  g.textBaseline = 'bottom';
-  g.textAlign = 'left';
-  g.fillText('Near', 3 * dpr, H - dpr);
-  g.textAlign = 'right';
-  g.fillText('Far', W - 3 * dpr, H - dpr);
-  g.textAlign = 'center';
-  g.fillText(focus.toFixed(2), Math.min(W - 24 * dpr, Math.max(24 * dpr, xOf(focus))), H - dpr);
+  g.fillRect(fx - dpr / 2, 6 * dpr, dpr, base - 6 * dpr);
+  g.beginPath();
+  g.arc(fx, 6 * dpr, 4 * dpr, 0, Math.PI * 2);
+  g.fillStyle = '#fff';
+  g.fill();
+  g.lineWidth = dpr;
+  g.strokeStyle = '#14161a';
+  g.stroke();
+  // The number under the line (page text, kept inside the strip).
+  const label = $('depth-ruler-focus');
+  label.textContent = focus.toFixed(2);
+  label.style.left = `${Math.min(88, Math.max(12, (fx / W) * 100))}%`;
 }
 
 // Fetches the counts again when the photo, its depth settings or its depth map changed.
@@ -1214,6 +1260,8 @@ async function refreshDepthRuler() {
 
 (() => {
   const cv = $('depth-ruler');
+  // The strip changes width with the sidebar: drawn again at the new size.
+  if (typeof ResizeObserver !== 'undefined') new ResizeObserver(() => drawDepthRuler()).observe(cv);
   let dragging = false;
   const setFocusFrom = (event, final) => {
     const r = cv.getBoundingClientRect();
@@ -1745,7 +1793,7 @@ async function renderStill() {
     // change), which is made again within moments, and only where the worker can make one (settings.fullSensorPreview = false turns it off).
     let finished = false;
     if (!state.still && !state.depthShown) {
-      engine.job('superResPreview', 'preview', { ...(state.stillFrame || cameraParams()) }).promise.then((pv) => {
+      engine.job('superResPreview', 'preview', { ...(state.stillFrame || cameraParams()), scale, passes }).promise.then((pv) => {
         if (finished || !pv || !(pv.pixels || pv.bitmap) || !state.fullRes || state.depthShown) return;
         draw(toImageData(pv));
         showAtPhotoSize();
@@ -3870,7 +3918,7 @@ $('png-btn').onclick = savePng;
 }));
 
 // The render queue (ui/queue.js): not inside the hidden copy that does its renders.
-if (!QUEUE_RUNNER) queueUi = initQueue({ $, state, native, currentEdits: () => currentEdits(), showNotice: (...a) => showNotice(...a), showError: (...a) => showError(...a), thumbFor: (photo) => thumbFor(photo) });
+if (!QUEUE_RUNNER) queueUi = initQueue({ $, state, native, currentEdits: () => currentEdits(), showNotice: (...a) => showNotice(...a), showError: (...a) => showError(...a), thumbFor: (photo) => thumbFor(photo), openPhoto: (photo) => openItem(photo), renderLibrary: () => renderLibrary() });
 
 $('webm-btn').onclick = exportVideo;
 

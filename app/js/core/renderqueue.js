@@ -183,3 +183,30 @@ export function describeSettings(spec) {
   if (f) out.push(`f/${f}`);
   return out;
 }
+
+// Choosing photos in the library while the Render Queue view is open. `current` is { selected (photo ids), anchor (the id a Shift-click ranges from) }, `order` the ids as listed,
+// `id` the one clicked. Ctrl- or Command-click adds or removes it, Shift-click takes everything from the anchor to it (with Ctrl or Command: added to what is chosen), and a
+// plain click chooses just it. `handled` is false for a plain click: the caller opens that photo as it always does.
+export function pickPhotos({ selected = [], anchor = null } = {}, order, id, { shift = false, additive = false } = {}) {
+  const chosen = new Set(selected);
+  const sorted = () => order.filter((x) => chosen.has(x));
+  if (shift && anchor && order.includes(anchor) && order.includes(id)) {
+    const a = order.indexOf(anchor);
+    const b = order.indexOf(id);
+    if (!additive) chosen.clear();
+    for (const x of order.slice(Math.min(a, b), Math.max(a, b) + 1)) chosen.add(x);
+    return { selected: sorted(), anchor, handled: true };
+  }
+  if (additive) {
+    if (chosen.has(id)) chosen.delete(id);
+    else chosen.add(id);
+    return { selected: sorted(), anchor: id, handled: true };
+  }
+  if (shift) return { selected: [id], anchor: id, handled: true };
+  return { selected: [id], anchor: id, handled: false };
+}
+
+// The photo that stays chosen when the view is left: the first of the chosen ones in the order listed (null if none is).
+export function firstChosen(order, selected) {
+  return order.find((x) => selected.includes(x)) || null;
+}

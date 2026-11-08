@@ -3,25 +3,51 @@
 // sidebar to add the open photo. The renders run in a hidden second copy of the app (an iframe of this page with ?queue), which has its own worker and graphics context,
 // so the live view of the photo being edited is not held up; it is driven through the scripting interface (ui/api.js). The list and its rules are in core/renderqueue.js.
 
-import { RenderQueue, uniqueName, describeSettings, phasesFor } from '../core/renderqueue.js';
+import { RenderQueue, uniqueName, describeSettings, phasesFor, pickPhotos, firstChosen } from '../core/renderqueue.js';
 import { download } from '../platform.js';
 
-export function initQueue({ $, state, native, currentEdits, showNotice, showError, thumbFor }) {
+export function initQueue({ $, state, native, currentEdits, showNotice, showError, thumbFor, openPhoto, renderLibrary }) {
   const used = new Set();
   let frame = null;
   let current = null; // { job, abort }
   let folder = null; // desktop: the folder chosen for the files
   let renderTimer = 0;
+  let picked = []; // the photos chosen in the library while the view is open (ids)
+  let anchor = null;
   const queue = new RenderQueue({ onChange: () => scheduleRender() });
   queue.paused = true;
 
   // ---------------------------------------------------------------- what a job is
   const libraryPhoto = () => (state.current && state.current.photo ? state.current.photo : null);
 
-  function specFor(kind) {
-    const photo = libraryPhoto();
-    const edits = JSON.parse(JSON.stringify(currentEdits()));
-    const fullOn = $('fullres-on').checked && state.info && state.info.hasRaw;
+  const listed = () => (state.listedPhotos || []).map((p) => p.id);
+  const clone = (x) => JSON.parse(JSON.stringify(x));
+
+  // The photos an Add button adds: the ones chosen in the view (in the order listed), otherwise the open one.
+  function chosen() {
+    const open = libraryPhoto();
+    if (!state.queueView) return open ? [open] : [];
+    const photos = picked.map((id) => state.lib && state.lib.get(id)).filter(Boolean);
+    const order = listed();
+    photos.sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id));
+    return photos.length ? photos : open ? [open] : [];
+  }
+
+  // What a job holds: the open photo's settings as they are now, another photo's as saved with it.
+  async function specFor(kind, photo) {
+    const open = libraryPhoto() === photo && state.info;
+    let edits;
+    if (open) edits = clone(currentEdits());
+    else {
+      const saved = await state.lib.loadEdits(photo);
+      edits = saved ? clone(saved) : null;
+      // The Video settings are the ones in the app now.
+      if (edits && kind === 'video') {
+        const now = currentEdits().rendering || {};
+        edits.rendering = { ...(edits.rendering || {}), ...Object.fromEntries(Object.entries(now).filter(([k]) => k.startsWith('video'))) };
+      }
+    }
+    const fullOn = $('fullres-on').checked && (open ? state.info.hasRaw : true);
     return {
       kind,
       photoId: photo.id,
@@ -32,15 +58,36 @@ export function initQueue({ $, state, native, currentEdits, showNotice, showErro
     };
   }
 
-  function add(kind) {
-    if (!libraryPhoto() || !state.info) return;
-    if (kind === 'video' && !$('anim-on').checked) {
+  async function add(kind) {
+    const photos = chosen().filter((p) => !(p === libraryPhoto() && !state.info));
+    if (!photos.length) return;
+    if (kind === 'video' && photos.length === 1 && libraryPhoto() === photos[0] && !$('anim-on').checked) {
       showNotice('Turn on Animation first', 'A video is made from the animation: turn it on in the Animation panel and set it up, then add the video to the queue.');
       return;
     }
-    const spec = specFor(kind);
-    queue.add(spec, { kind, title: spec.name });
+    let skipped = 0;
+    for (const photo of photos) {
+      const spec = await specFor(kind, photo);
+      const animated = photo === libraryPhoto() && state.info ? $('anim-on').checked : !!(spec.edits && spec.edits.animation && spec.edits.animation['anim-on']);
+      if (kind === 'video' && !animated) {
+        skipped++;
+        continue;
+      }
+      queue.add(spec, { kind, title: spec.name });
+    }
+    if (skipped) showNotice('Some photos have no animation', `${skipped} of ${photos.length} ${photos.length === 1 ? 'photo has' : 'photos have'} Animation turned off, so no video was added for ${skipped === 1 ? 'it' : 'them'}. Turn it on in the Animation panel of each photo first.`);
   }
+
+  // A click on a photo in the library: with the view open, Ctrl/Command and Shift choose several without opening any (true: handled); a plain click chooses that one and opens it as usual.
+  function pick(photo, event) {
+    if (!state.queueView) return false;
+    const r = pickPhotos({ selected: picked, anchor }, listed(), photo.id, { shift: event.shiftKey, additive: event.ctrlKey || event.metaKey });
+    picked = r.selected;
+    anchor = r.anchor;
+    if (r.handled) renderLibrary();
+    return r.handled;
+  }
+  const isPicked = (photo) => !!state.queueView && picked.includes(photo.id);
 
   // ---------------------------------------------------------------- the hidden copy of the app
   function runnerFrame() {
@@ -151,7 +198,8 @@ export function initQueue({ $, state, native, currentEdits, showNotice, showErro
   }
 
   // ---------------------------------------------------------------- the view
-  function setView(on) {
+  // `open: false` leaves the photo as it is (the library grid is about to be shown).
+  function setView(on, { open = true } = {}) {
     on = !!on;
     if (state.queueView === on) return;
     state.queueView = on;
@@ -162,7 +210,20 @@ export function initQueue({ $, state, native, currentEdits, showNotice, showErro
       b.setAttribute('aria-pressed', String(on));
     }
     if (on && state.playing) $('pause-btn').click();
+    if (on) {
+      const photo = libraryPhoto();
+      picked = photo ? [photo.id] : [];
+      anchor = photo ? photo.id : null;
+    } else {
+      // Back to the photo: only the first of the chosen photos stays chosen, and that is the one shown.
+      const first = firstChosen(listed(), picked);
+      picked = first ? [first] : [];
+      anchor = first;
+      const photo = first && state.lib ? state.lib.get(first) : null;
+      if (open && photo && photo !== libraryPhoto() && openPhoto) openPhoto(photo);
+    }
     render();
+    renderLibrary();
   }
 
   const STATUS_TEXT = { waiting: 'Waiting', running: 'Running…', done: 'Done', failed: 'Failed', cancelled: 'Cancelled' };
@@ -230,14 +291,18 @@ export function initQueue({ $, state, native, currentEdits, showNotice, showErro
 
   function render() {
     const summary = queue.summary();
-    const canAdd = !!libraryPhoto() && !!state.info;
+    const photos = chosen().filter((p) => !(p === libraryPhoto() && !state.info));
+    const canAdd = photos.length > 0;
     for (const id of ['queue-add-photo', 'queue-add-video', 'queue-add-photo-view', 'queue-add-video-view']) $(id).disabled = !canAdd;
+    const many = state.queueView && photos.length > 1;
+    for (const id of ['queue-add-photo-view', 'queue-add-photo']) $(id).textContent = many ? `Add ${photos.length} pictures` : 'Add picture';
+    for (const id of ['queue-add-video-view', 'queue-add-video']) $(id).textContent = many ? `Add ${photos.length} videos` : 'Add video';
     $('queue-summary').textContent = summary;
     const active = queue.jobs.filter((j) => j.status === 'waiting' || j.status === 'running').length;
     $('queue-open').textContent = active ? `Open Render Queue (${active} waiting)` : 'Open Render Queue';
     if (!state.queueView) return;
     $('queue-view-summary').textContent = summary;
-    $('queue-current').textContent = canAdd ? `Adds from: ${libraryPhoto().name}` : libraryPhoto() ? 'Opening the photo…' : 'Choose a library photo to add it';
+    $('queue-current').textContent = many ? `Adds from ${photos.length} chosen photos` : canAdd ? `Adds from: ${photos[0].name}` : libraryPhoto() ? 'Opening the photo…' : 'Choose a library photo to add it';
     const list = $('queue-list');
     list.replaceChildren(...queue.jobs.map(card));
     $('queue-empty').hidden = queue.jobs.length > 0;
@@ -263,7 +328,7 @@ export function initQueue({ $, state, native, currentEdits, showNotice, showErro
   }
 
   for (const [id, kind] of [['queue-add-photo', 'photo'], ['queue-add-video', 'video'], ['queue-add-photo-view', 'photo'], ['queue-add-video-view', 'video']]) {
-    $(id).onclick = () => add(kind);
+    $(id).onclick = () => add(kind).catch(showError);
   }
   for (const b of document.querySelectorAll('.queue-view-toggle')) b.onclick = () => setView(!state.queueView);
   $('queue-open').onclick = () => setView(true);
@@ -281,5 +346,5 @@ export function initQueue({ $, state, native, currentEdits, showNotice, showErro
   };
 
   render();
-  return { queue, render, add, setView };
+  return { queue, render, add, setView, pick, isPicked };
 }
