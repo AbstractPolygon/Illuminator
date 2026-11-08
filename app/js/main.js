@@ -373,7 +373,8 @@ function renderGrid(photos, album) {
     };
     const frame = Object.assign(document.createElement('div'), { className: 'frame' });
     const url = thumbFor(photo);
-    if (url) frame.append(Object.assign(document.createElement('img'), { src: url, alt: '' }));
+    const thumb = url ? Object.assign(document.createElement('img'), { src: url, alt: '' }) : null;
+    if (thumb) frame.append(thumb);
     const name = Object.assign(document.createElement('div'), { className: 'name', textContent: photo.name, title: photo.name });
     const more = Object.assign(document.createElement('button'), { className: 'more', type: 'button', textContent: '•••', title: 'Albums, copy and paste settings, delete' });
     more.setAttribute('aria-label', `Actions for ${photo.name}`);
@@ -383,7 +384,16 @@ function renderGrid(photos, album) {
       photoMenu(photo, more);
     };
     const mark = marks && marks.badge(photo);
-    if (marks) frame.append(marks.rater(photo));
+    if (marks) {
+      // The stars and the pick checkbox sit on the picture itself, not on the empty space around it: the layer takes the thumbnail's shape (--ar, width over height).
+      const layer = marks.rater(photo);
+      const shape = () => thumb.naturalWidth && thumb.naturalHeight && layer.style.setProperty('--ar', String(thumb.naturalWidth / thumb.naturalHeight));
+      if (thumb) {
+        if (thumb.complete) shape();
+        else thumb.addEventListener('load', shape);
+      }
+      frame.append(layer);
+    }
     tile.append(frame, name, more);
     if (mark) tile.append(mark);
     tile.onclick = () => openItem(photo);
