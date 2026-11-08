@@ -237,6 +237,7 @@ export function initQueue({ $, state, native, currentEdits, showNotice, showErro
     $('queue-open').textContent = active ? `Open Render Queue (${active} waiting)` : 'Open Render Queue';
     if (!state.queueView) return;
     $('queue-view-summary').textContent = summary;
+    $('queue-current').textContent = canAdd ? `Adds from: ${libraryPhoto().name}` : libraryPhoto() ? 'Opening the photo…' : 'Choose a library photo to add it';
     const list = $('queue-list');
     list.replaceChildren(...queue.jobs.map(card));
     $('queue-empty').hidden = queue.jobs.length > 0;
