@@ -31,17 +31,17 @@ export async function createDepthPool(count) {
         w.postMessage({ type: 'load', ...shared });
       })));
     },
-    // Scores every trial depth in `alphas`, calling onScore(k, score) as each is done.
-    async run(alphas, onScore) {
+    // Scores the trial depths `ks` (indexes into `alphas`), calling onScore(k, score) as each is done.
+    async run(alphas, ks, onScore) {
       let next = 0;
       let done = 0;
       await new Promise((resolve, reject) => {
         const feed = (w) => {
-          if (next >= alphas.length) {
-            if (done >= alphas.length) resolve();
+          if (next >= ks.length) {
+            if (done >= ks.length) resolve();
             return;
           }
-          const k = next++;
+          const k = ks[next++];
           w.postMessage({ type: 'score', k, alpha: alphas[k] });
         };
         for (const w of workers) {

@@ -14,6 +14,8 @@
 // Results are read back as linear RGB (Float32Array, w * h * 3) so the rest
 // of the pipeline (depth of field, defringing, tone mapping) is unchanged.
 
+import { searchPlanner, DEPTH_FAST_SEARCH } from '../core/depth.js';
+
 import { ENGINE_USM, engineUsmMap, rangeSigma, chromaSigma, sharpenWindow, HALO_LIMIT, speckleThreshold, dustRadius, DUST_LOW, DUST_HIGH } from '../core/detail.js';
 import { MAX_MASKS } from '../core/local.js';
 import { bokehKernel } from '../core/dof.js';
@@ -2325,23 +2327,25 @@ uniform sampler2DArray uCost;
 uniform int uSteps;
 uniform float uMin;
 uniform float uStep;
+uniform float uWeight[${DEPTH_STEPS_MAX}]; // what each measured step stands for in the mean cost (0: not measured), see searchPlanner
 out vec4 outColor;
 void main() {
   ivec2 p = ivec2(gl_FragCoord.xy);
   float best = 0.0;
-  int bi = 0;
+  int bi = -1;
   float sum = 0.0;
   for (int k = 0; k < ${DEPTH_STEPS_MAX}; k++) {
     if (k >= uSteps) break;
+    if (uWeight[k] <= 0.0) continue;
     float c = texelFetch(uCost, ivec3(p, k), 0).r;
-    sum += c;
-    if (k == 0 || c < best) {
+    sum += uWeight[k] * c;
+    if (bi < 0 || c < best) {
       best = c;
       bi = k;
     }
   }
   float offset = 0.0;
-  if (bi > 0 && bi < uSteps - 1) {
+  if (bi > 0 && bi < uSteps - 1 && uWeight[bi - 1] > 0.0 && uWeight[bi + 1] > 0.0) {
     float a = -texelFetch(uCost, ivec3(p, bi - 1), 0).r;
     float b = -best;
     float c = -texelFetch(uCost, ivec3(p, bi + 1), 0).r;
@@ -3063,6 +3067,17 @@ export class GpuRenderer {
   }
 
   // Reads channels of a full float texture back: [Float32Array] per channel.
+  // One layer (the red channel) of a texture array, as a Float32Array.
+  readLayer(tex, w, h, layer) {
+    const gl = this.gl;
+    this.target(tex, w, h, layer);
+    const buf = new Float32Array(w * h * 4);
+    gl.readPixels(0, 0, w, h, gl.RGBA, gl.FLOAT, buf);
+    const out = new Float32Array(w * h);
+    for (let i = 0; i < w * h; i++) out[i] = buf[4 * i];
+    return out;
+  }
+
   readChannels(tex, w, h, count) {
     const gl = this.gl;
     this.target(tex, w, h);
@@ -3137,13 +3152,8 @@ export class GpuRenderer {
     const means = this.scratch32(w, h, 'depthMeans');
     const ab = this.scratch32(w, h, 'depthAB');
     const abMeans = this.scratch32(w, h, 'depthABMeans');
-    for (let k = 0; k < steps; k++) {
-      // Let the GPU catch up now and then, so progress is real and one huge
-      // command queue cannot stall the whole machine.
-      if (onProgress && k % 3 === 0) {
-        gl.finish();
-        onProgress(0.05 + (0.9 * k) / steps);
-      }
+    // One trial depth: its cost (the variance of the shifted views, filtered) into layer k of the cost volume.
+    const computeStep = (k) => {
       const alpha = min + ((max - min) * k) / (steps - 1);
       let Q = P.depthVariance;
       this.target(variance, w, h);
@@ -3162,7 +3172,7 @@ export class GpuRenderer {
       this.draw();
       if (!guided) {
         this.boxMean(variance, w, h, window, costTex, k);
-        continue;
+        return;
       }
       this.boxMean(variance, w, h, r, means);
       Q = P.depthGuidedAB;
@@ -3183,6 +3193,41 @@ export class GpuRenderer {
       gl.uniform1i(Q.u.uGuide, 3);
       this.bindTex(3, guideTex);
       this.draw();
+    };
+    // The coarse-first search (see searchPlanner in core/depth.js): most photos use a small part of the search range, so only every few steps are measured first, then the
+    // range the pixels' best steps fall in. The planner reads each measured layer back (a picture's worth of floats) to count where the best steps are.
+    let weights = new Float32Array(DEPTH_STEPS_MAX).fill(0);
+    if (DEPTH_FAST_SEARCH.on && steps >= 12) {
+      const plan = searchPlanner(steps, w * h);
+      const scores = new Array(steps);
+      let measured = 0;
+      for (let ks = plan.first(); ks.length; ks = plan.next(scores)) {
+        for (const k of ks) {
+          if (onProgress && measured % 3 === 0) {
+            gl.finish();
+            onProgress(0.05 + 0.9 * Math.min(0.95, measured / (0.6 * steps)));
+          }
+          measured++;
+          computeStep(k);
+        }
+        for (const k of ks) {
+          const cost = this.readLayer(costTex, w, h, k);
+          for (let i = 0; i < cost.length; i++) cost[i] = -cost[i];
+          scores[k] = cost;
+        }
+      }
+      weights.set(plan.weights());
+    } else {
+      for (let k = 0; k < steps; k++) {
+        // Let the GPU catch up now and then, so progress is real and one huge
+        // command queue cannot stall the whole machine.
+        if (onProgress && k % 3 === 0) {
+          gl.finish();
+          onProgress(0.05 + (0.9 * k) / steps);
+        }
+        computeStep(k);
+      }
+      weights.fill(1, 0, steps);
     }
 
     const best = this.scratch32(w, h, 'depthBest');
@@ -3194,6 +3239,7 @@ export class GpuRenderer {
     gl.uniform1i(Q.u.uSteps, steps);
     gl.uniform1f(Q.u.uMin, min);
     gl.uniform1f(Q.u.uStep, (max - min) / (steps - 1));
+    gl.uniform1fv(Q.u.uWeight, weights);
     this.draw();
     const [alpha, cost, meanCost] = this.readChannels(best, w, h, 3);
     this.releaseDepthWork();

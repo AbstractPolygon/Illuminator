@@ -24,7 +24,7 @@ import { removePeriodicPatternRepeatedly, removeLatticeByTiles } from './core/no
 import { snapDepthEdges, snapToObjects, softenObjectEdges, EDGE_SNAP_DEPTH } from './core/segments.js';
 import { methodDepthModel, readDepthModel } from './core/depthmodels.js';
 import { runDepthModel, fitModelDepth, shapeModelDepth, fuseModelDepth } from './core/depthmodel.js';
-import { shapeDepthContrast, setDepthStyle, estimateDepth, estimateDepthPooled, poolable, focusAtPoint, smoothDepth, finishDepth, depthGuide, depthColorGuide, luminance, brightnessFloor, DEPTH_SEARCH, DEPTH_LCOST, DEPTH_CBCA, DEPTH_TRWS, DEPTH_COARSE, DEPTH_STEP, DEPTH_REGIONS, combineCoarse } from './core/depth.js';
+import { shapeDepthContrast, setDepthStyle, estimateDepth, estimateDepthPooled, poolable, DEPTH_FAST_SEARCH, focusAtPoint, smoothDepth, finishDepth, depthGuide, depthColorGuide, luminance, brightnessFloor, DEPTH_SEARCH, DEPTH_LCOST, DEPTH_CBCA, DEPTH_TRWS, DEPTH_COARSE, DEPTH_STEP, DEPTH_REGIONS, combineCoarse } from './core/depth.js';
 import { applyDepthOfField } from './core/dof.js';
 import { defringe, autoDefringe } from './core/defringe.js';
 import { makeLook, whiteBalanceGains, DEFAULT_KELVIN, solveWhiteBalance, autoWhiteBalance } from './core/color.js';
@@ -2176,6 +2176,8 @@ async function measureClassic(id, fast, progress) {
   const { outW, outH } = state.sampler;
   setDepthStyle('classic');
   DEPTH_PASSES.on = false;
+  // The coarse-first search over the trial depths (core/depth.js searchPlanner); settings.fastSearch = false measures every one.
+  DEPTH_FAST_SEARCH.on = state.settings.fastSearch !== false;
   if (state.gpu) {
     progress(0);
     // The cost volume on the GPU takes most of the time; the two (fine and

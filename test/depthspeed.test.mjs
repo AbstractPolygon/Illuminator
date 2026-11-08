@@ -73,8 +73,8 @@ test('depth measured with the trial depths scored through a pool is the same as 
     async load(s) {
       shared = s;
     },
-    async run(alphas, onScore) {
-      alphas.forEach((alpha, k) => onScore(k, scoreStep({ ...shared, w: shared.w, h: shared.h, alpha })));
+    async run(alphas, ks, onScore) {
+      for (const k of ks) onScore(k, scoreStep({ ...shared, w: shared.w, h: shared.h, alpha: alphas[k] }));
     },
   };
   for (const quality of [{ occlusion: false, guided: false, refine: false }, {}]) {
@@ -83,4 +83,46 @@ test('depth measured with the trial depths scored through a pool is the same as 
     assert.deepEqual(Array.from(b.alpha), Array.from(a.alpha));
     assert.deepEqual(Array.from(b.confidence), Array.from(a.confidence));
   }
+});
+
+test('the coarse-first search measures few steps when the picture uses a narrow range, and gives the same best depths as measuring all', async () => {
+  const { searchPlanner, bestDepth } = await import('../app/js/core/depth.js');
+  const steps = 33;
+  const n = 4000;
+  const r = rng(5);
+  // Each pixel's score peaks at its true step, between 12 and 17 (a narrow range), with a little noise.
+  const truth = Int16Array.from({ length: n }, () => 12 + Math.floor(r() * 6));
+  const score = (k, i) => -(((k - truth[i]) ** 2) * 0.01 + 0.05 + 0.001 * r());
+  const full = Array.from({ length: steps }, (_, k) => Float32Array.from({ length: n }, (_, i) => score(k, i)));
+  const alphas = Array.from({ length: steps }, (_, k) => -1.6 + k * 0.1);
+  const plan = searchPlanner(steps, n);
+  const sparse = new Array(steps);
+  let measured = 0;
+  for (let ks = plan.first(); ks.length; ks = plan.next(sparse)) {
+    for (const k of ks) {
+      sparse[k] = full[k];
+      measured++;
+    }
+  }
+  assert.ok(measured < steps - 8, `measured ${measured} of ${steps}`);
+  const a = bestDepth(full, alphas, n);
+  const b = bestDepth(sparse, alphas, n, null, plan.weights());
+  assert.deepEqual(Array.from(b.alpha), Array.from(a.alpha));
+  assert.deepEqual(Array.from(b.cost), Array.from(a.cost));
+  // the weights add up to the number of steps, so the mean cost stays on the same scale
+  assert.ok(Math.abs(plan.weights().reduce((s, x) => s + x, 0) - steps) < 1e-9);
+  assert.ok(Math.abs(b.meanCost[0] - a.meanCost[0]) / a.meanCost[0] < 0.05);
+});
+
+test('the coarse-first search widens to the whole range when the best steps are spread over it', async () => {
+  const { searchPlanner } = await import('../app/js/core/depth.js');
+  const steps = 33;
+  const n = 3000;
+  const r = rng(9);
+  const truth = Int16Array.from({ length: n }, () => Math.floor(r() * steps));
+  const full = Array.from({ length: steps }, (_, k) => Float32Array.from({ length: n }, (_, i) => -(((k - truth[i]) ** 2) * 0.01 + 0.05)));
+  const plan = searchPlanner(steps, n);
+  const sparse = new Array(steps);
+  for (let ks = plan.first(); ks.length; ks = plan.next(sparse)) for (const k of ks) sparse[k] = full[k];
+  assert.equal(sparse.filter(Boolean).length, steps);
 });
