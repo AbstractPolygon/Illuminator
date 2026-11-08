@@ -48,7 +48,7 @@ A look is the color and tone of a photo's edits, kept so you can put it on other
 - **•••** next to a look: *Apply to the open photo*, *Save as a file…*, *Rename…*, *Delete look…* (photos it was put on keep their settings).
 - **Save as a file…** writes a `.illuminator-look` file, a small text file you can send to anyone. **+ Import look…** adds such a file to your list (more than one can be chosen). A file that is not a look is refused with a message.
 
-Looks are kept in the library, next to the photos and albums.
+Looks are kept in the library, next to the photos and albums. To put a look on a whole album and export it, use the [[Render]] Queue's *Choose all* and *Look* list.
 
 ## Ratings, flags and keywords
 

@@ -41,3 +41,4 @@ Send: the line above, the text of any notice, the graphics card and driver versi
 
 - Save a look from an edited photo (try one with a LUT and local adjustments), put it on another photo with a click, undo it with Ctrl+Z.
 - Save it as a file, delete it, import the file again, and put it on a photo on another computer.
+- Render Queue: choose an album with *Choose all*, pick a look, add the pictures, start the queue, and check the files have the look and the photos in the library do not.
