@@ -159,7 +159,8 @@ export function initQueue({ $, state, native, currentEdits, showNotice, showErro
     try {
       step(0);
       await api.open(photo.name, bytes, { edits: job.spec.edits });
-      if (job.spec.fullSensor) {
+      // (a job added for another photo in the library cannot know whether it has a raw light field: no full sensor render for one without)
+      if (job.spec.fullSensor && api.info().raw) {
         step(phases.findIndex((p) => p.name === 'render'));
         await api.fullSensor(job.spec.fullSensor);
       }
