@@ -179,10 +179,36 @@ export function initLocalAdjustments({ $, applySettingsSoon, scheduleSave, state
   $('mask-show').addEventListener('change', () => applySettingsSoon());
   $('mask-delete').onclick = () => askDeleteMask(state.maskSel, $('mask-delete'));
 
+  // The selected depth mask's range set from outside (picking on the picture, the depth ruler, the focus): near and far in depth units. Returns false when no depth mask is selected.
+  function setDepthRange(near, far, { final = true } = {}) {
+    const m = getMasks()[state.maskSel];
+    if (!m || m.kind !== 'depth') return false;
+    const [lo, hi] = near <= far ? [near, far] : [far, near];
+    $('md-near').value = Math.round(Math.max(-1.6, Math.min(1.6, lo)) * 100);
+    $('md-far').value = Math.round(Math.max(-1.6, Math.min(1.6, hi)) * 100);
+    showSliderValue($('md-near'));
+    showSliderValue($('md-far'));
+    maskFromEditor(final);
+    return true;
+  }
+
+  // Centered on `depth`, keeping the width (at least 0.2).
+  function pickDepthRange(depth) {
+    const m = getMasks()[state.maskSel];
+    if (!m || m.kind !== 'depth') return false;
+    const half = Math.max(0.1, (m.far - m.near) / 2);
+    return setDepthRange(depth - half, depth + half);
+  }
+
+  const selectedDepthMask = () => {
+    const m = getMasks()[state.maskSel];
+    return m && m.kind === 'depth' ? m : null;
+  };
+
   renderMasks();
 
   function localSettings() {
     return { masks: $('local-masks').value, show: $('mask-show').checked ? state.maskSel : -1 };
   }
-  return { getMasks, setMasks, maskLabel, TRASH_ICON, renderMasks, localSettings };
+  return { getMasks, setMasks, maskLabel, TRASH_ICON, renderMasks, localSettings, setDepthRange, pickDepthRange, selectedDepthMask };
 }

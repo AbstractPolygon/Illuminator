@@ -475,6 +475,11 @@
               <input id="md-feather" type="range" min="1" max="100" step="1" value="20" data-default="20">
             </label>
             <label class="check" title="Near and far move with the focus, keeping their distance from it (also when the focus is animated)"><input id="mask-follow" type="checkbox"> Follow focus</label>
+            <div class="row mask-pick">
+              <button id="mask-pick-depth" type="button" title="Then click the picture: the range is centered on the depth you click, keeping its width. Esc cancels">Pick range from picture</button>
+              <button id="mask-depth-focus" type="button" title="Sets the range to the sharp range around the focus (the Focus Spread)">From focus</button>
+            </div>
+            <p class="hint">Or Shift-drag on the depth ruler (Camera &gt; Depth) to choose the range.</p>
           </div>
           <h3 class="mask-fx-title">Effect</h3>
             <label title="Brightens or darkens what the mask covers">Exposure <output data-for="mx-exposure" for="mx-exposure">0</output>
