@@ -8,7 +8,7 @@ Masks that change part of the picture. A photo can have up to 16.
 
 <img src="images/mask-gradient.png" width="20" height="20" alt="Gradient mask"> **Gradient:** a graduated filter: full effect on one side of a line through *Center X/Y* at an *Angle*, fading to none over *Width*.
 
-<img src="images/mask-depth.png" width="20" height="20" alt="Depth mask"> **Depth:** uses the light field's depth: full effect between a *Near* and a *Far* depth (negative is nearer than the camera's focus), fading over *Feather*. *Follow focus* moves the range with the focus, so it keeps the same distance from it, also when the focus is animated.
+<img src="images/mask-depth.png" width="20" height="20" alt="Depth mask"> **Depth:** uses the light field's depth: full effect between a *Near* and a *Far* depth (negative is nearer than the camera's focus), fading over *Feather*. *Follow focus* moves the range with the focus, so it keeps the same distance from it, also when the focus is animated. Three ways to set the range besides the sliders: *Pick range from picture* (then click the picture: the range is centered on the depth you click, keeping its width; Esc cancels), *From focus* (the sharp range around the focus, see *Focus Spread*), and Shift-drag on the depth ruler under *Camera > Depth*, which sets *Near* and *Far* to the depths you drag across.
 
 Click a mask in the list to edit it.
 

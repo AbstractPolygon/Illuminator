@@ -1200,22 +1200,41 @@ async function refreshDepthRuler() {
     drawDepthRuler();
     cameraChanged({ final });
   };
+  // Shift-drag: the range of the selected depth mask (from where the drag starts to where it is now), instead of the focus.
+  let rangeFrom = null;
+  const depthAt = (event) => {
+    const r = cv.getBoundingClientRect();
+    const t = Math.min(1, Math.max(0, (event.clientX - r.left) / Math.max(1, r.width)));
+    return ruler.lo + t * (ruler.hi - ruler.lo);
+  };
   cv.addEventListener('pointerdown', (event) => {
     if (!hasDepth()) return;
+    if (event.shiftKey && selectedDepthMask()) {
+      rangeFrom = depthAt(event);
+      cv.setPointerCapture(event.pointerId);
+      return;
+    }
     dragging = true;
     cv.setPointerCapture(event.pointerId);
     setFocusFrom(event, false);
   });
   cv.addEventListener('pointermove', (event) => {
-    if (dragging) setFocusFrom(event, false);
+    if (rangeFrom !== null) setDepthRange(rangeFrom, depthAt(event), { final: false });
+    else if (dragging) setFocusFrom(event, false);
   });
   const stop = (event) => {
+    if (rangeFrom !== null) {
+      setDepthRange(rangeFrom, depthAt(event), { final: true });
+      rangeFrom = null;
+      return;
+    }
     if (!dragging) return;
     dragging = false;
     setFocusFrom(event, true);
   };
   cv.addEventListener('pointerup', stop);
   cv.addEventListener('pointercancel', () => {
+    rangeFrom = null;
     dragging = false;
   });
 })();
@@ -2492,9 +2511,42 @@ function viewPoint(event) {
 }
 
 
+// Depth mask > Pick range from picture: the next click on the picture centers the selected depth mask's range on the depth there.
+function setDepthPick(on) {
+  state.depthPick = on && !!selectedDepthMask() && hasDepth();
+  $('mask-pick-depth').classList.toggle('active', state.depthPick);
+  canvas.style.cursor = state.depthPick ? 'crosshair' : '';
+}
+async function pickDepthFromClick(event) {
+  const [x, y] = viewPoint(event);
+  try {
+    const res = await engine.request('focusAt', { x, y, u: state.camera.u, v: state.camera.v, depth: true }, { onProgress: showProgress });
+    hideProgress();
+    if (res && typeof res.alpha === 'number') pickDepthRange(res.alpha);
+  } catch (err) {
+    showError(err);
+  }
+  setDepthPick(false);
+}
+$('mask-pick-depth').onclick = () => setDepthPick(!state.depthPick);
+$('mask-depth-focus').onclick = () => {
+  if (!hasDepth()) return;
+  const f = +$('focus').value;
+  const spread = focusField().spread;
+  setDepthRange(f - Math.max(0.1, spread), f + Math.max(0.1, spread));
+};
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && state.depthPick) setDepthPick(false);
+});
+
 // Click to focus on the clicked spot. With a small aperture everything is
 // already sharp, so a click also opens up to f/2.8 to make the change visible.
 async function focusAt(event) {
+  // Picking a depth mask's range: the click gives the depth, not the focus.
+  if (state.depthPick) {
+    await pickDepthFromClick(event);
+    return;
+  }
   const [x, y] = viewPoint(event);
   const [fx, fy] = sourceFraction(event);
   state.focusPoint = { x: Math.min(1, Math.max(0, fx)), y: Math.min(1, Math.max(0, fy)) };
@@ -3557,7 +3609,7 @@ document.addEventListener('keydown', (e) => {
 const { showColorMatrix } = initColorMatrix({ $, state, applySettings: (...a) => applySettings(...a), applySettingsSoon: (...a) => applySettingsSoon(...a) });
 
 // local adjustments: ui/localadjust.js
-const { getMasks, setMasks, maskLabel, TRASH_ICON, renderMasks, localSettings } = initLocalAdjustments({ $, applySettingsSoon: (...a) => applySettingsSoon(...a), scheduleSave: (...a) => scheduleSave(...a), state, clearSelection: (...a) => clearSelection(...a), saveAnimation: (...a) => saveAnimation(...a), renderTimeline: (...a) => renderTimeline(...a), showMenu: (...a) => showMenu(...a), confirmInMenu: (...a) => confirmInMenu(...a), editName: (...a) => editName(...a), canRender: (...a) => canRender(...a), showSliderValue: (...a) => showSliderValue(...a), updateKeyButtons: (...a) => updateKeyButtons(...a), autoKey: (...a) => autoKey(...a) });
+const { getMasks, setMasks, maskLabel, TRASH_ICON, renderMasks, localSettings, setDepthRange, pickDepthRange, selectedDepthMask } = initLocalAdjustments({ $, applySettingsSoon: (...a) => applySettingsSoon(...a), scheduleSave: (...a) => scheduleSave(...a), state, clearSelection: (...a) => clearSelection(...a), saveAnimation: (...a) => saveAnimation(...a), renderTimeline: (...a) => renderTimeline(...a), showMenu: (...a) => showMenu(...a), confirmInMenu: (...a) => confirmInMenu(...a), editName: (...a) => editName(...a), canRender: (...a) => canRender(...a), showSliderValue: (...a) => showSliderValue(...a), updateKeyButtons: (...a) => updateKeyButtons(...a), autoKey: (...a) => autoKey(...a) });
 
 // keyframes: ui/keyframes.js
 const { MASK_LIMITS, parseMaskTrack, trackGroups, tracks, KEY_CONTROLS, settingControl, updateKeyButtons, groupCollapsed, shownTracks, groupHidden, trackName, tlSel, tlCurves, keyframesOn, animLength, loadAnimation, saveAnimation, liveFraming, combineMotion, showValue, previewAt, autoKey, playheadTime, clearSelection, selectKey, selectedKeys, moveKeys, selectedKey, viewWindow, tickStep, updatePlayhead, groupHeading, renderTimeline, timeAt, seekTimeline, seekTo, showAnimationLength, keyframeFrames } = initKeyframes({ $, getMasks, maskLabel, state, canRender: (...a) => canRender(...a), F_STOPS, scheduleSave: (...a) => scheduleSave(...a), invalidateAnimation: (...a) => invalidateAnimation(...a), backToCamera: (...a) => backToCamera(...a), renderCamera: (...a) => renderCamera(...a), showSliderValue: (...a) => showSliderValue(...a), setMasks, renderMasks, showFNumber: (...a) => showFNumber(...a), showFocusPoint: (...a) => showFocusPoint(...a), applySettingsSoon: (...a) => applySettingsSoon(...a), cameraChanged: (...a) => cameraChanged(...a), layoutCanvas: (...a) => layoutCanvas(...a), drawCurves: (...a) => drawCurves(...a), setPlaying: (...a) => setPlaying(...a), showFrame: (...a) => showFrame(...a), updateFrameLabel: (...a) => updateFrameLabel(...a), plotBox: (...a) => plotBox(...a), animationSettingsChanged: (...a) => animationSettingsChanged(...a), draw: (...a) => draw(...a), apertureFor: (...a) => apertureFor(...a), view, bokehParams: (...a) => bokehParams(...a), colorSettings: (...a) => colorSettings(...a) });
