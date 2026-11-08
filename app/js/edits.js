@@ -43,6 +43,8 @@ function readValue(el) {
 
 function writeValue(el, value) {
   if (el.type === 'checkbox') el.checked = !!value;
+  // A choice the list no longer has (a method that was removed, a model not downloaded) leaves the control at its default instead of blank.
+  else if (el.tagName === 'SELECT' && el.options && ![...el.options].some((o) => o.value === String(value))) return;
   else el.value = String(value);
 }
 

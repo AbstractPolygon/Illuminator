@@ -1653,9 +1653,10 @@ function useHotPixelFix(on) {
 
 // The depth method a setting stands for: 'auto' (or none) is the engine's own way where its tables are there, the blend otherwise.
 function resolveDepthStyle(v) {
-  // a depth model works on top of the automatic method's measurement
+  // a depth model works on top of Classic Desktop's measurement (and a photo saved with the removed Automatic choice gets it too)
   if (methodDepthModel(v)) v = 'auto';
-  // Automatic is Lytro Desktop's style (Classic Desktop): the engine's own estimator for raw photos with its ray tables, the Lytro-style estimator for the rest.
+  // Classic Desktop is Lytro Desktop's style: the engine's own estimator for raw photos with its ray tables, the Lytro-style estimator for the rest. The list has no Automatic
+  // choice any more; a photo saved with it ('auto') and the depth models (which add to this measurement) get this style.
   return v && v !== 'auto' && v !== 'guided' ? v : 'match';
 }
 
