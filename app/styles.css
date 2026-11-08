@@ -122,6 +122,8 @@ h2 { font-size: 13px; font-weight: 600; color: var(--heading); margin: 14px 0 8p
 #library-list li { position: relative; }
 #library-list li:hover { background: #22262c; }
 #library-list li.current { border-color: var(--accent); }
+#library-list li.picked { background: #26303c; }
+#library-list li.picked:not(.current) { border-color: #4a6a8f; }
 #library-list img, #library-list .noimg { width: 64px; height: 44px; object-fit: cover; border-radius: 4px; background: #2a2e35; flex: none; }
 #library-list span { font-size: 12.5px; word-break: break-all; }
 
@@ -167,8 +169,13 @@ h2 { font-size: 13px; font-weight: 600; color: var(--heading); margin: 14px 0 8p
 .version { font-size: 11px; font-weight: 400; color: var(--muted); margin-left: 4px; font-variant-numeric: tabular-nums; }
 #spread-overlay { position: absolute; pointer-events: none; opacity: 0.5; }
 #peaking-overlay { position: absolute; pointer-events: none; }
-.depth-ruler { margin: 4px 0 6px; }
-#depth-ruler { display: block; width: 100%; height: 36px; border-radius: 4px; background: #14161a; cursor: ew-resize; touch-action: none; }
+.depth-ruler { margin: 12px 0 10px; }
+#depth-ruler { display: block; width: 100%; height: 44px; border-radius: 6px; background: #14161a; cursor: ew-resize; touch-action: none; }
+/* The lettering is text on the page, not drawn on the picture of the graph, so it never stretches. */
+.depth-ruler-labels { position: relative; height: 16px; margin-top: 3px; font-size: 11px; line-height: 16px; color: #9aa3ad; pointer-events: none; }
+.depth-ruler-labels .near { position: absolute; left: 2px; }
+.depth-ruler-labels .far { position: absolute; right: 2px; }
+.depth-ruler-labels output { position: absolute; transform: translateX(-50%); color: #e6e9ed; font-variant-numeric: tabular-nums; }
 .placeholder { position: absolute; color: var(--muted); text-align: center; padding: 20px; }
 
 .notice {

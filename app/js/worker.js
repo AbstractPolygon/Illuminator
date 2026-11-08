@@ -1103,7 +1103,13 @@ async function refocusFrames({ id, job, alphas, u, v, aperture, dof = 0, bokeh }
 // A quick look at what a full sensor render will make, shown while it is made: one pixel per lens (scale 1), a quarter of the lenses, no focus probe and no lens center
 // measuring, and the depth only if it is already known (otherwise a refocus at the camera's focus through a small aperture). On the graphics card only, and not for the
 // engine's own all in focus picture (core/lytroedof.js), which has no thinned version: those return { none: true }.
-async function superResPreview({ id, job, alpha = 0, u = 0, v = 0, aperture = 0, dof = 0, bokeh, color = null, masks = null }) {
+// What the all in focus full sensor picture (before its blur and color pass) depends on: kept by superRes, and looked up by the quick look to see whether the picture can be made again from it.
+function superResBaseKey(scale, passes, u, v, cs) {
+  const lensKey = cs.lens ? [cs.lens.k || 0, cs.lens.k2 || 0, cs.lens.edge || 0, cs.lens.zoom || 1] : null;
+  return stillKey(['srbase', scale, passes, u, v, state.detail, lensKey]);
+}
+
+async function superResPreview({ id, job, alpha = 0, u = 0, v = 0, aperture = 0, dof = 0, bokeh, color = null, masks = null, scale, passes = 0 }) {
   requireRaw();
   const gpu = state.gpu;
   if (!gpu || !gpu.floatBlend || state.settings.fullSensorPreview === false) return { none: true };
@@ -1112,6 +1118,8 @@ async function superResPreview({ id, job, alpha = 0, u = 0, v = 0, aperture = 0,
   const { lf, dev, sampler } = state;
   if (!state.vignetting) state.vignetting = estimateVignetting(lf.raw, lf.cam, dev, lf.grid);
   const allInFocus = aperture <= 0 && !!state.depth && !state.depthFast && state.focusOffset !== undefined;
+  // The picture is made again from the kept all in focus picture within moments (only the focus, the blur or the effects changed): no quick look first.
+  if (aperture <= 0 && scale && state.keptBase && state.keptBase.key === superResBaseKey(scale, passes, u, v, colorState(color))) return { none: true };
   const opts = apertureOptions({ u, v, aperture: aperture > 0 ? aperture : 0.25 });
   if (!(await ensureRefocusViews(id))) return { cancelled: true };
   if (state.jobs.preview !== job) return { cancelled: true };
@@ -1131,6 +1139,9 @@ async function superResPreview({ id, job, alpha = 0, u = 0, v = 0, aperture = 0,
   await presentGpu(id, tex, params.W, params.H, { alpha, dof, bokeh, color, pxPerUnit: 14, masks: stillCtx, distortionCorrected: true }, { id, type: 'result', preview: true });
   return undefined;
 }
+
+// (what the progress says when the picture comes from one kept before, not from the sensor)
+const KEPT_LABEL = 'Applying the changes to the kept picture';
 
 async function superRes({ id, job, alpha = 0, scale, u = 0, v = 0, aperture = 0, dof = 0, bokeh, passes = 0, masks = null, color = null, quiet = false, label = 'Rendering from the full sensor' }) {
   requireRaw();
@@ -1178,7 +1189,6 @@ async function superRes({ id, job, alpha = 0, scale, u = 0, v = 0, aperture = 0,
   const stillCtx = { focus: alpha, overrides: masks, view: viewOf(u, v) };
   let keepStill = null;
   let baseKey = null;
-  let baseParts = null;
   let diskHash = null;
   if (state.gpu && !color && !quiet) {
     const csKept = colorState(color);
@@ -1189,11 +1199,10 @@ async function superRes({ id, job, alpha = 0, scale, u = 0, v = 0, aperture = 0,
     keepStill = stillKey(keyParts);
     // What the all in focus picture depends on: not the focus, the blur or the effects (only for the depth-based blur, aperture 0).
     if (allInFocus) {
-      baseParts = ['srbase', scale, passes, u, v, state.detail, lensKey];
-      baseKey = stillKey(baseParts);
+      baseKey = superResBaseKey(scale, passes, u, v, csKept);
     }
     if (state.keptStill && state.keptStill.key === keepStill && state.keptStill.w === keptW && state.keptStill.h === keptH) {
-      progress(label, 1);
+      progress(KEPT_LABEL, 1);
       finishGpu(state.keptStill.tex, keptW, keptH, packedKept, { id, type: 'result', kept: true }, csKept, true, stillCtx, undefined);
       return undefined;
     }
@@ -1205,7 +1214,7 @@ async function superRes({ id, job, alpha = 0, scale, u = 0, v = 0, aperture = 0,
       if (state.jobs.superres !== job) return { cancelled: true };
       if (disk) {
         state.keptStill = { key: keepStill, tex: state.gpu.keep(state.gpu.uploadRGB(disk, keptW, keptH), keptW, keptH, 'still'), w: keptW, h: keptH };
-        progress(label, 1);
+        progress(KEPT_LABEL, 1);
         finishGpu(state.keptStill.tex, keptW, keptH, packedKept, { id, type: 'result', kept: true }, csKept, true, stillCtx, undefined);
         return undefined;
       }
@@ -1215,7 +1224,7 @@ async function superRes({ id, job, alpha = 0, scale, u = 0, v = 0, aperture = 0,
   // views, focusing every depth and splatting every ray once more.
   if (baseKey && state.keptBase && state.keptBase.key === baseKey) {
     const { tex: baseTex, w: baseW, h: baseH } = state.keptBase;
-    progress(label, 0.5);
+    progress(KEPT_LABEL, 0.5);
     await presentGpu(id, baseTex, baseW, baseH, { alpha, dof, bokeh, color, pxPerUnit: 14 * scale, masks: stillCtx, keepStill, distortionCorrected: true }, { id, type: 'result', get kept() { return !!(keepStill && state.keptStill && state.keptStill.key === keepStill); } });
     return undefined;
   }
@@ -1239,7 +1248,7 @@ async function superRes({ id, job, alpha = 0, scale, u = 0, v = 0, aperture = 0,
       noteLensOffsets();
       if (state.jobs.superres !== job) return { cancelled: true };
       // (keyed after the render: it measures the lens centers on the first one, which the key covers)
-      if (baseKey) state.keptBase = { key: stillKey(baseParts), tex: state.gpu.keep(tex, params.W, params.H, 'stillbase'), w: params.W, h: params.H };
+      if (baseKey) state.keptBase = { key: superResBaseKey(scale, passes, u, v, cs), tex: state.gpu.keep(tex, params.W, params.H, 'stillbase'), w: params.W, h: params.H };
       await presentGpu(id, tex, params.W, params.H, { alpha, dof, bokeh, color, pxPerUnit: 14 * scale, masks: stillCtx, keepStill, distortionCorrected: true }, { id, type: 'result', get kept() { return !!(keepStill && state.keptStill && state.keptStill.key === keepStill); } });
       // The picture before its color pass, saved next to the photo (the page keeps the last two).
       if (diskHash && state.keptStill && state.keptStill.key === keepStill) {

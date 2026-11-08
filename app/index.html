@@ -139,8 +139,8 @@
           <span id="queue-view-summary" class="hint"></span>
           <span class="spacer"></span>
           <span id="queue-current" class="hint"></span>
-          <button id="queue-add-photo-view" type="button" title="Adds a picture of the open photo, with its Photo and Full sensor settings as they are now" disabled>Add picture</button>
-          <button id="queue-add-video-view" type="button" title="Adds the open photo's animation as a video" disabled>Add video</button>
+          <button id="queue-add-photo-view" type="button" title="Adds a picture of the open photo, or of each photo chosen in the library (Ctrl or Shift and click), with the Photo and Full sensor settings as they are now" disabled>Add picture</button>
+          <button id="queue-add-video-view" type="button" title="Adds the animation of the open photo, or of each chosen photo that has one, as a video" disabled>Add video</button>
         </div>
         <div id="queue-folder-row" class="queue-folder" hidden>
           <span class="hint">Saves to</span><span id="queue-folder" class="hint">No folder chosen</span>
@@ -568,8 +568,9 @@
             <input id="dof-depth" type="range" min="-100" max="100" step="1" value="0" data-default="0">
           </label>
           <input id="focus" type="hidden" value="0">
-          <div id="depth-ruler-row" class="depth-ruler" title="Where the picture lies in depth, nearer on the left (blue), farther on the right (orange). The line is the focus and the band the sharp range. Click or drag to focus there" hidden>
-            <canvas id="depth-ruler" width="520" height="72"></canvas>
+          <div id="depth-ruler-row" class="depth-ruler" title="Where the picture lies in depth, nearer on the left (blue), farther on the right (orange). The line is the focus and the lit part of the curve the sharp range. Click or drag to focus there" hidden>
+            <canvas id="depth-ruler"></canvas>
+            <div class="depth-ruler-labels" aria-hidden="true"><span class="near">Near</span><output id="depth-ruler-focus"></output><span class="far">Far</span></div>
           </div>
           <label class="check" title="Marks the sharp edges in the picture in green, so you can see what is in focus"><input id="focus-peaking" type="checkbox"> Focus peaking</label>
           <label title="How strong an edge has to be to be marked: higher marks more">Peaking level <output data-for="peaking-level" for="peaking-level">60</output>
