@@ -1211,7 +1211,7 @@ function drawDepthRuler() {
   g.fillStyle = 'rgba(255, 255, 255, 0.85)';
   g.fillRect(x0, base - dpr, Math.max(2 * dpr, x1 - x0), 3 * dpr);
   // The focus: a line with a knob on top.
-  const fx = Math.round(xOf(focus));
+  const fx = Math.min(W - 5 * dpr, Math.max(5 * dpr, Math.round(xOf(focus))));
   g.fillStyle = '#fff';
   g.fillRect(fx - dpr / 2, 6 * dpr, dpr, base - 6 * dpr);
   g.beginPath();
@@ -1224,7 +1224,7 @@ function drawDepthRuler() {
   // The number under the line (page text, kept inside the strip).
   const label = $('depth-ruler-focus');
   label.textContent = focus.toFixed(2);
-  label.style.left = `${Math.min(88, Math.max(12, (fx / W) * 100))}%`;
+  label.style.left = `${Math.min(80, Math.max(20, (fx / W) * 100))}%`;
 }
 
 // Fetches the counts again when the photo, its depth settings or its depth map changed.
