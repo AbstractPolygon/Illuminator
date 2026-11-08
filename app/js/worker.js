@@ -647,11 +647,27 @@ function frameMessage(id, index, rgb, ctx, cs = state) {
   post({ id, type: 'frame', index, width: state.sampler.outW, height: state.sampler.outH, pixels: pixels.buffer }, [pixels.buffer]);
 }
 
+// Each photo's sampler (and its lens vignetting, the other part of opening that depends only on the photo) is kept with that photo, the last few photos' in memory, so a photo
+// opened again, or the same photo after another setting that rebuilds the sampler is changed back, does not build them again. One entry per photo (and per detail and
+// hot pixel setting): photos never share a sampler, so the checks that tell one photo from another by its sampler object keep working.
+const samplerCache = new Map();
+const SAMPLER_CACHE_PHOTOS = 3;
+function samplerKey(lf, exactOffsets) {
+  if (!lf.photoId) return null;
+  return JSON.stringify([lf.photoId, lf.grid, state.settings.detail, lf.cam.width, lf.cam.height, lf.raw === state.rawOriginal ? 'original' : 'fixed', exactOffsets ? fingerprint(exactOffsets) : null, VERSION]);
+}
+
 function rebuildSampler() {
   const { lf } = state;
   const exactOffsets = lf.raw ? exactLensOffsets() : null;
   state.exactOffsets = exactOffsets;
-  state.sampler = buildSampler(lf.grid, lf.cam, state.settings.detail, 1.0, exactOffsets);
+  const cacheKey = samplerKey(lf, exactOffsets);
+  const cached = cacheKey ? samplerCache.get(cacheKey) : null;
+  if (cached) {
+    samplerCache.delete(cacheKey);
+    samplerCache.set(cacheKey, cached); // most recently used last
+  }
+  state.sampler = cached ? cached.sampler : buildSampler(lf.grid, lf.cam, state.settings.detail, 1.0, exactOffsets);
   state.center = null;
   state.engineViews = undefined;
   state.gen++;
@@ -667,9 +683,15 @@ function rebuildSampler() {
   state.focusOffset = undefined;
   state.objects = null;
   if (state.gpu) {
-    state.vignetting = estimateVignetting(lf.raw, lf.cam, state.dev, lf.grid);
+    state.vignetting = cached && cached.vignetting ? cached.vignetting : estimateVignetting(lf.raw, lf.cam, state.dev, lf.grid);
     const vg = state.vignetting;
     state.gpu.setSampler(state.sampler, (u, v) => vignettingGainAt(vg, u, v));
+  }
+  if (cacheKey && !cached) {
+    samplerCache.set(cacheKey, { sampler: state.sampler, vignetting: state.vignetting });
+    while (samplerCache.size > SAMPLER_CACHE_PHOTOS) samplerCache.delete(samplerCache.keys().next().value);
+  } else if (cached && state.vignetting && !cached.vignetting) {
+    cached.vignetting = state.vignetting;
   }
   updateColor();
 }
@@ -1053,6 +1075,38 @@ async function refocusFrames({ id, job, alphas, u, v, aperture, dof = 0, bokeh }
 // `alpha` with detail where it is in focus and smooth blur elsewhere.
 // `masks`: an animation frame's local adjustment settings (see resolveMasks).
 // `label`: the progress text (the picture's own Detail recovery is not a Full sensor render).
+// A quick look at what a full sensor render will make, shown while it is made: one pixel per lens (scale 1), a quarter of the lenses, no focus probe and no lens center
+// measuring, and the depth only if it is already known (otherwise a refocus at the camera's focus through a small aperture). On the graphics card only, and not for the
+// engine's own all in focus picture (core/lytroedof.js), which has no thinned version: those return { none: true }.
+async function superResPreview({ id, job, alpha = 0, u = 0, v = 0, aperture = 0, dof = 0, bokeh, color = null, masks = null }) {
+  requireRaw();
+  const gpu = state.gpu;
+  if (!gpu || !gpu.floatBlend || state.settings.fullSensorPreview === false) return { none: true };
+  if (aperture <= 0 && state.settings.lytroEngine !== false && state.lf.rayWarpBytes && state.lf.readModulation && !alpha) return { none: true };
+  state.jobs.preview = job;
+  const { lf, dev, sampler } = state;
+  if (!state.vignetting) state.vignetting = estimateVignetting(lf.raw, lf.cam, dev, lf.grid);
+  const allInFocus = aperture <= 0 && !!state.depth && !state.depthFast && state.focusOffset !== undefined;
+  const opts = apertureOptions({ u, v, aperture: aperture > 0 ? aperture : 0.25 });
+  if (!(await ensureRefocusViews(id))) return { cancelled: true };
+  if (state.jobs.preview !== job) return { cancelled: true };
+  const baseOnGpu = !allInFocus && gpu.views && gpu.floatBlend;
+  if (baseOnGpu) gpu.refocusTo(alpha, opts);
+  const base = allInFocus ? await allInFocusBase(id, u, v) : baseOnGpu ? null : refocusRGB(alpha, opts);
+  const params = superResParams(sampler, { scale: 1, apertureSigma: allInFocus ? Infinity : opts.sigma });
+  const cs = colorState(color);
+  const tex = gpu.superRes({
+    ...params, alpha, allInFocus, u0: u, v0: v, apertureSigma: allInFocus ? Infinity : opts.sigma, thin: 2,
+    vignetting: state.vignetting, base, baseFromView: baseOnGpu, baseW: sampler.outW, baseH: sampler.outH, depth: state.depth ? state.depth.alpha : undefined, passes: 0,
+    lensOffsets: state.lensOffsets, calibrate: false, lens: cs.lens, rayWarp: activeRayWarp(),
+  });
+  if (!tex) return { none: true };
+  if (state.jobs.preview !== job) return { cancelled: true };
+  const stillCtx = { focus: alpha, overrides: masks, view: viewOf(u, v) };
+  await presentGpu(id, tex, params.W, params.H, { alpha, dof, bokeh, color, pxPerUnit: 14, masks: stillCtx, distortionCorrected: true }, { id, type: 'result', preview: true });
+  return undefined;
+}
+
 async function superRes({ id, job, alpha = 0, scale, u = 0, v = 0, aperture = 0, dof = 0, bokeh, passes = 0, masks = null, color = null, quiet = false, label = 'Rendering from the full sensor' }) {
   requireRaw();
   // Setting lytroEngine (on unless set to false): the all in focus picture the way Lytro's engine builds it (lytroEdof), for photos that carry its ray table and white image (raw camera files).
@@ -3190,7 +3244,7 @@ async function loseGpu() {
   return { lost: !!ext };
 }
 
-const handlers = { loseGpu, stillStore, stillData, memoryLimits: (limits) => { setMemoryLimits(limits); return {}; }, setLut, setCalibrations, measureWhite: measureWhiteImage, open, frames, refocusFrames, superRes, lytroEdof, view, focusAt, depthMap, spreadMask, whiteBalanceAt, prepare, settings, setGrid, rawCrop, outputToSensor, readSection,
+const handlers = { loseGpu, stillStore, stillData, memoryLimits: (limits) => { setMemoryLimits(limits); return {}; }, setLut, setCalibrations, measureWhite: measureWhiteImage, open, frames, refocusFrames, superRes, lytroEdof, superResPreview, view, focusAt, depthMap, spreadMask, whiteBalanceAt, prepare, settings, setGrid, rawCrop, outputToSensor, readSection,
   cancel: async ({ kind }) => { state.jobs[kind] = null; } };
 
 self.onmessage = async (event) => {

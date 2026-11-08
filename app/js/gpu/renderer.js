@@ -1433,6 +1433,7 @@ uniform ivec4 uRayN;
 uniform float uRayBorder;
 uniform vec2 uImage;          // sensor size in pixels
 uniform int uProbe;           // 1: one point per sample at its lens's texel
+uniform int uThin;            // more than 1: only every uThin-th lens row and column (a quick preview)
 flat out vec2 vCenter;
 flat out float vY;
 flat out float vConf;
@@ -1523,6 +1524,7 @@ void main() {
     float dd = uu * uu + vv * vv;
     if (dd < best) { best = dd; br = r; bc = c; }
   }
+  if (uThin > 1 && ((bc % uThin + uThin) % uThin != 0 || (br % uThin + uThin) % uThin != 0)) return;
   float lensX = float(bc) * pitch + float(br & 1) * pitch * 0.5;
   float lensY = float(br) * rowStep;
   float u = lx - lensX;
@@ -3781,6 +3783,7 @@ export class GpuRenderer {
     gl.useProgram(P.p);
     const t = probe || (lens && lens.table);
     gl.uniform1i(U.uProbe, probe ? 1 : 0);
+    if (U.uThin) gl.uniform1i(U.uThin, p.thin || 0);
     gl.uniform1i(U.uUseLens, lens ? 1 : 0);
     gl.uniform4i(U.uLensTable, t ? t.r0 : 0, t ? t.c0 : 0, t ? t.rows : 0, t ? t.cols : 0);
     gl.uniform1i(U.uLensOff, 6);

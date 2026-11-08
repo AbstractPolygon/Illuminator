@@ -1524,10 +1524,22 @@ async function renderStill() {
         return;
       }
     }
+    // A quick look comes first (one pixel per lens, a quarter of the lenses): shown at once and replaced by the finished picture. Not for a picture that was kept (a color
+    // change), which is made again within moments, and only where the worker can make one (settings.fullSensorPreview = false turns it off).
+    let finished = false;
+    if (!state.still && !state.depthShown) {
+      engine.job('superResPreview', 'preview', { ...(state.stillFrame || cameraParams()) }).promise.then((pv) => {
+        if (finished || !pv || !(pv.pixels || pv.bitmap) || !state.fullRes || state.depthShown) return;
+        draw(toImageData(pv));
+        showAtPhotoSize();
+        $('frame-label').textContent = `${canvas.width}×${canvas.height} preview`;
+      }).catch(() => {});
+    }
     // The animation frame on show renders as it is (its camera and local
     // adjustment settings), not the live camera's.
     const { promise } = engine.job('superRes', 'superres', { ...(state.stillFrame || cameraParams()), scale, passes }, { onProgress: showProgress });
     const msg = await promise;
+    finished = true;
     // Ignore a result that arrives after full resolution was switched off.
     if (msg && (msg.pixels || msg.bitmap) && state.fullRes) {
       state.still = toImageData(msg);
@@ -1712,6 +1724,7 @@ function setFullRes(on, { restore = true } = {}) {
     return;
   }
   engine.cancel('superres');
+  engine.cancel('preview');
   hideProgress();
   state.still = null;
   state.stillFrame = null;
