@@ -792,6 +792,8 @@ label.lut-amount { margin-top: 14px; }
 .queue-view { flex: 1; min-height: 0; overflow: auto; padding: 16px 20px 24px; display: flex; flex-direction: column; gap: 12px; }
 .queue-top { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
 .queue-top h2 { margin: 0; font-size: 18px; }
+.queue-look { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--muted, #8b939e); }
+.queue-look select { max-width: 160px; }
 .queue-folder { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .queue-cards { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
 .queue-card { display: grid; grid-template-columns: 112px minmax(0, 1fr) auto; gap: 14px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); align-items: start; }

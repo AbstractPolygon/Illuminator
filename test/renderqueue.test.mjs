@@ -112,3 +112,10 @@ test('leaving the queue view keeps the first chosen photo, in the order listed',
   assert.equal(firstChosen(order, ['x']), null);
   assert.equal(firstChosen(order, []), null);
 });
+
+test('a job with a look says so on its card', async () => {
+  const { describeSettings } = await import('../app/js/core/renderqueue.js');
+  const spec = { kind: 'photo', edits: {}, export: { format: 'png', colorSpace: 'srgb', size: 1 }, fullSensor: null, look: { name: 'Warm glow' } };
+  assert.deepEqual(describeSettings(spec), ['PNG', 'Native size', 'Look: Warm glow']);
+  assert.deepEqual(describeSettings({ ...spec, look: null }), ['PNG', 'Native size']);
+});

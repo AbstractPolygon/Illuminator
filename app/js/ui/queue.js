@@ -5,6 +5,7 @@
 
 import { RenderQueue, uniqueName, describeSettings, phasesFor, pickPhotos, firstChosen } from '../core/renderqueue.js';
 import { download } from '../platform.js';
+import { applyLookToEdits } from '../core/looks.js';
 
 // The most photos one Add puts in the list.
 const MAX_AT_ONCE = 512;
@@ -37,7 +38,7 @@ export function initQueue({ $, state, native, currentEdits, showNotice, showErro
   }
 
   // What a job holds: the open photo's settings as they are now, another photo's as saved with it.
-  async function specFor(kind, photo) {
+  async function specFor(kind, photo, look = null) {
     const open = libraryPhoto() === photo && state.info;
     let edits;
     if (open) edits = clone(currentEdits());
@@ -53,6 +54,7 @@ export function initQueue({ $, state, native, currentEdits, showNotice, showErro
     const fullOn = $('fullres-on').checked && (open ? state.info.hasRaw : true);
     return {
       kind,
+      look,
       photoId: photo.id,
       name: photo.name,
       edits,
@@ -74,7 +76,9 @@ export function initQueue({ $, state, native, currentEdits, showNotice, showErro
     }
     let skipped = 0;
     // (their saved edits are read together)
-    const specs = await Promise.all(photos.map((photo) => specFor(kind, photo)));
+    const lookId = $('queue-look').value;
+    const look = lookId && state.lib ? await state.lib.loadLook(lookId) : null;
+    const specs = await Promise.all(photos.map((photo) => specFor(kind, photo, look)));
     specs.forEach((spec, i) => {
       const photo = photos[i];
       const animated = photo === libraryPhoto() && state.info ? $('anim-on').checked : !!(spec.edits && spec.edits.animation && spec.edits.animation['anim-on']);
@@ -92,6 +96,13 @@ export function initQueue({ $, state, native, currentEdits, showNotice, showErro
     anchor = r.anchor;
     if (r.handled) renderLibrary();
     return r.handled;
+  }
+  // Every photo in the list on the left (the album or filter shown).
+  function selectAll() {
+    if (!state.queueView) return;
+    picked = listed();
+    anchor = picked[0] || null;
+    renderLibrary();
   }
   const isPicked = (photo) => !!state.queueView && picked.includes(photo.id);
 
@@ -167,6 +178,8 @@ export function initQueue({ $, state, native, currentEdits, showNotice, showErro
     try {
       step(0);
       await api.open(photo.name, bytes, { edits: job.spec.edits, sidecar });
+      // The look goes on top of the photo's settings (or, for a photo never edited here, of the ones Lytro Desktop made).
+      if (job.spec.look) await api.setEdits(applyLookToEdits(api.getEdits(), job.spec.look));
       // (a job added for another photo in the library cannot know whether it has a raw light field: no full sensor render for one without)
       if (job.spec.fullSensor && api.info().raw) {
         step(phases.findIndex((p) => p.name === 'render'));
@@ -307,6 +320,14 @@ export function initQueue({ $, state, native, currentEdits, showNotice, showErro
     for (const id of ['queue-add-photo-view', 'queue-add-photo']) $(id).textContent = many ? `Add ${photos.length} pictures` : 'Add picture';
     for (const id of ['queue-add-video-view', 'queue-add-video']) $(id).textContent = many ? `Add ${photos.length} videos` : 'Add video';
     $('queue-summary').textContent = summary;
+    const lookSelect = $('queue-look');
+    const keep = lookSelect.value;
+    const looks = state.lib ? state.lib.looks : [];
+    if (lookSelect.options.length !== looks.length + 1 || looks.some((l, i) => lookSelect.options[i + 1].value !== l.id || lookSelect.options[i + 1].textContent !== l.name)) {
+      lookSelect.replaceChildren(new Option('No look', ''), ...looks.map((l) => new Option(l.name, l.id)));
+      lookSelect.value = looks.some((l) => l.id === keep) ? keep : '';
+    }
+    $('queue-select-all').disabled = !listed().length;
     const active = queue.jobs.filter((j) => j.status === 'waiting' || j.status === 'running').length;
     $('queue-open').textContent = active ? `Open Render Queue (${active} waiting)` : 'Open Render Queue';
     if (!state.queueView) return;
@@ -341,6 +362,14 @@ export function initQueue({ $, state, native, currentEdits, showNotice, showErro
   }
   for (const b of document.querySelectorAll('.queue-view-toggle')) b.onclick = () => setView(!state.queueView);
   $('queue-open').onclick = () => setView(true);
+  $('queue-select-all').onclick = () => selectAll();
+  document.addEventListener('keydown', (e) => {
+    if (!state.queueView || !(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey || e.key.toLowerCase() !== 'a') return;
+    const el = document.activeElement;
+    if (el && (el.isContentEditable || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || (el.tagName === 'INPUT' && /^(text|search|number|email|url|password)$/.test(el.type)))) return;
+    e.preventDefault();
+    selectAll();
+  });
   $('queue-clear').onclick = () => queue.clearFinished();
   $('queue-folder-btn').onclick = () => chooseFolder();
   $('queue-toggle').onclick = async () => {
