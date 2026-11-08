@@ -39,6 +39,17 @@ Albums are listed at the top of the left sidebar.
 - **Reset a photo's settings:** **•••** on the photo → *Reset settings…* puts every setting in the right sidebar back to how a newly opened photo starts: adjustments, keyframes, local adjustments, crop and export settings. Edits from Lytro Desktop are not applied again.
 - **Delete a photo:** **•••** on the photo → *Delete from library…*. In the desktop app its folder goes to the trash.
 
+## Looks
+
+A look is the color and tone of a photo's edits, kept so you can put it on other photos and share it. The **Looks** list is under *Library* in the left sidebar.
+
+- **+ Save look…** keeps the open photo's tone, color, curves, film look and LUT. The dialog names the look and lets you choose what else goes in it: sharpening and noise reduction (on), local adjustments (on) and white balance (off, because it belongs to the light of each photo). The focus, viewpoint, crop and export settings are never part of a look.
+- **Click a look** to put it on the open photo. Its settings replace the photo's for the same controls and the rest of the photo's settings stay; it is one undo step (Ctrl+Z). A look with local adjustments replaces the photo's local adjustments.
+- **•••** next to a look: *Apply to the open photo*, *Save as a file…*, *Rename…*, *Delete look…* (photos it was put on keep their settings).
+- **Save as a file…** writes a `.illuminator-look` file, a small text file you can send to anyone. **+ Import look…** adds such a file to your list (more than one can be chosen). A file that is not a look is refused with a message.
+
+Looks are kept in the library, next to the photos and albums.
+
 ## Ratings, flags and keywords
 
 Mark photos so they are easy to find again. **•••** on a photo → *Rating, flag and keywords…* opens a small window: a rating of one to five stars, a flag (*Picked* or *Rejected*) and keywords separated by commas. The open photo can be marked from the keyboard: Shift + 1 to 5 rate it, Shift + 0 clears the rating, Shift + P picks (again to unpick), Shift + X rejects (again to undo), Shift + U clears the flag. Stars and the flag show under each photo in the list and the grid; hover for the keywords.

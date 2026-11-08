@@ -14,7 +14,8 @@
 // { "format": "illuminator-library", "version": 1,
 //   "photos": [{ "id", "name", "file", "sidecar", "thumb", "depthMap", "depthRange", "stack", "size", "photoId", "added", "rating", "flag", "keywords" }],
 //   (rating 0-5, flag "pick" or "reject" and keywords are optional: core/marks.js; they are also written to Photos/<id>/<file name>.xmp)
-//   "albums": [{ "id", "name", "photos": [photo id, ...] }] }
+//   "albums": [{ "id", "name", "photos": [photo id, ...] }],
+//   "looks": [{ "id", "name" }] }   (each look's settings are in Looks/<id>.json, see core/looks.js)
 //
 // A photo's id is its folder name. The folder is the truth: photos found in
 // Photos/ that library.json does not list are added when the library loads,
@@ -29,6 +30,7 @@ export const LIBRARY_VERSION = 1;
 export const EDITS_FILE = 'edits.illuminator.json';
 const INDEX = 'library.json';
 const PHOTOS = 'Photos';
+const LOOKS = 'Looks';
 import { PROCESSED_FILE } from '../core/processed-cache.js';
 import { STILL_INDEX_FILE, stillFileName, touchIndex, KEPT_INDEX_FILE, KEPT_PICTURES, keptFileName } from '../core/still-cache.js';
 
@@ -47,6 +49,7 @@ export class Library {
     this.readSummary = readSummary;
     this.photos = [];
     this.albums = [];
+    this.looks = [];
     this.saving = Promise.resolve();
   }
 
@@ -65,6 +68,7 @@ export class Library {
     if (index && index.format && index.format !== LIBRARY_FORMAT) index = null;
     this.photos = (index && Array.isArray(index.photos) ? index.photos : []).filter((p) => p && p.id && p.file);
     this.albums = (index && Array.isArray(index.albums) ? index.albums : []).filter((a) => a && a.id);
+    this.looks = (index && Array.isArray(index.looks) ? index.looks : []).filter((l) => l && l.id);
     const changed = await this.reconcile();
     if (changed || !index) await this.save();
     return this;
@@ -128,7 +132,7 @@ export class Library {
   }
 
   save() {
-    const doc = { format: LIBRARY_FORMAT, version: LIBRARY_VERSION, photos: this.photos, albums: this.albums };
+    const doc = { format: LIBRARY_FORMAT, version: LIBRARY_VERSION, photos: this.photos, albums: this.albums, looks: this.looks };
     const text = JSON.stringify(doc, null, 2);
     // One write at a time, in order.
     this.saving = this.saving.catch(() => {}).then(() => this.store.writeText(INDEX, text));
@@ -355,6 +359,50 @@ export class Library {
 
   saveEdits(photo, edits) {
     return this.store.writeText(`${PHOTOS}/${photo.id}/${EDITS_FILE}`, JSON.stringify(edits, null, 2));
+  }
+
+  // ------------------------------------------------------------ looks
+
+  look(id) {
+    return this.looks.find((l) => l.id === id) || null;
+  }
+
+  // Keeps a look (core/looks.js) under a name; returns its entry.
+  async addLook(name, look) {
+    let n = this.looks.length + 1;
+    while (this.looks.some((l) => l.id === `look-${n}`)) n++;
+    const entry = { id: `look-${n}`, name: String(name).trim() || look.name || 'Look' };
+    await this.store.writeText(`${LOOKS}/${entry.id}.json`, JSON.stringify({ ...look, name: entry.name }, null, 2));
+    this.looks.push(entry);
+    await this.save();
+    return entry;
+  }
+
+  // The look's settings (the text of its file), or null.
+  async loadLook(id) {
+    if (!this.look(id)) return null;
+    try {
+      const text = await this.store.readText(`${LOOKS}/${id}.json`);
+      return text ? JSON.parse(text) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  async renameLook(id, name) {
+    const l = this.look(id);
+    const clean = String(name).trim();
+    if (!l || !clean) return;
+    const look = await this.loadLook(id);
+    l.name = clean;
+    if (look) await this.store.writeText(`${LOOKS}/${id}.json`, JSON.stringify({ ...look, name: clean }, null, 2));
+    await this.save();
+  }
+
+  async deleteLook(id) {
+    this.looks = this.looks.filter((l) => l.id !== id);
+    await this.store.remove(`${LOOKS}/${id}.json`).catch(() => {});
+    await this.save();
   }
 
   // ------------------------------------------------------------ albums

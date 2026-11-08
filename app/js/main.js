@@ -7,6 +7,7 @@ import { Timings, formatDuration, speedLimits, reportText } from './core/speedre
 import { initScriptingApi } from './ui/api.js';
 import { tiltPreset } from './core/tiltpresets.js';
 import { initMarks } from './ui/marks.js';
+import { initLooks } from './ui/looks.js';
 import { initQueue } from './ui/queue.js';
 import { blobReader, readPhotoSummary, openContainer } from './core/lfp.js';
 import { findRecipe, recipeToEdits } from './core/recipe.js';
@@ -58,6 +59,7 @@ let emitEvent = () => {};
 let marks = null;
 // The render queue panel (ui/queue.js).
 let queueUi = null;
+let looks = null;
 const canvas = $('view');
 const ctx = canvas.getContext('2d', { willReadFrequently: true });
 
@@ -247,6 +249,7 @@ function renderLibrary() {
   else renderGrid(photos, album);
   if (marks) marks.renderKeywordList();
   if (queueUi && state.queueView) queueUi.render();
+  if (looks) looks.render();
   const empty = $('library-empty');
   empty.hidden = photos.length > 0;
   if (everyone.length && !photos.length) empty.textContent = 'No photos match the filter.';
@@ -805,6 +808,7 @@ function closePhoto() {
   $('info').replaceChildren();
   $('speed').hidden = true;
   if (queueUi) setTimeout(() => queueUi.render(), 0);
+  if (looks) setTimeout(() => looks.render(), 0);
   $('frame-label').textContent = '';
   setMode(state.mode);
 }
@@ -2320,6 +2324,7 @@ function renderInfo() {
   showResolutionSizes();
   scheduleSpeed();
   if (queueUi) queueUi.render();
+  if (looks) looks.render();
   updateKeyButtons();
   const info = state.info;
   const rows = [];
@@ -4421,6 +4426,7 @@ const redo = () => stepHistory(false);
 // Text fields keep their own undo.
 const typing = (el) => el && (el.isContentEditable || el.tagName === 'TEXTAREA' || (el.tagName === 'INPUT' && /^(text|search|number|email|url|password)$/.test(el.type)));
 marks = initMarks({ $, state, renderLibrary: () => renderLibrary(), typing });
+looks = initLooks({ $, state, showMenu: (...a) => showMenu(...a), editName: (...a) => editName(...a), confirmInMenu: (...a) => confirmInMenu(...a), currentEdits: () => currentEdits(), flushSave: () => flushSave(), applyEdits: (...a) => applyEdits(...a), scheduleSave: () => scheduleSave(), showNotice: (...a) => showNotice(...a), showError: (...a) => showError(...a), download: (...a) => download(...a) });
 renderLibrary();
 let lastHistoryKey = 0;
 document.addEventListener('keydown', (e) => {

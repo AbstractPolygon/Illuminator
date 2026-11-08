@@ -218,3 +218,24 @@ test('ratings, flags and keywords are kept, written as an XMP sidecar and surviv
   assert.equal(await store.readText(xmpPath), null);
   assert.equal('rating' in photo || 'flag' in photo || 'keywords' in photo, false);
 });
+
+test('looks are kept in the library, found again after loading, renamed and deleted', async () => {
+  const store = memoryStorage();
+  const lib = await new Library(store).load();
+  const look = { format: 'illuminator-look', version: 1, name: 'Warm', process: { ev: 0.5 } };
+  const entry = await lib.addLook('  Warm glow ', look);
+  assert.equal(entry.name, 'Warm glow');
+  assert.deepEqual(await lib.loadLook(entry.id), { ...look, name: 'Warm glow' });
+  const second = await lib.addLook('Cool', look);
+  assert.notEqual(second.id, entry.id);
+  // Loaded again from the same storage.
+  const again = await new Library(store).load();
+  assert.deepEqual(again.looks.map((l) => l.name), ['Warm glow', 'Cool']);
+  await again.renameLook(entry.id, 'Golden');
+  assert.equal((await again.loadLook(entry.id)).name, 'Golden');
+  await again.deleteLook(entry.id);
+  assert.equal(again.look(entry.id), null);
+  assert.equal(await again.loadLook(entry.id), null);
+  assert.equal(await store.readText(`Looks/${entry.id}.json`), null);
+  assert.deepEqual((await new Library(store).load()).looks.map((l) => l.name), ['Cool']);
+});
