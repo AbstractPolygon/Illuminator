@@ -1,4 +1,4 @@
-// The render queue panel (Render queue, right sidebar): pictures and videos of library photos that are made one after another in the background while editing goes
+// The render queue panel (Render Queue, right sidebar): pictures and videos of library photos that are made one after another in the background while editing goes
 // on. The renders run in a hidden second copy of the app (an iframe of this page with ?queue), which has its own worker and graphics context, so the live view of the
 // photo being edited is not held up. The copy is driven through the scripting interface (ui/api.js). The list and its rules are in core/renderqueue.js.
 
@@ -48,7 +48,7 @@ export function initQueue({ $, state, native, currentEdits, showNotice, showErro
     const el = document.createElement('iframe');
     el.setAttribute('aria-hidden', 'true');
     el.tabIndex = -1;
-    el.title = 'Render queue';
+    el.title = 'Render Queue';
     // Off the screen but laid out at a real size (a hidden page would not render).
     el.style.cssText = 'position:fixed;left:-10000px;top:0;width:1200px;height:800px;border:0;pointer-events:none;';
     const base = location.href.split('#')[0].split('?')[0];

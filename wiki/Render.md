@@ -12,9 +12,9 @@ A stereo pair from two viewpoints across the lens, for photos and videos.
 - *Save 3D image* saves the pair as an image, in the Photo *File format*. With *Show 3D* on, *Export video* makes a 3D video in the same 3D type.
 - *View in VR* (in a headset's web browser, such as the Meta Quest Browser, with the browser version) shows the 3D picture on a large screen in front of you; press a controller trigger to leave.
 
-## Render queue
+## Render Queue
 
-The *Render queue* panel (right sidebar, below *Render Settings*) makes pictures and videos one after another in the background, so a long full sensor render or a video does not hold up your editing.
+The *Render Queue* panel (right sidebar, below *Render Settings*) makes pictures and videos one after another in the background, so a long full sensor render or a video does not hold up your editing.
 
 1. Set a library photo up as you want it (its settings, *Photo* format, color space and size, *Full sensor* with its *Scale* and *Detail recovery*, or the animation and *Video* settings).
 2. *Add picture* or *Add video* puts a job in the list. The job keeps the photo's settings as they are at that moment; carry on editing the photo, or other photos, as you like. A video needs *Animation* turned on.

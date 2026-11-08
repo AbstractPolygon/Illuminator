@@ -30,7 +30,7 @@ Use the same photo each time: a raw ILLUM photo with a sharp thin object in fron
 - [ ] Render Settings > Photo > Color space: a photo saved as Display P3 (PNG, 16-bit PNG and JPEG) opens in another program with that profile.
 - [ ] Local Adjustments > Haze: on a Depth mask with a wide Feather, the far parts fade into fog; below zero it removes haze.
 - [ ] Command line: `Illuminator --cli render photo.lfr -o out.png --exit-file code.txt` makes the picture, code.txt holds 0, and the process ends without a crash message.
-- [ ] Render queue (desktop app): add two pictures and a video of a library photo, choose a folder, start; the files appear in the folder one after another, the picture on screen stays usable, and the video plays. (Only pictures have been tried, on a software renderer.)
+- [ ] Render Queue (desktop app): add two pictures and a video of a library photo, choose a folder, start; the files appear in the folder one after another, the picture on screen stays usable, and the video plays. (Only pictures have been tried, on a software renderer.)
 - [ ] Ratings and keywords: mark a photo, then open its folder in Lightroom, Bridge or digiKam: the XMP file's rating, pick flag and keywords show there.
 - [ ] A focus change in Full sensor mode at 2× resolution: the new picture appears at once, the finished one follows; no "Measuring depth" or "Focusing every depth" shows for a new focus point.
 
