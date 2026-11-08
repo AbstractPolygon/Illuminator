@@ -511,6 +511,27 @@ function registerIpc() {
     return { root, name: path.basename(root), files };
   });
 
+  // The render queue's files: written one after another into a folder chosen here, without asking each time.
+  const outputFolders = new Set();
+  ipcMain.handle('choose-output-folder', async () => {
+    const res = await dialog.showOpenDialog(win, { title: 'Choose where the render queue saves its files', properties: ['openDirectory', 'createDirectory'] });
+    if (res.canceled || !res.filePaths.length) return null;
+    outputFolders.add(path.resolve(res.filePaths[0]));
+    return res.filePaths[0];
+  });
+  ipcMain.handle('write-output', async (_e, folder, name, bytes) => {
+    const dir = path.resolve(String(folder));
+    if (!outputFolders.has(dir)) throw new Error('That folder was not chosen in this session.');
+    const base = path.basename(String(name)) || 'picture';
+    const dot = base.lastIndexOf('.');
+    const stem = dot > 0 ? base.slice(0, dot) : base;
+    const ext = dot > 0 ? base.slice(dot) : '';
+    let file = path.join(dir, base);
+    for (let n = 2; fs.existsSync(file); n++) file = path.join(dir, `${stem} (${n})${ext}`);
+    await fsp.writeFile(file, Buffer.from(bytes));
+    return file;
+  });
+
   ipcMain.handle('save-file', async (_e, name, bytes) => {
     const res = await dialog.showSaveDialog(win, { defaultPath: path.join(app.getPath('pictures'), name) });
     if (res.canceled || !res.filePath) return null;

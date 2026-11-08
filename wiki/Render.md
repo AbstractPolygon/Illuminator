@@ -12,6 +12,18 @@ A stereo pair from two viewpoints across the lens, for photos and videos.
 - *Save 3D image* saves the pair as an image, in the Photo *File format*. With *Show 3D* on, *Export video* makes a 3D video in the same 3D type.
 - *View in VR* (in a headset's web browser, such as the Meta Quest Browser, with the browser version) shows the 3D picture on a large screen in front of you; press a controller trigger to leave.
 
+## Render queue
+
+The *Render queue* panel (right sidebar, below *Render Settings*) makes pictures and videos one after another in the background, so a long full sensor render or a video does not hold up your editing.
+
+1. Set a library photo up as you want it (its settings, *Photo* format, color space and size, *Full sensor* with its *Scale* and *Detail recovery*, or the animation and *Video* settings).
+2. *Add picture* or *Add video* puts a job in the list. The job keeps the photo's settings as they are at that moment; carry on editing the photo, or other photos, as you like. A video needs *Animation* turned on.
+3. *Start queue* runs the jobs in order, one at a time. *Pause queue* lets the running job finish and starts no more. *▲* and *▼* reorder waiting jobs, *Cancel* stops a job, *Remove* and *Clear finished* tidy the list.
+
+In the browser each finished file is saved as a download (named like the photo; a second one with the same name gets *(2)*). In the desktop app you choose a folder once per session (*Choose folder…*) and the files are written there without asking each time.
+
+The renders run in a hidden second copy of the app, with its own worker and graphics context, so the picture on screen stays live; the two copies share the computer's graphics card and memory, so a change on screen is slower while a job runs, and a full sensor render needs graphics memory for both copies (see *Settings > Memory*). The queue works for library photos only, is kept in memory (closing the app clears it), and the hidden copy measures the photo's depth itself, so the first job of a photo can take a while longer than a render in the app.
+
 ## Quality
 
 These apply to photos and videos alike.

@@ -7,6 +7,7 @@ import { Timings, formatDuration, speedLimits, reportText } from './core/speedre
 import { initScriptingApi } from './ui/api.js';
 import { tiltPreset } from './core/tiltpresets.js';
 import { initMarks } from './ui/marks.js';
+import { initQueue } from './ui/queue.js';
 import { blobReader, readPhotoSummary, openContainer } from './core/lfp.js';
 import { findRecipe, recipeToEdits } from './core/recipe.js';
 import { decodePngGray, parseDepthRange, stackDepth } from './core/userdepth.js';
@@ -55,6 +56,8 @@ engine.onNotice = (text) => showNotice(text);
 let emitEvent = () => {};
 // Ratings, flags and keywords of the library (ui/marks.js), set once the page is ready.
 let marks = null;
+// The render queue panel (ui/queue.js).
+let queueUi = null;
 const canvas = $('view');
 const ctx = canvas.getContext('2d', { willReadFrequently: true });
 
@@ -129,14 +132,19 @@ let calReady = Promise.resolve();
 const thumbs = new Map(); // photo id -> object URL (null while loading)
 const PHOTO_DRAG = 'application/x-illuminator-photo';
 
+// The render queue's renders run in a hidden copy of this page opened with ?queue (ui/queue.js).
+const QUEUE_RUNNER = typeof location !== 'undefined' && /[?&]queue\b/.test(location.search);
+
 async function openLibrary() {
   for (const url of thumbs.values()) if (url) URL.revokeObjectURL(url);
   thumbs.clear();
   const readSummary = (f) => readPhotoSummary(blobReader(f));
   try {
+    // (the hidden copy that makes the render queue's files keeps no library of its own)
+    if (QUEUE_RUNNER) throw new Error('queue runner');
     state.lib = await new Library(await openStorage(), { readSummary }).load();
   } catch (err) {
-    console.warn('Could not open the library; photos are kept for this session only', err);
+    if (!QUEUE_RUNNER) console.warn('Could not open the library; photos are kept for this session only', err);
     state.lib = await new Library(memoryStorage(), { readSummary }).load();
   }
   if (state.album && !state.lib.album(state.album)) state.album = null;
@@ -788,6 +796,7 @@ function closePhoto() {
   $('placeholder').innerHTML = '<p>Drop a Lytro <code>.LFR</code> or <code>.LFP</code> file here.</p>';
   $('info').replaceChildren();
   $('speed').hidden = true;
+  if (queueUi) setTimeout(() => queueUi.render(), 0);
   $('frame-label').textContent = '';
   setMode(state.mode);
 }
@@ -2259,6 +2268,7 @@ function showPhotoSizes() {
 function renderInfo() {
   showResolutionSizes();
   scheduleSpeed();
+  if (queueUi) queueUi.render();
   updateKeyButtons();
   const info = state.info;
   const rows = [];
@@ -3827,11 +3837,35 @@ $('png-btn').onclick = savePng;
     });
     savePng();
   }),
+  exportVideo: () => new Promise((resolve, reject) => {
+    let got = false;
+    const timer = setTimeout(() => {
+      captureDownloads(null);
+      reject(new Error('The video was not made'));
+    }, 60 * 60 * 1000);
+    captureDownloads(async (blob, name) => {
+      got = true;
+      captureDownloads(null);
+      clearTimeout(timer);
+      resolve({ name, type: blob.type, bytes: new Uint8Array(await blob.arrayBuffer()) });
+    });
+    exportVideo().then(() => {
+      if (!got) {
+        captureDownloads(null);
+        clearTimeout(timer);
+        reject(new Error('No video was made: turn on Animation and set it up first'));
+      }
+    }, reject);
+  }),
   speedReport: async () => {
     speedFacts = await engine.request('speedFacts', {}).catch(() => speedFacts);
     return speedReportText();
   },
 }));
+
+// The render queue (ui/queue.js): not inside the hidden copy that does its renders.
+if (!QUEUE_RUNNER) queueUi = initQueue({ $, state, native, currentEdits: () => currentEdits(), showNotice: (...a) => showNotice(...a), showError: (...a) => showError(...a) });
+
 $('webm-btn').onclick = exportVideo;
 
 // Quick export (top bar): the Photo and Video settings of Render Settings

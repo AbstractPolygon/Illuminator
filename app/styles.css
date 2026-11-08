@@ -778,3 +778,12 @@ label.lut-amount { margin-top: 14px; }
 .marks-stars { display: flex; gap: 2px; }
 .marks-stars button { background: none; border: none; font-size: 22px; line-height: 1; padding: 2px 3px; color: #4a4f57; cursor: pointer; }
 .marks-stars button.on { color: #e0b040; }
+
+/* Render queue */
+.queue-list { list-style: none; margin: 6px 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.queue-job { display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; font-size: 12px; }
+.queue-job .queue-status { grid-column: 1; color: var(--muted); word-break: break-word; }
+.queue-job .queue-actions { grid-column: 2; grid-row: 1 / span 2; display: flex; gap: 4px; align-items: center; }
+.queue-job.running { border-color: var(--accent); }
+.queue-job.done .queue-status { color: #6cc28c; }
+.queue-job.failed .queue-status { color: #c9696d; }
