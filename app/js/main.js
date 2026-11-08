@@ -3853,10 +3853,10 @@ $('png-btn').onclick = savePng;
   $,
   engine,
   version: VERSION,
-  openBytes: async (name, bytes) => {
+  openBytes: async (name, bytes, sidecar = null) => {
     const copy = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
     state.scripted = true; // its settings are not read from, or saved to, the app's store
-    state.current = { photo: null, name, file: new File([copy], name), sidecar: null };
+    state.current = { photo: null, name, file: new File([copy], name), sidecar };
     state.wantThumb = false;
     timings.clear();
     renderLibrary();

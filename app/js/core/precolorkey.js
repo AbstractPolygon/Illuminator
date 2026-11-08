@@ -15,3 +15,9 @@ export function preColorKey(settings, state, parts, skip = []) {
   for (const [k, v] of Object.entries(settings)) if (!COLOR_PASS_SETTINGS.has(k) && !skip.includes(k)) rest[k] = v;
   return JSON.stringify([state, rest, parts]);
 }
+
+// Whether a full sensor picture can be made again from the all in focus picture kept before (only the focus, the blur or the effects changed): `kept` is { key } or null, `key`
+// what the new picture's all in focus part depends on. Then the page needs no quick look first, and the worker only does the blur and the color pass.
+export function baseKept(kept, key) {
+  return !!kept && !!key && kept.key === key;
+}

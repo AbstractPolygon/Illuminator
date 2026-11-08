@@ -86,7 +86,7 @@ function group(list) {
   for (const x of list) {
     if (!by.has(x.name)) by.set(x.name, { name: x.name, where: [], note: '' });
     const e = by.get(x.name);
-    const where = `${x.file}:${x.line}`;
+    const where = x.file; // (no line numbers: they change with every edit above and rewrite the generated file)
     if (!e.where.includes(where) && e.where.length < 3) e.where.push(where);
     if (!e.note && x.note) e.note = x.note;
   }

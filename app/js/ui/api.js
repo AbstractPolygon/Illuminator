@@ -84,9 +84,9 @@ export function initScriptingApi(host) {
 
     plugins: () => [...plugins],
 
-    // Opens a photo from its bytes (an .LFR or .LFP file). Its saved edits are not read; the ones in the file (Lytro Desktop's) are, and `edits` (an edits document, see getEdits) goes on top.
-    async open(name, bytes, { edits = null } = {}) {
-      await openBytes(name, bytes);
+    // Opens a photo from its bytes (an .LFR or .LFP file). Its saved edits are not read; the ones in the file (Lytro Desktop's, or in `sidecar`, the stack file kept beside it) are, and `edits` (an edits document, see getEdits) goes on top.
+    async open(name, bytes, { edits = null, sidecar = null } = {}) {
+      await openBytes(name, bytes, sidecar);
       if (!state.info) throw new Error(`${name} could not be opened`);
       if (edits) await applyEdits(state.info, edits);
       await settled();
