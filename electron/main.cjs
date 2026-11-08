@@ -576,6 +576,9 @@ async function offerLinuxMenuEntry() {
   }
 }
 
+// `Illuminator --cli ...`: no window to show, the command is run and the app exits (electron/cli.cjs).
+const CLI_AT = process.argv.indexOf('--cli');
+
 app.whenReady().then(async () => {
   await loadSettings();
   protocol.handle('app', (request) => {
@@ -588,6 +591,13 @@ app.whenReady().then(async () => {
   // without asking: the page only watches them come and go.
   if (CAMERA_IMPORT) session.defaultSession.setDevicePermissionHandler((details) => details.deviceType === 'usb' && camera.isLytroUsb(details.device));
   registerIpc();
+  if (CLI_AT >= 0) {
+    const { runCli } = require('./cli.cjs');
+    const code = await runCli({ args: process.argv.slice(CLI_AT + 1), BrowserWindow, allow, appDir: APP_DIR, preload: path.join(__dirname, 'preload.cjs'), version: app.getVersion() });
+    // Straight out with the exit code: Chromium's own shutdown after a page has run crashed the process on some systems (losing the code), and nothing is left to save.
+    process.stdout.write('', () => process.stderr.write('', () => (process.reallyExit || process.exit)(code)));
+    return;
+  }
   buildMenu();
   createWindow();
   win.once('ready-to-show', () => offerLinuxMenuEntry().catch(() => {}));

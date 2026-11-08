@@ -15,6 +15,7 @@
   - [[Render]]
   - [[Microlens Grid]]
 - [[Exporting]]
+- [[Command Line]]
 - [[Keyboard Shortcuts]]
 - [[File Formats]]
 - [[Troubleshooting]]

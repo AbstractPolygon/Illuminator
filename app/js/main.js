@@ -3,6 +3,7 @@ import { VERSION } from './version.js';
 import { readEdits, writeEdits, editsStore, EDITS_FORMAT, EDITS_VERSION } from './edits.js';
 import { Engine, toImageData } from './engine.js';
 import { Timings, formatDuration, speedLimits, reportText } from './core/speedreport.js';
+import { initScriptingApi } from './ui/api.js';
 import { blobReader, readPhotoSummary, openContainer } from './core/lfp.js';
 import { findRecipe, recipeToEdits } from './core/recipe.js';
 import { decodePngGray, parseDepthRange, stackDepth } from './core/userdepth.js';
@@ -14,7 +15,7 @@ import { UPSCALE_MODELS, modelMethod, methodModel, modelState, downloadModel, re
 import { aiUpscale, aiUpscaleAvailable, denoiseRgb16, addGrain16 } from './core/aiupscale.js';
 import { DEPTH_MODELS, depthModelMethod, methodDepthModel, depthModelState, downloadDepthModel, removeDepthModel } from './core/depthmodels.js';
 import { setMemoryLimits, fitsMemory, memoryProblem, superResVram } from './core/memorybudget.js';
-import { openFiles, openCalibrationFile, pickFolder, isLightFieldName, findSidecar, download, native, CAMERA_IMPORT, LYTRO_USB_VENDOR, recallCameraFolder } from './platform.js';
+import { openFiles, openCalibrationFile, pickFolder, isLightFieldName, findSidecar, download, native, CAMERA_IMPORT, LYTRO_USB_VENDOR, recallCameraFolder, captureDownloads } from './platform.js';
 import { Library } from './library/library.js';
 import { openStorage, memoryStorage } from './library/storage.js';
 import { groupPhotos } from './library/scan.js';
@@ -47,6 +48,8 @@ import { initNumberFields } from './ui/numberfields.js';
 const $ = (id) => document.getElementById(id);
 const engine = new Engine();
 engine.onNotice = (text) => showNotice(text);
+// Events for scripts and plugins (ui/api.js), set once the interface exists.
+let emitEvent = () => {};
 const canvas = $('view');
 const ctx = canvas.getContext('2d', { willReadFrequently: true });
 
@@ -659,6 +662,7 @@ async function importPhotos(entries, { album = state.album, replace = false } = 
 // ---------------------------------------------------------------- opening
 
 async function openItem(photo) {
+  state.scripted = false;
   closeMenu();
   await calReady;
   const file = await state.lib.file(photo).catch(() => null);
@@ -789,6 +793,7 @@ async function openWith(args, transfer) {
     setMode(state.mode);
     if (state.notice) showNotice(...state.notice);
     if (info.hasRaw) engine.request('prepare').catch(() => {});
+    emitEvent('photoOpened', { name: state.current ? state.current.name : null, raw: !!info.hasRaw });
   } catch (err) {
     showError(err);
   }
@@ -826,6 +831,7 @@ function draw(img) {
   if (!drag.on && !state.depthShown && !state.skipEnlarge && state.mode === 'camera') showAtPhotoSize(shownScale(w, h));
   scheduleHistogram();
   if (state.wantThumb && state.mode === 'camera') saveThumbnail();
+  emitEvent('rendered', { width: w, height: h });
 }
 
 // A stereo pair next to each other (left eye first, or right eye first for
@@ -2311,8 +2317,8 @@ $('info').closest('details').addEventListener('toggle', () => {
   if ($('info').closest('details').open) renderSpeed();
 });
 
-$('speed-copy').onclick = async () => {
-  const text = reportText({
+function speedReportText() {
+  return reportText({
     version: VERSION,
     platform: typeof navigator !== 'undefined' ? navigator.userAgent : '',
     facts: speedFacts || { renderer: 'CPU' },
@@ -2320,6 +2326,10 @@ $('speed-copy').onclick = async () => {
     gpuMs: state.gpuMs,
     photo: state.current ? state.current.name : '',
   });
+}
+
+$('speed-copy').onclick = async () => {
+  const text = speedReportText();
   try {
     await navigator.clipboard.writeText(text);
     showNotice('Speed report copied', 'Paste it into a message.');
@@ -3682,6 +3692,56 @@ $('scrub').oninput = () => {
   seekTo(+$('scrub').value / state.fps);
 };
 $('png-btn').onclick = savePng;
+
+// The scripting interface (window.illuminator, ui/api.js): scripts, plugins and the command line drive the app through it.
+({ emit: emitEvent } = initScriptingApi({
+  state,
+  $,
+  engine,
+  version: VERSION,
+  openBytes: async (name, bytes) => {
+    const copy = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+    state.scripted = true; // its settings are not read from, or saved to, the app's store
+    state.current = { photo: null, name, file: new File([copy], name), sidecar: null };
+    state.wantThumb = false;
+    timings.clear();
+    renderLibrary();
+    await openWith({ bytes: copy }, [copy]);
+  },
+  applyEdits: (info, edits) => applyEdits(info, edits),
+  currentEdits: () => currentEdits(),
+  setCamera: async ({ fNumber, focus, u, v }) => {
+    if (fNumber != null) {
+      const i = F_STOPS.indexOf(+fNumber);
+      if (i < 0) throw new Error(`f/${fNumber} is not offered: ${F_STOPS.join(', ')}`);
+      $('fstop').value = i;
+      showFNumber();
+    }
+    if (focus != null) {
+      $('focus').value = (+focus).toFixed(2);
+      showSliderValue($('focus'));
+    }
+    if (u != null || v != null) state.camera = { ...state.camera, ...(u != null ? { u: +u } : {}), ...(v != null ? { v: +v } : {}) };
+    cameraChanged({ final: true });
+  },
+  setFullResMode: (on) => setFullResMode(on),
+  exportPhoto: () => new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      captureDownloads(null);
+      reject(new Error('The picture was not saved'));
+    }, 20 * 60 * 1000);
+    captureDownloads(async (blob, name) => {
+      captureDownloads(null);
+      clearTimeout(timer);
+      resolve({ name, type: blob.type, bytes: new Uint8Array(await blob.arrayBuffer()) });
+    });
+    savePng();
+  }),
+  speedReport: async () => {
+    speedFacts = await engine.request('speedFacts', {}).catch(() => speedFacts);
+    return speedReportText();
+  },
+}));
 $('webm-btn').onclick = exportVideo;
 
 // Quick export (top bar): the Photo and Video settings of Render Settings
@@ -3950,7 +4010,7 @@ async function restoreEdits(info) {
   // Library photos keep their edits in their folder; earlier versions kept
   // them in the app's storage, which is still read for those photos.
   let saved = photo ? await state.lib.loadEdits(photo) : null;
-  if (!saved && state.editsKey) saved = await editsStore.load(state.editsKey);
+  if (!saved && state.editsKey && !state.scripted) saved = await editsStore.load(state.editsKey);
   const reset = !!(saved && saved.reset);
   if (reset) saved = null;
   else if (!saved) saved = await lytroEdits(info, state.current);
@@ -4097,7 +4157,7 @@ function hideNotice() {
 $('notice-close').onclick = hideNotice;
 
 function scheduleSave() {
-  if (state.restoring || !state.editsKey || !canRender()) return;
+  if (state.restoring || !state.editsKey || !canRender() || state.scripted) return;
   clearTimeout(saveTimer);
   const key = state.editsKey;
   const photo = state.current && state.current.photo;
