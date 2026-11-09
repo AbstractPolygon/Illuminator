@@ -813,13 +813,7 @@ export function renderSuperRes(raw, cam, dev, sampler, options) {
   }
   if (allInFocus && depth && EDGE_ARTIFACT.on) {
     // Lytro's edge artifact reduction, on the depth of every output pixel in focus units.
-    const D = new Float32Array(W * H);
-    for (let j = 0; j < H; j++) {
-      for (let k = 0; k < W; k++) {
-        const [sx, sy] = warp ? warp.source(k + 0.5, j + 0.5) : [k + 0.5, j + 0.5];
-        D[j * W + k] = sampleDepth(rayDepth, bw, bh, (sx / scale) * detail, (sy / scale) * detail) / LAMBDA_TO_ALPHA;
-      }
-    }
+    const D = edgeArtifactDepth(rayDepth, bw, bh, W, H, scale, detail, warp);
     if (hook('earStats')) { let m = 0; let dsteps = 0; for (let p = 0; p < W * H; p++) { m += sharpY[p]; if (p + 1 < W * H && Math.abs(D[p + 1] - D[p]) > EDGE_ARTIFACT.depth) dsteps++; } hook('earStats').meanY = m / (W * H); hook('earStats').depthSteps = dsteps; }
     edgeArtifactReduce(sharpY, W, H, D);
   }
@@ -893,6 +887,19 @@ export const BACK_PROJECTION_EDGE = { on: true, step: 0.3, radius: 4 };
 
 // 1 within `radius` depth pixels of a step between neighbors (right or below)
 // of at least `step` lambda, softened by a 3 x 3 mean; 0 elsewhere.
+
+// The depth of every output pixel in focus units, for edgeArtifactReduce. The -0.5 puts base pixel centers at whole numbers, as the other output-pixel to base mappings
+// in renderSuperRes do (without it a depth step sat 1.5 px off at scale 3, and the step test looked at the wrong pair of pixels).
+export function edgeArtifactDepth(rayDepth, bw, bh, W, H, scale, detail, warp = null) {
+  const D = new Float32Array(W * H);
+  for (let j = 0; j < H; j++) {
+    for (let k = 0; k < W; k++) {
+      const [sx, sy] = warp ? warp.source(k + 0.5, j + 0.5) : [k + 0.5, j + 0.5];
+      D[j * W + k] = sampleDepth(rayDepth, bw, bh, (sx / scale) * detail - 0.5, (sy / scale) * detail - 0.5) / LAMBDA_TO_ALPHA;
+    }
+  }
+  return D;
+}
 
 export function edgeArtifactReduce(a, W, H, D, { depth = EDGE_ARTIFACT.depth, image = EDGE_ARTIFACT.image, curve = EDGE_ARTIFACT.curve } = {}) {
   const A = 0.5625;
@@ -983,7 +990,33 @@ export function depthEdgeMask(depth, w, h, { step = BACK_PROJECTION_EDGE.step, r
     }
   }
   const box = depthFilter(jump, w, h, radius, Math.max);
-  return depthFilter(box, w, h, 1, (a, b) => a + b).map((v) => Math.min(1, v / 9));
+  return boxMean(box, w, h, 1).map((v) => Math.min(1, v));
+}
+
+// Mean over the (2r+1) square around each pixel, dividing by the pixels that exist at the borders. (depthFilter is for min and max: it seeds with the center pixel, so
+// folding a sum through it would count the center twice per axis.)
+function boxMean(values, w, h, r) {
+  const rows = new Float32Array(values.length);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const a = Math.max(0, x - r);
+      const b = Math.min(w - 1, x + r);
+      let s = 0;
+      for (let i = a; i <= b; i++) s += values[y * w + i];
+      rows[y * w + x] = s / (b - a + 1);
+    }
+  }
+  const out = new Float32Array(values.length);
+  for (let y = 0; y < h; y++) {
+    const a = Math.max(0, y - r);
+    const b = Math.min(h - 1, y + r);
+    for (let x = 0; x < w; x++) {
+      let s = 0;
+      for (let j = a; j <= b; j++) s += rows[j * w + x];
+      out[y * w + x] = s / (b - a + 1);
+    }
+  }
+  return out;
 }
 
 // 0 where the rays landing on a pixel agree, 1 where they clearly do not.

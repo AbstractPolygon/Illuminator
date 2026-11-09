@@ -13,6 +13,8 @@ export const LAMBDA_TO_ALPHA = 0.0814;
 const F_STOPS = [22, 16, 11, 8, 5.6, 4, 2.8, 2, 1.4, 1, 0.7, 0.5];
 const FOCUS_RANGE = 1.6;
 const HUES = ['red', 'yellow', 'green', 'cyan', 'blue', 'magenta'];
+// Keys come from the file: a plain `table[key]` would also find 'constructor' or 'toString'.
+const hasKey = (table, key) => typeof key === 'string' && Object.hasOwn(table, key);
 const PRESET_KELVIN = { daylight: 5500, cloudy: 6500, shade: 7500, tungsten: 2850, fluorescent: 3800, flash: 5500 };
 
 // The newest recipe in a table of contents, or null.
@@ -68,11 +70,11 @@ export function recipeToEdits(recipe, ctx = {}) {
   const wb = r.viewWhiteBalance || 'as shot';
   process.awb = wb === 'auto';
   if (wb === 'custom' && typeof r.viewTemperature === 'number') process['wb-temperature'] = Math.round(clamp(r.viewTemperature, 2000, 10000) / 50) * 50;
-  else if (PRESET_KELVIN[wb]) process['wb-temperature'] = PRESET_KELVIN[wb];
+  else if (hasKey(PRESET_KELVIN, wb)) process['wb-temperature'] = PRESET_KELVIN[wb];
   // "as shot" stores the temperature and tint it was set to (the engine renders those, whatever the mode says: checked on two photos at 2850 K, tint -30).
   else if (wb !== 'auto' && typeof r.viewTemperature === 'number') process['wb-temperature'] = Math.round(clamp(r.viewTemperature, 2000, 10000) / 50) * 50;
   else process['wb-temperature'] = Math.round(asShot / 50) * 50;
-  process['wb-tint'] = Math.round(clamp(wb === 'custom' || (wb !== 'auto' && !PRESET_KELVIN[wb]) ? num(r.viewTint, 0) : 0, -150, 150));
+  process['wb-tint'] = Math.round(clamp(wb === 'custom' || (wb !== 'auto' && !hasKey(PRESET_KELVIN, wb)) ? num(r.viewTint, 0) : 0, -150, 150));
   process['tone-contrast'] = num(r.viewContrast, 0);
   process['tone-highlights'] = num(r.viewHighlights2, num(r.viewHighlights, 0));
   process['tone-shadows'] = num(r.viewShadows2, num(r.viewShadows, 0));
@@ -159,7 +161,7 @@ export function recipeToEdits(recipe, ctx = {}) {
   // Effects: each of Lytro's containers becomes a local adjustment, and the
   // older living filter one of ours.
   const masks = recipeMasks(r.viewFx, unsupported);
-  const lytroFilter = LIVING_FILTERS[r.viewFilterEffect];
+  const lytroFilter = hasKey(LIVING_FILTERS, r.viewFilterEffect) ? LIVING_FILTERS[r.viewFilterEffect] : undefined;
   if (r.viewFilterEffect && r.viewFilterEffect !== 'none' && !lytroFilter) unsupported.push(`the ${r.viewFilterEffect} filter`);
 
   return {
@@ -367,7 +369,7 @@ export function recipeMasks(viewFx, unsupported = []) {
           break;
         case 'fxColorize': {
           // A gray ramp is black and white; colored ones are not supported.
-          const pts = Array.isArray(e.controlPoints) ? e.controlPoints : [];
+          const pts = Array.isArray(e.controlPoints) ? e.controlPoints.filter((q) => q && typeof q === 'object') : [];
           if (pts.length && pts.every((q) => Math.abs(q.r - q.g) < 0.02 && Math.abs(q.g - q.b) < 0.02)) fx.saturation = -1;
           else missing.add('colorize');
           break;

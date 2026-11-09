@@ -2,6 +2,24 @@
 import { cameraMove } from '../core/camerapresets.js';
 import { setKey, isSettingTrack, isMaskTrack, emptyAnimation, parseAnimation, valueAt, PRESETS, cubicBezier, frameCount, hasKeys, sample } from '../core/keyframes.js';
 
+// Registers a drag on the window and ends it on pointerup, pointercancel (a
+// touch the browser takes over) or blur, so a cancelled drag cannot leave its
+// move handler editing on hover. `up(ev)` gets the ending event; only a real
+// pointerup has the final position.
+function trackDrag(move, up) {
+  const end = (ev) => {
+    window.removeEventListener('pointermove', move);
+    window.removeEventListener('pointerup', end);
+    window.removeEventListener('pointercancel', end);
+    window.removeEventListener('blur', end);
+    up(ev);
+  };
+  window.addEventListener('pointermove', move);
+  window.addEventListener('pointerup', end);
+  window.addEventListener('pointercancel', end);
+  window.addEventListener('blur', end);
+}
+
 export function initKeyframes({ $, getMasks, maskLabel, state, canRender, F_STOPS, scheduleSave, invalidateAnimation, backToCamera, renderCamera, showSliderValue, setMasks, renderMasks, showFNumber, showFocusPoint, applySettingsSoon, cameraChanged, layoutCanvas, drawCurves, setPlaying, showFrame, updateFrameLabel, plotBox, animationSettingsChanged, draw, apertureFor, view, bokehParams, colorSettings }) {
   // Keyframed animation (core/keyframes.js): a track per property on the
   // timeline under the picture. Each track's diamonds are its keyframes: drag
@@ -844,12 +862,9 @@ export function initKeyframes({ $, getMasks, maskLabel, state, canRender, F_STOP
       seekTo(t);
     };
     const up = () => {
-      window.removeEventListener('pointermove', seek);
-      window.removeEventListener('pointerup', up);
       if (!state.frames.length) scheduleSave();
     };
-    window.addEventListener('pointermove', seek);
-    window.addEventListener('pointerup', up);
+    trackDrag(seek, up);
     seek(e);
   }
 
@@ -909,8 +924,6 @@ export function initKeyframes({ $, getMasks, maskLabel, state, canRender, F_STOP
       }
     };
     const up = (ev) => {
-      window.removeEventListener('pointermove', move);
-      window.removeEventListener('pointerup', up);
       if (box) {
         box.remove();
         const first = selectedKeys()[0];
@@ -918,12 +931,11 @@ export function initKeyframes({ $, getMasks, maskLabel, state, canRender, F_STOP
         renderTimeline();
       } else {
         if (!e.shiftKey) clearSelection();
-        seekTo(timeAt(ev, r));
+        if (ev.type === 'pointerup') seekTo(timeAt(ev, r));
         if (!state.frames.length) scheduleSave();
       }
     };
-    window.addEventListener('pointermove', move);
-    window.addEventListener('pointerup', up);
+    trackDrag(move, up);
   }
 
   // Drag a keyframe along its track (with every other selected keyframe); a
@@ -958,8 +970,6 @@ export function initKeyframes({ $, getMasks, maskLabel, state, canRender, F_STOP
       renderTimeline();
     };
     const up = () => {
-      window.removeEventListener('pointermove', move);
-      window.removeEventListener('pointerup', up);
       if (moved) {
         saveAnimation();
       } else {
@@ -969,8 +979,7 @@ export function initKeyframes({ $, getMasks, maskLabel, state, canRender, F_STOP
         renderTimeline();
       }
     };
-    window.addEventListener('pointermove', move);
-    window.addEventListener('pointerup', up);
+    trackDrag(move, up);
     renderTimeline();
   }
 
@@ -1122,10 +1131,14 @@ export function initKeyframes({ $, getMasks, maskLabel, state, canRender, F_STOP
     const up = () => {
       c.removeEventListener('pointermove', move);
       c.removeEventListener('pointerup', up);
+      c.removeEventListener('pointercancel', up);
+      c.removeEventListener('lostpointercapture', up);
       saveAnimation();
     };
     c.addEventListener('pointermove', move);
     c.addEventListener('pointerup', up);
+    c.addEventListener('pointercancel', up);
+    c.addEventListener('lostpointercapture', up);
     move(e);
   });
 

@@ -6,7 +6,15 @@ import { readThumbnail, blobReader } from '../core/lfp.js';
 export function initCameraImport({ $, state, setCameraSection, showError, webCameraLabel, importCameraFiles, openItem }) {
   // Shows the photos found on a camera with thumbnails; `onImport(picked)`
   // runs when the user confirms. thumb(file) -> Promise<{ mime, bytes } | null>.
+  // The dialog's thumbnail URLs, revoked when it closes or is filled again.
+  let thumbUrls = [];
+  function revokeThumbs() {
+    for (const url of thumbUrls) URL.revokeObjectURL(url);
+    thumbUrls = [];
+  }
+
   function showCameraDialog({ files, thumb, onImport }) {
+    revokeThumbs();
     const grid = $('camera-grid');
     grid.replaceChildren(...files.map((f, i) => {
       const label = document.createElement('label');
@@ -19,16 +27,21 @@ export function initCameraImport({ $, state, setCameraSection, showError, webCam
       label.append(ph, name);
       thumb(f).then((t) => {
         if (!t) return;
-        const img = Object.assign(document.createElement('img'), { src: URL.createObjectURL(new Blob([t.bytes], { type: t.mime })), alt: '' });
-        ph.replaceWith(img);
+        // The dialog was filled again or closed meanwhile: nothing would revoke this URL.
+        if (!ph.isConnected || !$('camera-dialog').open) return;
+        const url = URL.createObjectURL(new Blob([t.bytes], { type: t.mime }));
+        thumbUrls.push(url);
+        ph.replaceWith(Object.assign(document.createElement('img'), { src: url, alt: '' }));
       }).catch(() => {});
       return label;
     }));
     $('camera-import').disabled = !files.length;
     if (!$('camera-dialog').open) $('camera-dialog').showModal();
     $('camera-dialog').onclose = () => {
-      if ($('camera-dialog').returnValue !== 'import') return;
-      onImport([...grid.querySelectorAll('input:checked')].map((cb) => files[+cb.value]));
+      const picked = $('camera-dialog').returnValue === 'import' ? [...grid.querySelectorAll('input:checked')].map((cb) => files[+cb.value]) : null;
+      revokeThumbs();
+      if (!picked) return;
+      onImport(picked);
     };
   }
 

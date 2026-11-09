@@ -27,16 +27,26 @@ export function initStereo({ $, state, engine, showProgress, backToCamera, setFu
     const imgs = [];
     for (const u of [p.u - b, p.u + b]) {
       const msg = await engine.request('view', eyeParams(p, u), { onProgress: showProgress });
-      if (!msg || !(msg.pixels || msg.bitmap)) return null;
+      if (!msg || !(msg.pixels || msg.bitmap)) {
+        for (const img of imgs) if (img.close) img.close();
+        return null;
+      }
       imgs.push(toImageData(msg));
     }
-    const [L, R] = imgs.map((img) => {
-      if (img instanceof ImageData) return img;
-      const c = Object.assign(document.createElement('canvas'), { width: img.width, height: img.height });
-      const g = c.getContext('2d');
-      g.drawImage(img, 0, 0);
-      return g.getImageData(0, 0, img.width, img.height);
-    });
+    // The GPU path hands back ImageBitmaps; release each once it is read back,
+    // since this runs on every baseline slider input.
+    let L, R;
+    try {
+      [L, R] = imgs.map((img) => {
+        if (img instanceof ImageData) return img;
+        const c = Object.assign(document.createElement('canvas'), { width: img.width, height: img.height });
+        const g = c.getContext('2d');
+        g.drawImage(img, 0, 0);
+        return g.getImageData(0, 0, img.width, img.height);
+      });
+    } finally {
+      for (const img of imgs) if (!(img instanceof ImageData) && img.close) img.close();
+    }
     const mode = $('stereo-mode').value;
     if (mode !== 'anaglyph') return { pair: [L, R], mode, width: L.width, height: L.height };
     const out = new ImageData(new Uint8ClampedArray(R.data), R.width, R.height);
@@ -69,16 +79,21 @@ export function initStereo({ $, state, engine, showProgress, backToCamera, setFu
     for (const u of eyes) {
       showProgress('Rendering 3D', shots.length / 2);
       const msg = await engine.request('view', eyeParams(p, u), { onProgress: () => {} });
+      if (!msg || !(msg.pixels || msg.bitmap)) throw new Error('3D rendering was cancelled.');
       shots.push(toImageData(msg));
     }
     const pivots = withPivotZoom(eyes.map((u) => pivotFor(u, p.v, p.alpha, eyeParams(p, u).aperture)));
     const base = { orientation: +$('orientation').value || 1, angle: +$('straighten').value, crop: cropValues() };
-    return shots.map((img, i) => {
-      const g = geometry(img.width, img.height, { ...base, ...(pivots[i] || {}) });
-      const c = Object.assign(document.createElement('canvas'), { width: g.width, height: g.height });
-      drawGeometry(c.getContext('2d'), img, g);
-      return c;
-    });
+    try {
+      return shots.map((img, i) => {
+        const g = geometry(img.width, img.height, { ...base, ...(pivots[i] || {}) });
+        const c = Object.assign(document.createElement('canvas'), { width: g.width, height: g.height });
+        drawGeometry(c.getContext('2d'), img, g);
+        return c;
+      });
+    } finally {
+      for (const img of shots) if (!(img instanceof ImageData) && img.close) img.close();
+    }
   }
 
   // File name tag for a 3D type: VR players recognize side by side files by

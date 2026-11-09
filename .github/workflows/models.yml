@@ -42,12 +42,15 @@ jobs:
       - name: Open a pull request
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
         run: |
           if [ -z "$(git status --porcelain models app)" ]; then
             echo "The models are up to date."
             exit 0
           fi
-          branch="models/update-$(date +%Y%m%d)"
+          # The run id keeps a scheduled and a manual run on the same day from pushing to one branch.
+          branch="models/update-$(date +%Y%m%d)-${RUN_ID}-${RUN_ATTEMPT}"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git checkout -b "$branch"
