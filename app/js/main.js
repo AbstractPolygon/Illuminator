@@ -749,11 +749,15 @@ async function openItem(photo) {
   if (state.info && state.current && state.current.photo === photo) state.lib.setPhotoId(photo, state.info.photoId).catch(() => {});
 }
 
+// Whether the measured depth is kept next to each library photo: where the library is kept between sessions (the desktop app's folder, or the browser's storage in the web app), and
+// not for a library that lives only in this session's memory.
+const keepsDepth = () => !!(state.lib && state.lib.persistent);
+
 // What a library photo brings to opening besides its file: the depth map made in Lytro Desktop, and (desktop app) the processed version kept next to the photo, so the depth is not
 // measured again (core/processed-cache.js). `transfer` starts with the buffers already going to the worker and gets theirs added.
 async function depthInputs(photo, transfer = []) {
   const userDepth = await readUserDepth(photo);
-  const depthCache = native ? decodeProcessed(await state.lib.processed(photo).catch(() => null)) : null;
+  const depthCache = keepsDepth() ? decodeProcessed(await state.lib.processed(photo).catch(() => null)) : null;
   if (userDepth) transfer.push(userDepth.data.buffer);
   if (depthCache) transfer.push(depthCache.alpha.buffer, ...depthCache.extra.flatMap((e) => [e.alpha.buffer, e.confidence.buffer]));
   return { userDepth, depthCache, transfer };
@@ -767,7 +771,7 @@ engine.onCache = (msg) => {
     state.lastProcessed = { photoId: msg.photoId, cache: msg.cache };
     return;
   }
-  if (!native || !state.current || !state.info || state.info.photoId !== msg.photoId) return;
+  if (!keepsDepth() || !state.current || !state.current.photo || !state.info || state.info.photoId !== msg.photoId) return;
   const photo = state.current.photo;
   clearTimeout(processedTimer);
   processedTimer = setTimeout(() => {

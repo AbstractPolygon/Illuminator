@@ -201,7 +201,7 @@ export function initQueue({ $, state, native, currentEdits, showNotice, showErro
       step(phases.length - 1);
       const out = job.spec.kind === 'video' ? await api.exportVideo() : await api.export(job.spec.export);
       // What the job measured (its depth) is kept with the photo, for the next job and for opening it in the app.
-      if (native) {
+      if (lib.persistent) {
         const processed = api.processed();
         if (processed) await lib.saveProcessed(photo, processed).catch((err) => console.warn('Could not save the processed version', err));
       }
