@@ -5,28 +5,14 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { launchBrowser } from './helpers/playwright.mjs';
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'app');
 const types = { '.js': 'text/javascript', '.html': 'text/html' };
 
-async function playwright() {
-  for (const spec of ['playwright', '/opt/node-tools/node_modules/playwright/index.mjs']) {
-    try {
-      return await import(spec);
-    } catch {}
-  }
-  return null;
-}
-
 test('the GPU modulation plane matches the CPU version', async (t) => {
-  const pw = await playwright();
-  if (!pw) return t.skip('Playwright is not installed');
-  let browser;
-  try {
-    browser = await pw.chromium.launch({ args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
-  } catch {
-    return t.skip('No browser available');
-  }
+  const browser = await launchBrowser(t);
+  if (!browser) return;
   const server = http.createServer((q, r) => {
     const u = decodeURIComponent(q.url.split('?')[0]);
     if (u === '/t.html') {
@@ -111,9 +97,10 @@ test('the GPU modulation plane matches the CPU version', async (t) => {
     console.log(JSON.stringify(res));
     assert.equal(res.err, 0);
     assert.equal(res.unit, 30000);
-    assert.ok(res.mean < 0.5, `mean difference ${res.mean} units of 30000`);
-    assert.ok(res.over / res.n < 0.001, `${res.over} values differ by more than 2 units`);
-    assert.ok(res.worst <= 150, `worst difference ${res.worst}`);
+    // Measured on SwiftShader: mean 0.0025, 83 of 1.2M values over 2 units, worst 48 (of 30000). The limits leave about 2x for other GPUs' float rounding.
+    assert.ok(res.mean < 0.006, `mean difference ${res.mean} units of 30000`);
+    assert.ok(res.over / res.n < 2e-4, `${res.over} values differ by more than 2 units`);
+    assert.ok(res.worst <= 80, `worst difference ${res.worst}`);
   } finally {
     await browser.close();
     server.close();

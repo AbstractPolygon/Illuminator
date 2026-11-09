@@ -288,7 +288,8 @@ export function removePeriodicPattern(rgb, W, H, options = {}) {
   for (let i = 0; i < n; i++) {
     const before = Y[i] * Y[i];
     const after = Math.max(0, out[i]) ** 2;
-    const k = before > 1e-8 ? after / before : 1;
+    // clamped like removeLatticeByTiles: a pixel the filter drove to near 0 (or a small Y blown up) must not swing its color by more than 4x in brightness
+    const k = before > 1e-8 ? Math.max(0.25, Math.min(4, after / before)) : 1;
     rgb[3 * i] *= k;
     rgb[3 * i + 1] *= k;
     rgb[3 * i + 2] *= k;
@@ -351,7 +352,8 @@ export function removeLatticeByTiles(rgb, W, H, { ratio = 0.35, tile = 128, prom
       ringBins.push({ bin: wrap(v) * T + wrap(u), mirror: wrap(-v) * T + wrap(-u), neighbours });
     }
   }
-  const levels = new Float64Array(64);
+  // each ring bin has 8 * around neighbors (the square's border); a fixed size lost the ones beyond it once around passed 8, which left the median undefined and nothing clipped
+  const levels = new Float64Array(Math.max(1, 8 * around));
   for (let ty = -step; ty < H; ty += step) {
     for (let tx = -step; tx < W; tx += step) {
       let mean = 0;

@@ -17,3 +17,6 @@ self.onmessage = (event) => {
     self.postMessage({ type: 'error', message: err && err.message ? err.message : String(err) });
   }
 };
+
+// A message that cannot be deserialized never reaches onmessage; answer so the pool rejects instead of waiting forever.
+self.onmessageerror = () => self.postMessage({ type: 'error', message: 'The helper could not read a message.' });

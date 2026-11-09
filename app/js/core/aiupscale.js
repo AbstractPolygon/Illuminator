@@ -10,7 +10,7 @@ export const AI_PAD = 16;
 // A smaller tile where the video memory limit is low (Settings > Memory).
 const SMALL_TILE = 128;
 const LOW_VRAM = 1.5 * 1024 ** 3;
-// The result (scale squared times as many pixels) is one array: never more than this, and never more than the RAM limit.
+// What enlarging may hold in memory (modelRam: the result, a copy of it and the input; the result alone is scale squared times as many pixels): never more than this, and never more than the RAM limit.
 const MAX_RESULT_BYTES = 1.5 * 1024 ** 3;
 
 // rgb: Uint16Array (w * h * 3, interleaved, 0..65535). Returns the enlarged picture the same way (w*scale by h*scale).
@@ -99,7 +99,7 @@ export async function loadUpscaleSession(model, readModel) {
 // Enlarges `rgb` (see tiledUpscale) with `model`. Returns { rgb, width, height }.
 export async function aiUpscale(model, readModel, rgb, w, h, onProgress = () => {}) {
   const need = modelRam(w, h, model.scale);
-  if (need > MAX_RESULT_BYTES * 2 || !fitsMemory('ram', need)) {
+  if (need > MAX_RESULT_BYTES || !fitsMemory('ram', need)) {
     throw new Error(memoryProblem('ram', need, `Enlarging ${w}×${h} with a model`, 'Lower the render size or the Photo Size, or raise the limit.'));
   }
   onProgress('Loading the upscaling model', 0);

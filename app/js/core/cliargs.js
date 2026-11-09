@@ -36,6 +36,14 @@ Options for render:
                               before the app shuts down, for scripts that must not miss it
 `;
 
+// Options whose value is a number: the next argument may start with '-' there (a negative number). The others take a path or a word, where a leading '-' means the value is missing
+// and the next argument is another option ('--out --quiet' used to save to a file called "--quiet").
+const numericOptions = new Set(['--quality', '--size', '--f-number', '--focus', '--view', '--scale', '--passes', '--timeout']);
+const NUMBER = /^[-+]?(\d+\.?\d*|\.\d+)(e[-+]?\d+)?$/i;
+// Number() takes '' as 0 and ' ' too, and 'Infinity'; only a plain decimal counts.
+const isNum = (s) => NUMBER.test(String(s).trim());
+const IMAGE_EXT = /\.(png|jpe?g)$/i;
+
 const needsValue = new Set(['-o', '--out', '--format', '--quality', '--color-space', '--size', '--f-number', '--focus', '--view', '--set', '--edits', '--scale', '--passes', '--script', '--timeout', '--exit-file']);
 
 // args: what follows --cli. Returns { command, files, options, sets, errors }.
@@ -68,11 +76,17 @@ export function parseCli(args) {
       out.options.fullSensor = true;
       continue;
     }
+    if (a === '--') {
+      // Everything after the terminator is a photo, even a file name that starts with '-'.
+      out.files.push(...rest);
+      rest.length = 0;
+      break;
+    }
     if (a.startsWith('-') && a.length > 1) {
       let name = a;
       let value;
       const eq = a.indexOf('=');
-      if (a.startsWith('--') && eq > 0) {
+      if (eq > 0) {
         name = a.slice(0, eq);
         value = a.slice(eq + 1);
       }
@@ -85,7 +99,15 @@ export function parseCli(args) {
           out.errors.push(`${name} needs a value`);
           continue;
         }
+        if (rest[0].startsWith('-') && rest[0].length > 1 && !(numericOptions.has(name) && /^-\.?\d/.test(rest[0]))) {
+          out.errors.push(`${name} needs a value, not the option ${rest[0]}`);
+          continue;
+        }
         value = rest.shift();
+      }
+      if (value === '') {
+        out.errors.push(`${name} needs a value`);
+        continue;
       }
       if (name === '--set') {
         const at = value.indexOf('=');
@@ -108,13 +130,21 @@ function validate(job) {
   if (command === 'render' && !files.length) bad('render needs at least one photo');
   if (command === 'info' && files.length !== 1) bad('info needs one photo');
   if ((command === 'controls' || command === 'version' || command === 'help') && files.length && command !== 'help') bad(`${command} takes no files`);
-  if (o.format && !FORMATS.includes(o.format)) bad(`--format must be one of ${FORMATS.join(', ')}`);
-  if (o.colorSpace && !COLOR_SPACE_IDS.includes(o.colorSpace)) bad(`--color-space must be one of ${COLOR_SPACE_IDS.join(', ')}`);
-  if (o.size && !SIZES.includes(o.size)) bad(`--size must be one of ${SIZES.join(', ')}`);
-  if (o.quality && !(+o.quality >= 50 && +o.quality <= 100)) bad('--quality must be 50 to 100');
-  for (const k of ['fNumber', 'focus', 'scale', 'passes', 'timeout']) if (o[k] !== undefined && !Number.isFinite(+o[k])) bad(`--${k.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`)} needs a number`);
-  if (o.view !== undefined && !/^-?[\d.]+,-?[\d.]+$/.test(o.view)) bad('--view needs u,v such as 1.5,-0.5');
-  if (o.out && files.length > 1 && /\.(png|jpe?g)$/i.test(o.out)) bad('--out is a file name, but there are several photos: give a folder');
+  if (o.format !== undefined && !FORMATS.includes(o.format)) bad(`--format must be one of ${FORMATS.join(', ')}`);
+  if (o.colorSpace !== undefined && !COLOR_SPACE_IDS.includes(o.colorSpace)) bad(`--color-space must be one of ${COLOR_SPACE_IDS.join(', ')}`);
+  if (o.size !== undefined && !SIZES.includes(o.size)) bad(`--size must be one of ${SIZES.join(', ')}`);
+  if (o.quality !== undefined && !(isNum(o.quality) && +o.quality >= 50 && +o.quality <= 100)) bad('--quality must be 50 to 100');
+  for (const k of ['fNumber', 'focus', 'scale', 'passes', 'timeout']) if (o[k] !== undefined && !isNum(o[k])) bad(`--${k.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`)} needs a number`);
+  if (o.timeout !== undefined && isNum(o.timeout) && !(+o.timeout > 0)) bad('--timeout must be more than 0 seconds');
+  if (o.view !== undefined) {
+    const parts = String(o.view).split(',');
+    if (parts.length !== 2 || !parts.every(isNum)) bad('--view needs u,v such as 1.5,-0.5');
+  }
+  if (o.out && files.length > 1 && IMAGE_EXT.test(o.out)) bad('--out is a file name, but there are several photos: give a folder');
+  if (o.out && o.format && IMAGE_EXT.test(o.out) && FORMATS.includes(o.format)) {
+    const ext = o.out.match(IMAGE_EXT)[1].toLowerCase().replace('jpeg', 'jpg');
+    if (ext !== EXT[o.format]) bad(`--out ${o.out} is a .${ext} file but --format ${o.format} makes .${EXT[o.format]} files: change one of them`);
+  }
 }
 
 // The format for a photo: the option, else the extension of the output file, else png.
@@ -130,7 +160,7 @@ export function outputPath(photo, options, { join, dirname, basename, many }) {
   const stem = basename(photo).replace(/\.[^.]+$/, '');
   const ext = EXT[format];
   const out = options.out;
-  if (out && !many && /\.[a-z0-9]+$/i.test(out)) return out;
+  if (out && !many && IMAGE_EXT.test(out)) return out;
   return join(out || dirname(photo), `${stem}.${ext}`);
 }
 

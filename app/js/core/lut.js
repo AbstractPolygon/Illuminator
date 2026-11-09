@@ -7,6 +7,12 @@
 
 export const MAX_LUT_SIZE = 65;
 
+// Three finite numbers each, with the maximum above the minimum on every channel. A short DOMAIN_MAX ("DOMAIN_MAX 2 2") used to pass because only the entries present were
+// checked, and sampleLut then divided by an undefined maximum and returned NaN.
+function validDomain(min, max) {
+  return Array.isArray(min) && Array.isArray(max) && min.length === 3 && max.length === 3 && min.every(Number.isFinite) && max.every(Number.isFinite) && max.every((v, i) => v > min[i]);
+}
+
 export function parseCube(text) {
   let title = '';
   let size = 0;
@@ -29,7 +35,7 @@ export function parseCube(text) {
   }
   if (!(size >= 2 && size <= MAX_LUT_SIZE)) throw new Error(`Not a 3D LUT this app can use (size ${size || 'missing'}; 2 to ${MAX_LUT_SIZE} supported).`);
   if (values.length !== size ** 3 * 3) throw new Error(`The LUT should have ${size ** 3} entries but has ${values.length / 3}.`);
-  if (![...min, ...max].every(Number.isFinite) || max.some((v, i) => !(v > min[i]))) throw new Error('The LUT has an invalid domain.');
+  if (!validDomain(min, max)) throw new Error('The LUT has an invalid domain.');
   return { title, size, min, max, data: Float32Array.from(values) };
 }
 
@@ -85,12 +91,25 @@ export function encodeLut(lut, name = '') {
   return { name: name || lut.title || 'LUT', size: lut.size, min: lut.min, max: lut.max, lo, hi, data: toBase64(new Uint8Array(q.buffer)) };
 }
 
+// Returns the LUT, or null for anything unusable (not an object, bad base64, a size outside 2..MAX_LUT_SIZE, a wrong data length, non-finite lo/hi or domain, a NaN entry):
+// the caller drops the saved data then, so decodeLut never throws for bad input.
 export function decodeLut(saved) {
-  if (!saved || !(saved.size >= 2) || typeof saved.data !== 'string') return null;
-  const bytes = fromBase64(saved.data);
+  if (!saved || typeof saved.data !== 'string' || !Number.isInteger(saved.size) || saved.size < 2 || saved.size > MAX_LUT_SIZE) return null;
+  const { lo, hi } = saved;
+  if (!Number.isFinite(lo) || !Number.isFinite(hi)) return null;
+  const min = saved.min || [0, 0, 0];
+  const max = saved.max || [1, 1, 1];
+  if (!validDomain(min, max)) return null;
+  let bytes;
+  try {
+    bytes = fromBase64(saved.data);
+  } catch {
+    return null;
+  }
   const q = new Uint16Array(bytes.buffer, bytes.byteOffset, bytes.byteLength >> 1);
   if (q.length !== saved.size ** 3 * 3) return null;
   const data = new Float32Array(q.length);
-  for (let i = 0; i < q.length; i++) data[i] = saved.lo + (q[i] / 65535) * (saved.hi - saved.lo);
-  return { title: saved.name, size: saved.size, min: saved.min || [0, 0, 0], max: saved.max || [1, 1, 1], data };
+  for (let i = 0; i < q.length; i++) data[i] = lo + (q[i] / 65535) * (hi - lo);
+  if (!data.every(Number.isFinite)) return null;
+  return { title: saved.name, size: saved.size, min, max, data };
 }

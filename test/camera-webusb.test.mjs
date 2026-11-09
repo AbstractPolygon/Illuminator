@@ -8,7 +8,7 @@ function fakeDevice({ files = {}, pictures = [], interfaces, claimFails = [] }) 
   let loaded = new Uint8Array(0);
   const queue = [];
   let pendingWrite = null;
-  const csw = (status = 0) => { const b = new Uint8Array(13); b.set([0x55, 0x53, 0x42, 0x53]); b[12] = status; return b; };
+  const csw = (status = 0, tag = 0) => { const b = new Uint8Array(13); b.set([0x55, 0x53, 0x42, 0x53]); new DataView(b.buffer).setUint32(4, tag, true); b[12] = status; return b; };
   const le = (n, size = 4) => { const b = new Uint8Array(size); new DataView(b.buffer).setUint32(0, n, true); return b; };
   const record = (p) => {
     const b = new Uint8Array(128);
@@ -43,13 +43,14 @@ function fakeDevice({ files = {}, pictures = [], interfaces, claimFails = [] }) 
       }
       assert.equal(String.fromCharCode(...data.subarray(0, 4)), 'USBC');
       const cdb = data.subarray(15, 31);
+      const tag = new DataView(data.buffer, data.byteOffset).getUint32(4, true);
       const size = new DataView(data.buffer, data.byteOffset).getUint32(8, true);
       if (cdb[0] === 0xc6 && cdb[2] === 0) queue.push(le(loaded.length));
       else if (cdb[0] === 0xc2 && cdb[2] === 2) loaded = list();
       else if (cdb[0] === 0xc2 && cdb[2] === 0) { loaded = new Uint8Array(640); [...'Lytro, Inc.'].forEach((c, i) => { loaded[i] = c.charCodeAt(0); }); [...'B5120001'].forEach((c, i) => { loaded[256 + i] = c.charCodeAt(0); }); }
-      else if (cdb[0] === 0xc2 && cdb[2] === 1) { pendingWrite = true; queue.push(csw()); return { status: 'ok' }; }
+      else if (cdb[0] === 0xc2 && cdb[2] === 1) { pendingWrite = true; queue.push(csw(0, tag)); return { status: 'ok' }; }
       else if (cdb[0] === 0xc4) { const off = new DataView(cdb.buffer, cdb.byteOffset).getUint32(3, true); queue.push(loaded.slice(off, off + size)); }
-      queue.push(csw());
+      queue.push(csw(0, tag));
       return { status: 'ok' };
     },
     async transferIn(ep, length) {
@@ -102,4 +103,58 @@ test('transport framing: wrapper layout', async () => {
   assert.equal(sent[0][12], 0x80);
   assert.equal(sent[0][14], 16);
   assert.equal(sent[0][15], 0xc6);
+});
+
+// A scripted device: `ins` entries are results of transferIn (or 'hang').
+function scripted(ins) {
+  const calls = [];
+  const device = {
+    async transferOut() { return { status: 'ok' }; },
+    async transferIn() {
+      const n = ins.shift();
+      if (n === 'hang') return new Promise(() => {});
+      return n;
+    },
+    async clearHalt(dir) { calls.push(`clearHalt ${dir}`); },
+    async controlTransferOut(setup) { calls.push(`control ${setup.request.toString(16)} ${setup.index}`); return { status: 'ok' }; },
+    async reset() { calls.push('reset'); },
+  };
+  return { device, calls };
+}
+const cswBytes = (status, tag) => { const b = new Uint8Array(13); b.set([0x55, 0x53, 0x42, 0x53]); new DataView(b.buffer).setUint32(4, tag, true); b[12] = status; return new DataView(b.buffer); };
+
+test('transport: a stall in the data phase clears the halt and reads the status', async () => {
+  const { device, calls } = scripted([{ status: 'stall' }, { status: 'ok', data: cswBytes(0, 1) }]);
+  const t = new WebUsbTransport(device, 1, 2, () => {}, 1, 1000);
+  const got = await t.read(new Uint8Array(16), 100);
+  assert.equal(got.length, 0);
+  assert.ok(calls.includes('clearHalt in'));
+  assert.ok(!calls.some((c) => c.startsWith('control')));
+});
+
+test('transport: a status for another command resets the pipe and throws', async () => {
+  const { device, calls } = scripted([{ status: 'ok', data: new DataView(new Uint8Array([5]).buffer) }, { status: 'ok', data: cswBytes(0, 42) }]);
+  const t = new WebUsbTransport(device, 1, 2, () => {}, 1, 1000);
+  await assert.rejects(() => t.read(new Uint8Array(16), 1), /another command/);
+  assert.deepEqual(calls.filter((c) => c !== 'reset'), ['control ff 1', 'clearHalt in', 'clearHalt out']);
+});
+
+test('transport: a timeout cancels the pending transfer and recovers', async () => {
+  const { device, calls } = scripted(['hang', 'hang']);
+  const t = new WebUsbTransport(device, 1, 2, () => {}, 1, 20);
+  await assert.rejects(() => t.read(new Uint8Array(16), 100), /did not answer in time/);
+  assert.ok(calls.includes('reset'));
+  assert.ok(calls.includes('control ff 1'));
+});
+
+test('download throws when the camera sends fewer bytes than it announced', async () => {
+  const { LytroCamera } = await import('../app/js/camera/webusb.js');
+  const t = {
+    async read(cdb) {
+      if (cdb[0] === 0xc6) return new Uint8Array([0x40, 0x0d, 0x03, 0]); // 200000
+      return new Uint8Array(0);
+    },
+    async write() {},
+  };
+  await assert.rejects(() => new LytroCamera(t).download('file', 'x'), /only 0 of 200000/);
 });

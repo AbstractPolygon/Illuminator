@@ -470,6 +470,13 @@ void main() {
   float value = uFirst + float(best) * uStep;
   if (best > 0 && best < uK - 1) {
     if (uMode == 1) {
+      // The belief parabola first, as in the CPU; the match-cost parabola below only overrides it where it is usable.
+      if (uDiscrete == 0) {
+        float ba = belief(p, best - 1);
+        float bc = belief(p, best + 1);
+        float bd = ba - 2.0 * bv + bc;
+        if (bd < 0.0) value += clamp(0.5 * (ba - bc) / bd, -0.5, 0.5) * uStep;
+      }
       // A parabola through the three match costs around the label (not the beliefs).
       float cm = dataCost(p, best - 1);
       float c0 = dataCost(p, best);
@@ -477,7 +484,8 @@ void main() {
       float den = cp + cm - 2.0 * c0;
       if (den > 0.0) {
         float o = ((cp - cm) / (den * 2.0)) * uStep;
-        if (abs(o) < abs(uStep)) value -= o;
+        // from the label itself, not from the belief parabola's result
+        if (abs(o) < abs(uStep)) value = uFirst + float(best) * uStep - o;
       }
     } else if (uDiscrete == 0) {
       float a = belief(p, best - 1);
@@ -1004,7 +1012,8 @@ export function measureMatchGpu(gpu, views, w, h, { onProgress } = {}) {
   const fineCount = P.adapt.on ? P.adapt.fine : count;
   if (Math.max(count, fineCount) > MAX_LABELS) throw new Error('Too many depth labels for the GPU');
   const alphas = Array.from({ length: count }, (_, i) => (P.first + i * P.step) * P.lambda);
-  const refs = P.refs ?? views.map((_, k) => k);
+  // a copy: pushing onto P.refs would change the module's setting for every later photo
+  const refs = [...(P.refs ?? views.map((_, k) => k))];
   if (!refs.includes(c)) refs.push(c);
   const work = new Work(gpu, w, h);
   const done = (p) => {

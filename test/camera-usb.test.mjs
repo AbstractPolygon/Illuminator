@@ -100,11 +100,11 @@ test('commands: 16 byte blocks with the code first and the parameter third', () 
 test('bulk transport: wrapper layout, data and status', async () => {
   const sent = [];
   const reply = [];
-  const csw = (status = 0) => { const b = Buffer.alloc(13); b.write('USBS', 0, 'latin1'); b[12] = status; return b; };
+  const csw = (status = 0, tag = 0) => { const b = Buffer.alloc(13); b.write('USBS', 0, 'latin1'); b.writeUInt32LE(tag, 4); b[12] = status; return b; };
   const epOut = { transfer(data, cb) { sent.push(Buffer.from(data)); cb(null); } };
   const epIn = { transfer(len, cb) { cb(null, reply.shift()); } };
   const t = new BulkTransport(epIn, epOut);
-  reply.push(Buffer.from([1, 2, 3, 4]), csw());
+  reply.push(Buffer.from([1, 2, 3, 4]), csw(0, 1));
   const out = await t.read(command(0xc6, 6), 4);
   assert.deepEqual([...out], [1, 2, 3, 4]);
   const cbw = sent[0];
@@ -114,11 +114,11 @@ test('bulk transport: wrapper layout, data and status', async () => {
   assert.equal(cbw[12], 0x80);
   assert.equal(cbw[14], 16);
   assert.equal(cbw[15], 0xc6);
-  reply.push(csw());
+  reply.push(csw(0, 2));
   await t.write(command(0xc2, 1), Buffer.from('x\0'));
   assert.equal(sent[1][12], 0);
   assert.equal(sent[2].length, 2);
-  reply.push(Buffer.from([0]), csw(1));
+  reply.push(Buffer.from([0]), csw(1, 3));
   await assert.rejects(() => t.read(command(0xc6, 6), 1), /refused/);
 });
 
@@ -203,8 +203,8 @@ test('calibration files MOD_0000..MOD_0061 are read and saved under the camera s
 });
 
 test('the transport waits until the camera reports ready', async () => {
-  const csw = (status = 0) => { const b = Buffer.alloc(13); b.write('USBS', 0, 'latin1'); b[12] = status; return b; };
-  const replies = [csw(1), csw(1), csw(0)];
+  const csw = (status = 0, tag = 0) => { const b = Buffer.alloc(13); b.write('USBS', 0, 'latin1'); b.writeUInt32LE(tag, 4); b[12] = status; return b; };
+  const replies = [csw(1, 1), csw(1, 2), csw(0, 3)];
   const sent = [];
   const t = new BulkTransport({ transfer(len, cb) { cb(null, replies.shift()); } }, { transfer(data, cb) { sent.push(Buffer.from(data)); cb(null); } });
   assert.equal(await t.waitReady(5, 1), true);
@@ -239,4 +239,65 @@ test('a serial number from a device cannot name a folder outside the destination
   const camera = new LytroCamera(fakeCamera({ 'C:\\T1CALIB\\MOD_0000': Buffer.from('c') }, []));
   const dest = await pullUsbCalibration({ camera, info: { serial: '../../escape' } }, out);
   assert.ok(dest.startsWith(path.resolve(out) + path.sep));
+});
+
+// A fake bulk pipe: `inQueue` entries are Buffers or Errors, in the order the
+// device answers; `calls` records halts cleared and resets issued.
+function fakePipe(inQueue) {
+  const calls = [];
+  const sent = [];
+  const epIn = { transfer(len, cb) { const n = inQueue.shift(); if (n instanceof Error) cb(n); else cb(null, n); }, clearHalt(cb) { calls.push('clearHalt in'); cb(null); } };
+  const epOut = { transfer(data, cb) { sent.push(Buffer.from(data)); cb(null); }, clearHalt(cb) { calls.push('clearHalt out'); cb(null); } };
+  const device = { controlTransfer(type, request, value, index, data, cb) { calls.push(`control ${type.toString(16)} ${request.toString(16)} ${index}`); cb(null); } };
+  return { calls, sent, epIn, epOut, device };
+}
+const cswOf = (status, tag, residue = 0) => { const b = Buffer.alloc(13); b.write('USBS', 0, 'latin1'); b.writeUInt32LE(tag, 4); b.writeUInt32LE(residue, 8); b[12] = status; return b; };
+
+test('bulk transport: a stall in the data phase clears the halt, reads the status and stays in step', async () => {
+  const stall = Object.assign(new Error('LIBUSB_TRANSFER_STALL'), { errno: -9 });
+  const pipe = fakePipe([stall, cswOf(0, 1, 100)]);
+  const t = new BulkTransport(pipe.epIn, pipe.epOut, () => {}, 1000, { device: pipe.device, interfaceNumber: 1 });
+  const out = await t.read(command(0xc4), 100);
+  assert.equal(out.length, 0);
+  assert.deepEqual(pipe.calls, ['clearHalt in']);
+  pipe.epIn.transfer = (len, cb) => cb(null, len === 13 ? cswOf(0, 2) : Buffer.from([7]));
+  assert.deepEqual([...await t.read(command(0xc6), 1)], [7]);
+});
+
+test('bulk transport: a stall followed by a failed command status throws', async () => {
+  const stall = new Error('LIBUSB_TRANSFER_STALL');
+  const pipe = fakePipe([stall, cswOf(1, 1, 100)]);
+  const t = new BulkTransport(pipe.epIn, pipe.epOut, () => {}, 1000, { device: pipe.device, interfaceNumber: 1 });
+  await assert.rejects(() => t.read(command(0xc4), 100), /STALL/);
+});
+
+test('bulk transport: a status for another command triggers reset recovery and throws', async () => {
+  const pipe = fakePipe([Buffer.from([1]), cswOf(0, 99)]);
+  const t = new BulkTransport(pipe.epIn, pipe.epOut, () => {}, 1000, { device: pipe.device, interfaceNumber: 1 });
+  await assert.rejects(() => t.read(command(0xc6), 1), /another command/);
+  assert.deepEqual(pipe.calls, ['control 21 ff 1', 'clearHalt in', 'clearHalt out']);
+});
+
+test('bulk transport: a timeout in the data phase with no status wrapper resets the pipe', async () => {
+  const timeout = new Error('LIBUSB_TRANSFER_TIMED_OUT');
+  const pipe = fakePipe([timeout, timeout]);
+  const t = new BulkTransport(pipe.epIn, pipe.epOut, () => {}, 1000, { device: pipe.device, interfaceNumber: 1 });
+  await assert.rejects(() => t.read(command(0xc4), 100), /TIMED_OUT/);
+  assert.deepEqual(pipe.calls, ['clearHalt in', 'control 21 ff 1', 'clearHalt in', 'clearHalt out']);
+});
+
+test('download refuses a short read instead of returning truncated data', async () => {
+  const { LytroCamera } = require('../electron/lytro-protocol.cjs');
+  const reads = [];
+  const transport = {
+    async read(cdb, size) {
+      reads.push(cdb[0]);
+      if (cdb[0] === 0xc6) { const b = Buffer.alloc(4); b.writeUInt32LE(200000); return b; }
+      if (cdb[0] === 0xc4) return cdb.readUInt32LE(3) === 0 ? Buffer.alloc(65536) : Buffer.alloc(0);
+      return Buffer.alloc(0);
+    },
+    async write() {},
+  };
+  await assert.rejects(() => new LytroCamera(transport).download('file', 'C:\\x'), /only 65536 of 200000/);
+  assert.ok(reads.filter((c) => c === 0xc4).length <= 5);
 });

@@ -7,9 +7,9 @@ export function releaseHighlights(body, max = 5) {
   if (start < 0) return [];
   const items = [];
   for (let i = start + 1; i < lines.length && items.length < max; i++) {
-    const line = lines[i].trim();
-    if (/^#{1,6}\s/.test(line)) break;
-    const m = /^[-*]\s+(.*)$/.exec(line);
+    if (/^#{1,6}\s/.test(lines[i].trim())) break;
+    // Only a bullet at column 0 is a highlight: an indented one is a sub-point of the line above it.
+    const m = /^[-*]\s+(.*?)\s*$/.exec(lines[i]);
     if (!m) continue;
     const bold = /^\*\*(.+?)\*\*\s*(.*)$/.exec(m[1]);
     const plain = (s) => s.replace(/\*\*|\*|`/g, '').trim();

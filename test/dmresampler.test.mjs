@@ -90,7 +90,7 @@ function runReference(cases) {
   return JSON.parse(out.toString());
 }
 
-test('dmResample matches the Python reference bit for bit', { skip: !referenceAvailable() && 'python3 with numpy is not available' }, () => {
+test('dmResample matches the Python reference bit for bit', { skip: !referenceAvailable() && 'needs python3 with numpy for the Python reference port (pip install numpy); not available here, so the bit-exact comparison did not run' }, () => {
   const ref = runReference(CASES);
   assert.equal(ref.length, CASES.length);
   CASES.forEach((c, i) => {

@@ -43,3 +43,10 @@ test('model methods map to their models', () => {
 test('SHA-256 of bytes', async () => {
   assert.equal(await sha256Hex(new TextEncoder().encode('abc')), 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad');
 });
+
+test('aiUpscale refuses a job whose working memory exceeds the cap before loading the model', async () => {
+  const { aiUpscale } = await import('../app/js/core/aiupscale.js');
+  let read = false;
+  await assert.rejects(aiUpscale({ id: 'x', name: 'x', scale: 4 }, async () => { read = true; }, new Uint16Array(0), 3000, 3000));
+  assert.equal(read, false);
+});

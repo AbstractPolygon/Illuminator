@@ -13,8 +13,16 @@ async function runCli(context) {
   // For scripts: the code in a file too, written as soon as it is known, before the page is closed (some systems end the process with a signal at shutdown, and the code would be lost).
   const at = context.args.findIndex((a) => a === '--exit-file' || a.startsWith('--exit-file='));
   const file = at < 0 ? null : context.args[at].includes('=') ? context.args[at].split('=').slice(1).join('=') : context.args[at + 1];
+  // Never throws: it runs in a finally block, where an error (a missing folder, a read-only disk) would skip the window cleanup and replace the real exit code.
   const writeExit = (code) => {
-    if (file) require('node:fs').writeFileSync(file, `${code}\n`);
+    if (!file) return;
+    try {
+      const fs = require('node:fs');
+      fs.mkdirSync(path.dirname(path.resolve(file)), { recursive: true });
+      fs.writeFileSync(file, `${code}\n`);
+    } catch (err) {
+      process.stderr.write(`Could not write the exit file ${file}: ${err.message}\n`);
+    }
   };
   const code = await runCliInner({ ...context, writeExit });
   writeExit(code);

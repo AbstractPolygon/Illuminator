@@ -88,10 +88,11 @@ export function lensCenters(g, width, height) {
 
 // Luminance proxy: the mean of a 2x2 block contains each Bayer color once, so
 // it is independent of the mosaic position. Bilinear between block centers.
+// (x, y) are pixel-index coordinates like the rest of the lattice code (pixel i is centered at i), so the block whose top left pixel is ix is centered at ix + 0.5.
 function makeLuminance(raw, width, height) {
   return (x, y) => {
-    const fx = x - 1;
-    const fy = y - 1;
+    const fx = x - 0.5;
+    const fy = y - 0.5;
     const ix = Math.floor(fx);
     const iy = Math.floor(fy);
     if (ix < 0 || iy < 0 || ix + 3 >= width || iy + 3 >= height) return 0;

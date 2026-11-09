@@ -51,7 +51,22 @@ function program(gl) {
   return p;
 }
 
+// Headsets often cap textures at 4096: scale a larger image down (same aspect) instead of failing.
+function fit(gl, source) {
+  const max = gl.getParameter(gl.MAX_TEXTURE_SIZE);
+  const scale = Math.min(1, max / source.width, max / source.height);
+  if (scale === 1) return source;
+  const c = document.createElement('canvas');
+  c.width = Math.max(1, Math.floor(source.width * scale));
+  c.height = Math.max(1, Math.floor(source.height * scale));
+  const ctx = c.getContext('2d');
+  if (!ctx) throw new Error(`The image is larger than this headset can show (${max} pixels).`);
+  ctx.drawImage(source, 0, 0, c.width, c.height);
+  return c;
+}
+
 function texture(gl, source) {
+  source = fit(gl, source);
   const t = gl.createTexture();
   gl.bindTexture(gl.TEXTURE_2D, t);
   gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, source);
@@ -68,10 +83,25 @@ function texture(gl, source) {
 export async function showInVr(left, right) {
   if (!navigator.xr) throw new Error('This browser cannot show VR.');
   const session = await navigator.xr.requestSession('immersive-vr');
+  // Listening right away: a session that ends during setup would otherwise never resolve `ended`.
+  const ended = new Promise((resolve) => session.addEventListener('end', resolve));
+  try {
+    await runVr(session, ended, left, right);
+  } catch (err) {
+    // Leave no immersive session open behind a failed setup.
+    try {
+      await session.end();
+    } catch {
+      // Already ended.
+    }
+    throw err;
+  }
+}
+
+async function runVr(session, ended, left, right) {
   const canvas = document.createElement('canvas');
   const gl = canvas.getContext('webgl2', { xrCompatible: true, antialias: true });
   if (!gl) {
-    await session.end();
     throw new Error('VR needs WebGL 2.');
   }
   session.updateRenderState({ baseLayer: new XRWebGLLayer(session, gl) });
@@ -91,7 +121,6 @@ export async function showInVr(left, right) {
 
   // A trigger press leaves VR.
   session.addEventListener('select', () => session.end());
-  const ended = new Promise((resolve) => session.addEventListener('end', resolve));
 
   const draw = (time, frame) => {
     const layer = session.renderState.baseLayer;

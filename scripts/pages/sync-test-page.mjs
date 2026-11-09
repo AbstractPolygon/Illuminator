@@ -2,7 +2,7 @@
 //
 //   node scripts/pages/sync-test-page.mjs MIRROR_DIR
 //
-// Copies app/js/**, app/luts/** and app/styles.css into MIRROR_DIR when they differ, rebuilds MIRROR_DIR/page.html from app/index.html (the page body, the style sheet link and
+// Copies app/js/**, app/luts/**, app/vendor/** and app/styles.css into MIRROR_DIR when they differ, rebuilds MIRROR_DIR/page.html from app/index.html (the page body, the style sheet link and
 // js/share.js, the Artifact page's own script), and prints the changed paths as JSON: pass them as `files` (with `root` = MIRROR_DIR and the same list as `overwrite_unread`)
 // when publishing page.html. Files that exist only in MIRROR_DIR (js/share.js) are left alone.
 import fs from 'node:fs';
@@ -31,10 +31,10 @@ function copyTree(rel) {
   fs.writeFileSync(to, data);
   changed.push(rel.split(path.sep).join('/'));
 }
-for (const rel of ['js', 'luts', 'styles.css']) copyTree(rel);
+for (const rel of ['js', 'luts', 'vendor', 'styles.css']) copyTree(rel);
 
 const html = fs.readFileSync(path.join(app, 'index.html'), 'utf8');
-const body = html.split('<body>')[1].split('</body>')[0].replace(/^\n+/, '').trimEnd();
+const body = html.split(/<body[^>]*>/)[1].split('</body>')[0].replace(/^\n+/, '').trimEnd();
 const page = `<title>Illuminator</title>\n  <link rel="stylesheet" href="styles.css">\n${body}\n  <script type="module" src="js/share.js"></script>\n`;
 const pagePath = path.join(mirror, 'page.html');
 if (!fs.existsSync(pagePath) || fs.readFileSync(pagePath, 'utf8') !== page) {

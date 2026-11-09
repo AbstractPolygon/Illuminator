@@ -33,11 +33,13 @@ function usbLib() {
 const pify = (fn) => new Promise((resolve, reject) => fn((err, result) => (err ? reject(err) : resolve(result))));
 
 // Bulk-only transport over a claimed interface: command block wrapper, data,
-// status wrapper.
+// status wrapper. `control` ({ device, interfaceNumber }, optional) enables the
+// Bulk-Only Mass Storage Reset when the exchange gets out of step.
 class BulkTransport {
-  constructor(epIn, epOut, log = () => {}, timeoutMs = IO_TIMEOUT_MS) {
+  constructor(epIn, epOut, log = () => {}, timeoutMs = IO_TIMEOUT_MS, control = null) {
     this.epIn = epIn;
     this.epOut = epOut;
+    this.control = control;
     this.setTimeout(timeoutMs);
     this.tag = 0;
     this.log = log;
@@ -60,10 +62,63 @@ class BulkTransport {
     return cbw;
   }
 
-  async status() {
+  async clearHalt(endpoint) {
+    try {
+      await pify((cb) => endpoint.clearHalt(cb));
+    } catch (err) {
+      this.log(`clear halt failed: ${err.message}`);
+    }
+  }
+
+  // Reset recovery (Bulk-Only Transport 5.3.4): the class request 0xFF, then
+  // both halts cleared, so the next command starts from a known state.
+  async resetRecovery() {
+    this.log('mass storage reset');
+    if (this.control) {
+      try {
+        await pify((cb) => this.control.device.controlTransfer(0x21, 0xff, 0, this.control.interfaceNumber, Buffer.alloc(0), cb));
+      } catch (err) {
+        this.log(`mass storage reset failed: ${err.message}`);
+      }
+    }
+    await this.clearHalt(this.epIn);
+    await this.clearHalt(this.epOut);
+  }
+
+  async sendCommand(cdb, size, toDevice) {
+    const cbw = this.wrapper(cdb, size, toDevice);
+    try {
+      await pify((cb) => this.epOut.transfer(cbw, cb));
+    } catch (err) {
+      await this.resetRecovery();
+      throw err;
+    }
+    return this.tag;
+  }
+
+  // Reads one status wrapper and checks that it answers command `tag`.
+  async readStatus(tag) {
     const csw = await pify((cb) => this.epIn.transfer(13, cb));
     if (csw.length !== 13 || csw.toString('latin1', 0, 4) !== CSW_SIGNATURE) throw new Error('The camera sent an unexpected status');
-    if (csw[12] !== 0) throw new Error(`The camera refused the command (status ${csw[12]})`);
+    if (csw.readUInt32LE(4) !== tag) throw new Error(`The camera answered another command (status tag ${csw.readUInt32LE(4)}, expected ${tag})`);
+    return { code: csw[12], residue: csw.readUInt32LE(8) };
+  }
+
+  // The status of command `tag`; an answer out of step triggers reset recovery.
+  async status(tag = this.tag) {
+    let csw;
+    try {
+      csw = await this.readStatus(tag);
+    } catch (err) {
+      await this.resetRecovery();
+      throw err;
+    }
+    if (csw.code === 2) {
+      await this.resetRecovery();
+      throw new Error('The camera reported a phase error');
+    }
+    if (csw.code !== 0) throw new Error(`The camera refused the command (status ${csw.code})`);
+    return csw;
   }
 
   // TEST UNIT READY (an all zero block): the camera answers it once it can take
@@ -71,8 +126,8 @@ class BulkTransport {
   async waitReady(tries = 25, delayMs = 200) {
     for (let i = 0; i < tries; i++) {
       try {
-        await pify((cb) => this.epOut.transfer(this.wrapper(Buffer.alloc(16), 0, true), cb));
-        await this.status();
+        const tag = await this.sendCommand(Buffer.alloc(16), 0, true);
+        await this.status(tag);
         return true;
       } catch (err) {
         this.log(`not ready yet: ${err.message}`);
@@ -82,24 +137,60 @@ class BulkTransport {
     return false;
   }
 
+  // After a stall or timeout in the data phase: clear the halt and read the
+  // status wrapper (BOT 6.7.2); if that does not work the exchange is out of
+  // step and only the reset gets it back. Returns the status, or null.
+  async recoverDataPhase(endpoint, tag) {
+    await this.clearHalt(endpoint);
+    try {
+      const csw = await this.readStatus(tag);
+      if (csw.code === 2) throw new Error('phase error');
+      return csw;
+    } catch (err) {
+      this.log(`no valid status after the data phase: ${err.message}`);
+      await this.resetRecovery();
+      return null;
+    }
+  }
+
   async read(cdb, size) {
-    await pify((cb) => this.epOut.transfer(this.wrapper(cdb, size, false), cb));
+    const tag = await this.sendCommand(cdb, size, false);
     const parts = [];
     let got = 0;
-    while (got < size) {
-      const part = await pify((cb) => this.epIn.transfer(Math.min(CHUNK, size - got), cb));
-      if (!part.length) break;
-      parts.push(part);
-      got += part.length;
+    let failure = null;
+    try {
+      while (got < size) {
+        const part = await pify((cb) => this.epIn.transfer(Math.min(CHUNK, size - got), cb));
+        if (!part.length) break;
+        parts.push(part);
+        got += part.length;
+      }
+    } catch (err) {
+      failure = err;
     }
-    await this.status();
+    if (failure) {
+      const csw = await this.recoverDataPhase(this.epIn, tag);
+      // A stall that ended with a good status is a short answer, which the
+      // caller checks; anything else failed.
+      if (!csw || csw.code !== 0) throw failure;
+      this.log(`data phase ended early (${failure.message}); the camera is in step again`);
+    } else {
+      await this.status(tag);
+    }
     return Buffer.concat(parts);
   }
 
   async write(cdb, data) {
-    await pify((cb) => this.epOut.transfer(this.wrapper(cdb, data.length, true), cb));
-    if (data.length) await pify((cb) => this.epOut.transfer(data, cb));
-    await this.status();
+    const tag = await this.sendCommand(cdb, data.length, true);
+    if (data.length) {
+      try {
+        await pify((cb) => this.epOut.transfer(data, cb));
+      } catch (err) {
+        await this.recoverDataPhase(this.epOut, tag);
+        throw err;
+      }
+    }
+    await this.status(tag);
   }
 }
 
@@ -178,7 +269,7 @@ async function connect({ device, product, key }, log = () => {}) {
         log(`interface ${c.number} cannot be claimed: ${err.message}`);
         continue;
       }
-      const transport = new BulkTransport(c.bulkIn, c.bulkOut, log, 4000);
+      const transport = new BulkTransport(c.bulkIn, c.bulkOut, log, 4000, { device, interfaceNumber: c.number });
       const camera = new LytroCamera(transport, log);
       const release = async () => {
         try {

@@ -30,17 +30,30 @@ export function command(code, ...params) {
   return cdb;
 }
 
-const withTimeout = (promise, what, ms = IO_TIMEOUT_MS) => Promise.race([
-  promise,
-  new Promise((_, reject) => setTimeout(() => reject(new Error(`${what}: the camera did not answer in time`)), ms)),
-]);
+// WebUSB has no way to cancel one transfer, so a timeout calls `abort` (the
+// transport resets the device) to make sure nothing stays pending.
+const withTimeout = (promise, what, ms = IO_TIMEOUT_MS, abort = null) => {
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(async () => {
+      if (abort) {
+        try { await abort(); } catch { /* the device may be gone */ }
+      }
+      reject(new Error(`${what}: the camera did not answer in time`));
+    }, ms);
+  });
+  promise.catch(() => {}); // a transfer cancelled by the abort rejects late
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+};
 
 // Bulk-only transport over a claimed interface of a WebUSB device.
 export class WebUsbTransport {
-  constructor(device, epIn, epOut, log = () => {}) {
+  constructor(device, epIn, epOut, log = () => {}, interfaceNumber = null, timeoutMs = IO_TIMEOUT_MS) {
     this.device = device;
     this.epIn = epIn;
     this.epOut = epOut;
+    this.interfaceNumber = interfaceNumber;
+    this.timeoutMs = timeoutMs;
     this.tag = 0;
     this.log = log;
   }
@@ -56,33 +69,91 @@ export class WebUsbTransport {
     return cbw;
   }
 
+  abortPending() {
+    return typeof this.device.reset === 'function' ? this.device.reset() : null;
+  }
+
+  async clearHalt(direction, endpoint) {
+    try {
+      await this.device.clearHalt(direction, endpoint);
+    } catch (err) {
+      this.log(`clear halt failed: ${err.message}`);
+    }
+  }
+
+  // Reset recovery (Bulk-Only Transport 5.3.4): the class request 0xFF, then
+  // both halts cleared, so the next command starts from a known state.
+  async resetRecovery() {
+    this.log('mass storage reset');
+    if (this.interfaceNumber !== null) {
+      try {
+        await this.device.controlTransferOut({ requestType: 'class', recipient: 'interface', request: 0xff, value: 0, index: this.interfaceNumber });
+      } catch (err) {
+        this.log(`mass storage reset failed: ${err.message}`);
+      }
+    }
+    await this.clearHalt('in', this.epIn);
+    await this.clearHalt('out', this.epOut);
+  }
+
   async out(data) {
-    const res = await withTimeout(this.device.transferOut(this.epOut, data), 'send');
-    if (res.status === 'stall') await this.device.clearHalt('out', this.epOut);
+    const res = await withTimeout(this.device.transferOut(this.epOut, data), 'send', this.timeoutMs, () => this.abortPending());
+    if (res.status === 'stall') await this.clearHalt('out', this.epOut);
     if (res.status !== 'ok') throw new Error(`USB send failed (${res.status})`);
   }
 
   async in(length) {
-    const res = await withTimeout(this.device.transferIn(this.epIn, length), 'receive');
+    const res = await withTimeout(this.device.transferIn(this.epIn, length), 'receive', this.timeoutMs, () => this.abortPending());
     if (res.status === 'stall') {
-      await this.device.clearHalt('in', this.epIn);
+      await this.clearHalt('in', this.epIn);
       throw new Error('USB receive stalled');
     }
     if (res.status === 'babble') throw new Error('USB receive overflowed');
     return new Uint8Array(res.data.buffer, res.data.byteOffset, res.data.byteLength);
   }
 
-  async status() {
+  async sendCommand(cdb, size, toDevice) {
+    const cbw = this.wrapper(cdb, size, toDevice);
+    try {
+      await this.out(cbw);
+    } catch (err) {
+      await this.resetRecovery();
+      throw err;
+    }
+    return this.tag;
+  }
+
+  // One status wrapper, checked to answer command `tag`.
+  async readStatus(tag) {
     const csw = await this.in(13);
     if (csw.length !== 13 || latin1(csw.subarray(0, 4)) !== 'USBS') throw new Error('The camera sent an unexpected status');
-    if (csw[12] !== 0) throw new Error(`The camera refused the command (status ${csw[12]})`);
+    const got = view(csw).getUint32(4, true);
+    if (got !== tag) throw new Error(`The camera answered another command (status tag ${got}, expected ${tag})`);
+    return { code: csw[12], residue: view(csw).getUint32(8, true) };
+  }
+
+  // The status of command `tag`; an answer out of step triggers reset recovery.
+  async status(tag = this.tag) {
+    let csw;
+    try {
+      csw = await this.readStatus(tag);
+    } catch (err) {
+      await this.resetRecovery();
+      throw err;
+    }
+    if (csw.code === 2) {
+      await this.resetRecovery();
+      throw new Error('The camera reported a phase error');
+    }
+    if (csw.code !== 0) throw new Error(`The camera refused the command (status ${csw.code})`);
+    return csw;
   }
 
   async waitReady(tries = 8, delayMs = 150) {
     for (let i = 0; i < tries; i++) {
       try {
-        await this.out(this.wrapper(new Uint8Array(16), 0, true));
-        await this.status();
+        const tag = await this.sendCommand(new Uint8Array(16), 0, true);
+        await this.status(tag);
         return true;
       } catch (err) {
         this.log(`not ready yet: ${err.message}`);
@@ -92,17 +163,46 @@ export class WebUsbTransport {
     return false;
   }
 
+  // After a stall or timeout in the data phase: clear the halt and read the
+  // status wrapper; if that does not work the exchange is out of step and
+  // only the reset gets it back. Returns the status, or null.
+  async recoverDataPhase(direction, endpoint, tag) {
+    await this.clearHalt(direction, endpoint);
+    try {
+      const csw = await this.readStatus(tag);
+      if (csw.code === 2) throw new Error('phase error');
+      return csw;
+    } catch (err) {
+      this.log(`no valid status after the data phase: ${err.message}`);
+      await this.resetRecovery();
+      return null;
+    }
+  }
+
   async read(cdb, size) {
-    await this.out(this.wrapper(cdb, size, false));
+    const tag = await this.sendCommand(cdb, size, false);
     const parts = [];
     let got = 0;
-    while (got < size) {
-      const part = await this.in(Math.min(1 << 20, size - got));
-      if (!part.length) break;
-      parts.push(part);
-      got += part.length;
+    let failure = null;
+    try {
+      while (got < size) {
+        const part = await this.in(Math.min(1 << 20, size - got));
+        if (!part.length) break;
+        parts.push(part);
+        got += part.length;
+      }
+    } catch (err) {
+      failure = err;
     }
-    await this.status();
+    if (failure) {
+      const csw = await this.recoverDataPhase('in', this.epIn, tag);
+      // A stall that ended with a good status is a short answer, which the
+      // caller checks; anything else failed.
+      if (!csw || csw.code !== 0) throw failure;
+      this.log(`data phase ended early (${failure.message}); the camera is in step again`);
+    } else {
+      await this.status(tag);
+    }
     const all = new Uint8Array(got);
     let at = 0;
     for (const p of parts) {
@@ -113,9 +213,16 @@ export class WebUsbTransport {
   }
 
   async write(cdb, data) {
-    await this.out(this.wrapper(cdb, data.length, true));
-    if (data.length) await this.out(data);
-    await this.status();
+    const tag = await this.sendCommand(cdb, data.length, true);
+    if (data.length) {
+      try {
+        await this.out(data);
+      } catch (err) {
+        await this.recoverDataPhase('out', this.epOut, tag);
+        throw err;
+      }
+    }
+    await this.status(tag);
   }
 }
 
@@ -144,18 +251,26 @@ export class LytroCamera {
     if (!size) throw new Error(`The camera has no ${name || type}`);
     const out = new Uint8Array(size);
     let got = 0;
-    for (let offset = 0; offset < size; offset += PACKET) {
+    let empty = 0;
+    while (got < size) {
       const read = new Uint8Array(16);
       read[0] = 0xc4;
       read[2] = 1;
-      view(read).setUint32(3, offset, true);
-      const want = Math.min(PACKET, size - offset);
+      view(read).setUint32(3, got, true);
+      const want = Math.min(PACKET, size - got);
       const part = await this.t.read(read, want);
-      out.set(part.subarray(0, want), offset);
-      got += part.length;
-      if (part.length < want) break;
+      if (!part.length) {
+        // Retried a few times, then the download fails: truncated data must
+        // never pass as a complete file.
+        if (++empty >= 3) break;
+        continue;
+      }
+      empty = 0;
+      out.set(part.subarray(0, want), got);
+      got += Math.min(part.length, want);
     }
-    return out.subarray(0, Math.min(size, got));
+    if (got < size) throw new Error(`The camera sent only ${got} of ${size} bytes of ${name || type}`);
+    return out;
   }
 
   async hardwareInfo() {
@@ -256,7 +371,7 @@ export async function connectWebUsb(device, log = () => {}) {
       note(failures[failures.length - 1]);
       continue;
     }
-    const transport = new WebUsbTransport(device, c.bulkIn, c.bulkOut, note);
+    const transport = new WebUsbTransport(device, c.bulkIn, c.bulkOut, note, c.number);
     const camera = new LytroCamera(transport, note);
     try {
       await transport.waitReady();

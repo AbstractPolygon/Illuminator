@@ -401,7 +401,7 @@ import { mapF32 } from './typed.js';
 export function nominalAperture(cam) {
   const fm = cam.mla && cam.mla.fNumberMicrolens;
   const fn = cam.capture && cam.capture.fNumber;
-  if (!(fm > 0) && !(fn > 0)) return SPLAT.aperture;
+  if (!(fm > 0) || !(fn > 0)) return SPLAT.aperture;
   const ratio = fm / fn;
   const k = cam.bits === 12 ? 4 : 2;
   const clamp01 = (v) => Math.min(1, Math.max(0, v));
@@ -571,9 +571,13 @@ function nearestDepth(D, w, h, x, y) {
 // window as wide as the largest ray displacement can be: ceil(L * 0.5 + 0.5) lenses across and ceil(L / sqrt(3) + 0.5) rows down, L the largest
 // |lambda| (the depth map's pixel is one lens in the engine, here one row step). The engine builds the window by passes of 3 with strides 1, 2, 4, ...,
 // so its radius is the first of 1, 3, 7, 15, ... that reaches that.
-function minMaxRadius(depth, w, h, g, unit) {
+export function minMaxRadius(depth, w, h, g, unit) {
   let big = 0;
-  for (let i = 0; i < depth.length; i++) big = Math.max(big, Math.abs(depth[i]));
+  for (let i = 0; i < depth.length; i++) {
+    const a = Math.abs(depth[i]);
+    // Math.max keeps a NaN for good; a non-finite depth must not set the window.
+    if (a < Infinity) big = Math.max(big, a);
+  }
   const L = big / LAMBDA_TO_ALPHA;
   const target = Math.max(Math.ceil(L * 0.5 + 0.5) * g.pitch / unit, Math.ceil(L / Math.sqrt(3) + 0.5));
   let r = 1;
@@ -671,13 +675,14 @@ export function diffuseSaturation(a, raw, cam, dev) {
 // The diffusion's result for the masked pixels only (-1 elsewhere), for the GPU path: the plane is computed just around the masked pixels (a 9 x 9 box, which holds
 // the neighbours the sweeps read and the pixels the completing step averages), diffused on the CPU, and the completing shader takes the values.
 // It depends on the photo only (not on focus, depth or the output size), so the last result is kept: every re-render of the same photo used to pay for it again (about 3 s with a million blown pixels).
-let satCache = null;
+// Keyed by the raw array in a WeakMap, so the entry (and its output) is freed with the photo instead of keeping the previous photo's data alive.
+const satCache = new WeakMap();
 export function saturationOverride(raw, cam, dev, g, vg, radius, modulation, globalRef, listedOnly) {
   const gKey = JSON.stringify(g);
-  const c = satCache;
-  if (c && c.raw === raw && c.modulation === modulation && c.gKey === gKey && c.vg === vg && c.radius === radius && c.globalRef === globalRef && c.listedOnly === listedOnly && c.cam === cam) return c.out;
+  const c = satCache.get(raw);
+  if (c && c.modulation === modulation && c.gKey === gKey && c.vg === vg && c.radius === radius && c.globalRef === globalRef && c.listedOnly === listedOnly && c.cam === cam) return c.out;
   const out = saturationOverrideCompute(raw, cam, dev, g, vg, radius, modulation, globalRef, listedOnly);
-  satCache = { raw, modulation, gKey, vg, radius, globalRef, listedOnly, cam, out };
+  satCache.set(raw, { modulation, gKey, vg, radius, globalRef, listedOnly, cam, out });
   return out;
 }
 
@@ -948,7 +953,8 @@ export function lytroSplat({ raw, cam, dev, grid: g, sampleGrid = null, sampler,
   const gpuInput = { lensShift: ex ? lensShift : null, satOver: null, views: viewHits ? views : null, listedOnly: ex, rayShift, geoTable, sampleGrid: sg, depth5, raw, modulation, cam, dev, grid: g, sampler, unit, rayWarp, depth, lw, lh, lo, hi, zMap, scale, W, H, apothem, rise: hexRise, planeRadius: radius + 2, opts };
   if (opts.gpu || hook('dumpSplat')) gpuInput.satOver = saturationOverride(raw, cam, dev, g, vg, radius + 2, modulation, !!opts.modGlobal, ex);
   if (hook('dumpSplat')) hook('dumpSplat')(gpuInput);
-  if (opts.gpu && (!viewHits || (opts.sensorRaster && !opts.noGpuViews)) && rayWarp && modulation && !warp && opts.demosaic === 'engine' && opts.shape === 'hex' && !opts.inner && !opts.geoSign && !opts.vScale && !opts.persp && !opts.apFall && !opts.apCone && !opts.plainMarch && opts.gctFirst !== false && opts.apShift !== false && !opts.posX && !opts.posY && opts.posUScale === undefined && !opts.marchDu && !opts.marchDv && opts.nearest && !opts.alphaPow && !opts.noFar && (opts.duScale ?? 1) === 1) {
+  // The GPU march is capped at 1024 iterations, which a step below 1 can exceed.
+  if (opts.gpu && (opts.step ?? 1) >= 1 && (!viewHits || (opts.sensorRaster && !opts.noGpuViews)) && rayWarp && modulation && !warp && opts.demosaic === 'engine' && opts.shape === 'hex' && !opts.inner && !opts.geoSign && !opts.vScale && !opts.persp && !opts.apFall && !opts.apCone && !opts.plainMarch && opts.gctFirst !== false && opts.apShift !== false && !opts.posX && !opts.posY && opts.posUScale === undefined && !opts.marchDu && !opts.marchDv && opts.nearest && !opts.alphaPow && !opts.noFar && (opts.duScale ?? 1) === 1) {
     const gpuAcc = opts.gpu(gpuInput);
     if (gpuAcc && viewHits) {
       // the views are stacked, view k in rows k * H .. (k + 1) * H
@@ -1353,8 +1359,27 @@ function ramp(n, total, i, m) {
   return { start, end, w };
 }
 
+// A NaN depth would make the range weight NaN for every neighbor of that pixel (Math.trunc(NaN) indexes RANGE_LUT out of range) and black them out: a non-finite value takes the
+// last finite depth before it in reading order (the first finite one for a leading run, 0 when there is none). The input itself is returned when it is all finite.
+function finiteDepth(depth) {
+  let bad = -1;
+  for (let i = 0; i < depth.length; i++) if (!Number.isFinite(depth[i])) { bad = i; break; }
+  if (bad < 0) return depth;
+  const out = Float32Array.from(depth);
+  let last = NaN;
+  for (let i = 0; i < out.length; i++) {
+    if (Number.isFinite(out[i])) last = out[i];
+    else if (Number.isFinite(last)) out[i] = last;
+  }
+  let first = 0;
+  for (let i = 0; i < out.length; i++) if (Number.isFinite(out[i])) { first = out[i]; break; }
+  for (let i = 0; i < out.length && !Number.isFinite(out[i]); i++) out[i] = first;
+  return out;
+}
+
 // img: RGB (Float32 W*H*3), depth: lambda per pixel (Float32 W*H).
 export function applyBank(img, depth, W, H, bank) {
+  depth = finiteDepth(depth);
   const out = new Float32Array(W * H * 3);
   const wsum = new Float32Array(W * H);
   const m = Math.trunc((H * BANK.overlap + 1) * 0.5);

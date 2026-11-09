@@ -6,28 +6,14 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { launchBrowser } from './helpers/playwright.mjs';
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'app');
 const types = { '.js': 'text/javascript', '.html': 'text/html' };
 
-async function playwright() {
-  for (const spec of ['playwright', '/opt/node-tools/node_modules/playwright/index.mjs']) {
-    try {
-      return await import(spec);
-    } catch {}
-  }
-  return null;
-}
-
 test('GPU engine cost volume matches the CPU result', async (t) => {
-  const pw = await playwright();
-  if (!pw) return t.skip('Playwright is not installed');
-  let browser;
-  try {
-    browser = await pw.chromium.launch({ args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
-  } catch {
-    return t.skip('No browser available');
-  }
+  const browser = await launchBrowser(t);
+  if (!browser) return;
   const server = http.createServer((q, r) => {
     const u = decodeURIComponent(q.url.split('?')[0]);
     if (u === '/t.html') {
@@ -96,7 +82,8 @@ test('GPU engine cost volume matches the CPU result', async (t) => {
     if (!res) return t.skip('No WebGL2 with float targets');
     t.diagnostic(JSON.stringify(res));
     assert.equal(res.error, 0);
-    assert.ok(res.worst < 2e-4, `largest difference ${res.worst} ${JSON.stringify(res)}`);
+    // Measured on SwiftShader: cost volume identical (0); the limit leaves headroom for other GPUs.
+    assert.ok(res.worst < 2e-5, `largest difference ${res.worst} ${JSON.stringify(res)}`);
     assert.ok(res.dBad <= 0.01 * 61 * 47, `depth differs at ${res.dBad} pixels, worst ${res.dWorst}`);
     assert.ok(res.residentDiff < 1e-6, `the volume left on the card differs from the array by ${res.residentDiff}`);
     assert.ok(res.residentDepthDiff < 1e-4, `the solver gives a different depth from the resident volume: ${res.residentDepthDiff}`);
@@ -108,14 +95,8 @@ test('GPU engine cost volume matches the CPU result', async (t) => {
 });
 
 test('GPU depth solver handles the largest label range (136 labels)', async (t) => {
-  const pw = await playwright();
-  if (!pw) return t.skip('Playwright is not installed');
-  let browser;
-  try {
-    browser = await pw.chromium.launch({ args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
-  } catch {
-    return t.skip('No browser available');
-  }
+  const browser = await launchBrowser(t);
+  if (!browser) return;
   const server = http.createServer((q, r) => {
     const u = decodeURIComponent(q.url.split('?')[0]);
     if (u === '/t.html') {
@@ -184,7 +165,8 @@ test('GPU depth solver handles the largest label range (136 labels)', async (t) 
     if (!res) return t.skip('No WebGL2 with float targets');
     t.diagnostic(JSON.stringify(res));
     assert.equal(res.error, 0);
-    assert.ok(res.worst < 2e-4, `largest difference ${res.worst} ${JSON.stringify(res)}`);
+    // Measured on SwiftShader: cost volume identical (0); the limit leaves headroom for other GPUs.
+    assert.ok(res.worst < 2e-5, `largest difference ${res.worst} ${JSON.stringify(res)}`);
     assert.ok(res.dBad <= 0.01 * 29 * 23, `depth differs at ${res.dBad} pixels, worst ${res.dWorst}`);
     assert.ok(res.residentDiff < 1e-6, `the volume left on the card differs from the array by ${res.residentDiff}`);
     assert.ok(res.residentDepthDiff < 1e-4, `the solver gives a different depth from the resident volume: ${res.residentDepthDiff}`);

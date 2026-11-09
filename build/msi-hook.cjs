@@ -19,12 +19,15 @@ function attr(xml, tag, name) {
 // on the last page of the wizard, after the files are installed, and Windows Installer cannot add a component then.
 // `[` and `]` start a property reference in a custom action's command line, so the command has none.
 function shortcutCommand(productName) {
-  const lnk = `$w.SpecialFolders.Item('Desktop')+'\\${productName}.lnk'`;
+  const lnk = `$w.SpecialFolders.Item('Desktop')+'\\${forPowerShell(productName)}.lnk'`;
   const create = `$w=New-Object -ComObject WScript.Shell;$s=$w.CreateShortcut(${lnk});$s.TargetPath='[#mainExecutable]';$s.WorkingDirectory='[APPLICATIONFOLDER]';$s.Save()`;
   const remove = `$w=New-Object -ComObject WScript.Shell;Remove-Item -LiteralPath (${lnk}) -ErrorAction SilentlyContinue`;
   const run = (c) => `&quot;[SystemFolder]WindowsPowerShell\\v1.0\\powershell.exe&quot; -NoProfile -NonInteractive -WindowStyle Hidden -Command &quot;${c}&quot;`;
   return { create: run(create), remove: run(remove) };
 }
+
+// The product name goes into a PowerShell string inside an XML attribute: quotes and markup are escaped for both.
+const forPowerShell = (name) => name.replace(/'/g, "''");
 
 function patchProject(xml) {
   if (xml.includes('Id="CreateDesktopShortcut"')) return xml; // already patched
@@ -53,6 +56,8 @@ function patchProject(xml) {
       '      <Publish Dialog="ExitDialog" Control="Finish" Event="DoAction" Value="CreateDesktopShortcut" Order="2">ADDTODESKTOP = 1 AND NOT Installed</Publish>\n' +
       '    </UI>\n';
   }
+  // Without the closing tag nothing would be added and the package would silently lack the option.
+  if (!/<\/Product>/.test(xml)) throw new Error('msi-hook: no </Product> in project.wxs to add the desktop shortcut to');
   xml = xml.replace(/([ \t]*)<\/Product>/, `${extra}$1</Product>`);
   return xml;
 }

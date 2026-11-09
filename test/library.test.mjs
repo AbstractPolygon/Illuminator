@@ -110,21 +110,14 @@ test('an album exports to a zip and imports into another library', async () => {
   const album = await a.createAlbum('Holiday');
   await a.addToAlbum(album.id, [p1.id, p2.id]);
   const zip = await a.exportAlbum(album.id);
-  // A real zip: other tools can read it.
-  const tmp = await import('node:os').then((os) => os.tmpdir());
-  const fs = await import('node:fs/promises');
-  const path = `${tmp}/album-test.zip`;
-  await fs.writeFile(path, new Uint8Array(await zip.arrayBuffer()));
-  const { execFileSync } = await import('node:child_process');
-  let listing = '';
-  try {
-    listing = execFileSync('unzip', ['-l', path]).toString();
-  } catch {
-    listing = 'Photos/Beach/raw.lfp album.json';
-  }
-  assert.match(listing, /Photos\/Beach\/raw\.lfp/);
-  assert.match(listing, /album\.json/);
+  // A real zip: it starts with a local file header and ends with an end-of-central-directory record, which is what other tools look for. The entries are then listed with the repo's reader (no external unzip, so the check runs the same everywhere and leaves no file behind).
+  const raw = new Uint8Array(await zip.arrayBuffer());
+  assert.deepEqual([...raw.slice(0, 4)], [0x50, 0x4b, 0x03, 0x04]);
+  assert.ok(Buffer.from(raw.slice(-65557)).includes(Buffer.from([0x50, 0x4b, 0x05, 0x06])), 'no end-of-central-directory record');
   const entries = await readZip(zip);
+  const names = [...entries.keys()];
+  assert.ok(names.includes('Photos/Beach/raw.lfp'), `entries: ${names.join(', ')}`);
+  assert.ok(names.includes('album.json'), `entries: ${names.join(', ')}`);
   assert.deepEqual(new Uint8Array(await entries.get('Photos/Beach/raw.lfp').arrayBuffer()), bytes);
 
   const b = await new Library(memoryStorage()).load();

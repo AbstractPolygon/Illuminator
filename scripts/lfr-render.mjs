@@ -28,6 +28,7 @@ console.log('grid', grid, 'quality', lf.gridQuality.toFixed(4), 'metadata qualit
 const sampler = buildSampler(grid, cam, 1);
 const dev = makeDevelopParams(cam);
 const matrix = colorMatrix(cam, { useCcm: true, saturation: 1 });
+fs.mkdirSync(outDir, { recursive: true });
 const base = path.join(outDir, path.basename(file).replace(/\.[^.]+$/, ''));
 let exposure;
 for (const [name, u, v] of [['center', 0, 0], ['left', -4, 0], ['right', 4, 0]]) {

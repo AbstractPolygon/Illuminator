@@ -37,7 +37,7 @@ export function folderStorage() {
       return found ? new NativeFile(found) : null;
     },
     move: (from, to) => lib.move(from, to),
-    remove: (path) => lib.remove(path),
+    remove: (path, options) => lib.remove(path, options),
   };
 }
 

@@ -35,11 +35,14 @@ contextBridge.exposeInMainWorld('lytroNative', {
     copyIn: (src, rel) => ipcRenderer.invoke('lib-copy-in', src, rel),
     stat: (rel) => ipcRenderer.invoke('lib-stat', rel),
     move: (from, to) => ipcRenderer.invoke('lib-move', from, to),
-    remove: (rel) => ipcRenderer.invoke('lib-remove', rel),
+    // options.permanent: true deletes where the trash cannot take the item.
+    remove: (rel, options) => ipcRenderer.invoke('lib-remove', rel, options),
     open: (rel) => ipcRenderer.invoke('lib-open', rel),
   },
   cameraUsbConnected: () => ipcRenderer.send('camera-usb-connected'),
   onCamerasChanged: (callback) => subscribe('cameras-changed', callback),
   onImportProgress: (callback) => subscribe('import-progress', callback),
+  // Files the system hands to the app (file association, second launch): [{ path, name, size }].
+  onOpenPaths: (callback) => subscribe('open-paths', callback),
   onMenu: (callback) => subscribe('menu', callback),
 });

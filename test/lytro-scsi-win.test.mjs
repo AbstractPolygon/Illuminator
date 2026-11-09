@@ -17,3 +17,17 @@ test('other disks are not taken for the camera', () => {
   }
   assert.equal(isFirstGeneration(null), false);
 });
+
+test('a short answer from the driver is returned as short, not padded with zeros', async () => {
+  const { ScsiTransport, DATA_OFFSET } = require('../electron/lytro-scsi-win.cjs');
+  const api = {
+    ioctl(handle, code, inBuf, outBuf) {
+      outBuf.fill(7, DATA_OFFSET, DATA_OFFSET + 10);
+      outBuf.writeUInt32LE(10, 12); // DataTransferLength as the driver reports it
+      return 0x38;
+    },
+  };
+  const got = await new ScsiTransport(api, {}).read(Buffer.alloc(16), 65536);
+  assert.equal(got.length, 10);
+  assert.ok(got.every((b) => b === 7));
+});

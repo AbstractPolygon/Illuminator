@@ -95,7 +95,8 @@ export function veilAt(veil, nx, ny, out = [0, 0, 0]) {
   return out;
 }
 
-// rgb minus `amount` (0..1) of the veil, as a new array.
+// rgb minus `amount` (0..1) of the veil, as a new array; with no veil or an amount of 0 it is rgb itself (toPixels in worker.js calls this on every render, and a copy of
+// the whole picture for a no-op would cost more than the pass it skips). Callers must not write into the result.
 export function subtractVeil(rgb, w, h, veil, amount) {
   if (!veil || !(amount > 0)) return rgb;
   const out = new Float32Array(rgb.length);

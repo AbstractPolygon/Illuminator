@@ -54,6 +54,10 @@ jobs:
 
       - name: Test
         run: npm test
+        env:
+          # The browser (GPU) tests run once, in tests.yml's browser-tests job on Ubuntu. Here they are switched off on purpose (test/helpers/playwright.mjs):
+          # downloading Chromium on three runners would only slow the installer builds, and on CI a silent skip would otherwise be a failure.
+          ILLUMINATOR_SKIP_BROWSER_TESTS: '1'
 
       - name: Build
         run: npx electron-builder ${{ matrix.args }} --publish never

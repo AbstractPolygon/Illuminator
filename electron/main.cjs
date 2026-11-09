@@ -11,6 +11,9 @@ const { execFile } = require('node:child_process');
 const fs = require('node:fs');
 const { pathToFileURL } = require('node:url');
 const camera = require('./camera.cjs');
+const { isInside, resolveInside, lytroPathsFrom } = require('./paths.cjs');
+const { readSettings, writeSettings } = require('./settingsfile.cjs');
+const { createScanner } = require('./scanner.cjs');
 
 // The app was called ILLUMinator: the settings and library state kept under that name stay in use (a case-sensitive file system, as on Linux, tells the two names apart).
 {
@@ -64,6 +67,11 @@ let cameras = [];
 let settings = { libraryDir: null };
 let win = null;
 
+// The window, or null once it is closed (macOS keeps the app running without one).
+const liveWin = () => (win && !win.isDestroyed() ? win : null);
+// dialog.* calls with the window as parent when there is one.
+const withWin = (options) => (liveWin() ? [win, options] : [options]);
+
 function allow(file) {
   allowed.add(path.resolve(file));
 }
@@ -71,7 +79,7 @@ function allow(file) {
 function checkAllowed(file) {
   const p = path.resolve(file);
   if (allowed.has(p)) return p;
-  if (p.startsWith(path.resolve(libraryDir()) + path.sep)) return p;
+  if (isInside(libraryDir(), p)) return p;
   throw new Error('This file was not opened in Illuminator.');
 }
 
@@ -81,16 +89,14 @@ function settingsFile() {
 }
 
 async function loadSettings() {
-  try {
-    settings = { ...settings, ...JSON.parse(await fsp.readFile(settingsFile(), 'utf8')) };
-  } catch {
-    // First run: defaults.
-  }
+  const { settings: saved, problem } = await readSettings(settingsFile());
+  // No file is the first run (defaults); a damaged one is kept aside, not overwritten.
+  if (problem) console.error(`Settings file ${problem}`);
+  if (saved) settings = { ...settings, ...saved };
 }
 
-async function saveSettings() {
-  await fsp.mkdir(path.dirname(settingsFile()), { recursive: true });
-  await fsp.writeFile(settingsFile(), JSON.stringify(settings, null, 2));
+function saveSettings() {
+  return writeSettings(settingsFile(), settings);
 }
 
 // The video memory of the best graphics card, in bytes (and where it came from). Windows keeps the real 64-bit size in the registry (the WMI figure stops at 4 GB); macOS
@@ -160,10 +166,7 @@ function libraryDir() {
 
 // A path inside the library from one the app gives ('Photos/IMG_0001/...').
 function inLibrary(rel) {
-  const root = path.resolve(libraryDir());
-  const p = path.resolve(root, ...String(rel || '').split('/').filter(Boolean));
-  if (p !== root && !p.startsWith(root + path.sep)) throw new Error('Outside the library');
-  return p;
+  return resolveInside(libraryDir(), rel);
 }
 
 const notFound = (err) => err && (err.code === 'ENOENT' || err.code === 'ENOTDIR');
@@ -200,7 +203,7 @@ async function lfpModule() {
 // plus the app's import commands. On macOS, Quit sits in the app menu.
 function buildMenu() {
   const mac = process.platform === 'darwin';
-  const send = (id) => () => { if (win) win.webContents.send('menu', id); };
+  const send = (id) => () => { const w = liveWin(); if (w) w.webContents.send('menu', id); };
   const template = [
     ...(mac ? [{ role: 'appMenu', submenu: [
       { label: 'About Illuminator', click: send('about') },
@@ -252,6 +255,9 @@ function createWindow() {
       devTools: !app.isPackaged,
     },
   });
+  const self = win;
+  self.on('closed', () => { if (win === self) win = null; });
+  win.webContents.on('did-finish-load', flushOpenPaths);
   win.loadURL('app://lytro/index.html');
   // Links to other sites open in the browser, never inside the app.
   win.webContents.setWindowOpenHandler(({ url }) => {
@@ -265,23 +271,25 @@ function createWindow() {
 
 // Watches for cameras being plugged in or removed: every few seconds, and
 // every second for a while after the app sees a Lytro arrive on USB.
-let pollTimer = null;
 let fastUntil = 0;
-async function pollCameras() {
-  clearTimeout(pollTimer);
-  try {
-    const found = await camera.listCameras();
-    const key = (list) => list.map((c) => `${c.id}:${c.files.length}`).join('|');
-    if (key(found) !== key(cameras)) {
-      cameras = found;
-      for (const c of cameras) for (const f of c.files) if (c.kind === 'drive') allow(f.id);
-      if (win) win.webContents.send('cameras-changed', summary());
+const scanner = createScanner({
+  scan: async () => {
+    try {
+      const found = await camera.listCameras();
+      const key = (list) => list.map((c) => `${c.id}:${c.files.length}`).join('|');
+      if (key(found) !== key(cameras)) {
+        cameras = found;
+        for (const c of cameras) for (const f of c.files) if (c.kind === 'drive') allow(f.id);
+        const w = liveWin();
+        if (w) w.webContents.send('cameras-changed', summary());
+      }
+    } catch (err) {
+      console.error('Camera scan failed', err);
     }
-  } catch (err) {
-    console.error('Camera scan failed', err);
-  }
-  pollTimer = setTimeout(pollCameras, Date.now() < fastUntil ? FAST_POLL_MS : POLL_MS);
-}
+  },
+  nextDelay: () => (Date.now() < fastUntil ? FAST_POLL_MS : POLL_MS),
+});
+const pollCameras = () => scanner.request();
 
 function scanSoon() {
   fastUntil = Date.now() + FAST_POLL_FOR_MS;
@@ -308,13 +316,13 @@ function registerIpc() {
   ipcMain.handle('open-files', async (_e, options) => {
     // `options` picks another kind of file (camera calibration backups).
     const kind = options && options.kind === 'calibration';
-    const res = await dialog.showOpenDialog(win, {
+    const res = await dialog.showOpenDialog(...withWin({
       title: kind ? 'Add camera calibration data' : 'Open light field photos',
       properties: kind ? ['openFile'] : ['openFile', 'multiSelections'],
       filters: kind
         ? [{ name: 'Camera calibration backup', extensions: ['tar', 'TAR'] }]
         : [{ name: 'Lytro photos and album archives', extensions: ['lfr', 'lfp', 'raw', 'zip', 'LFR', 'LFP', 'RAW', 'ZIP'] }],
-    });
+    }));
     if (res.canceled) return [];
     res.filePaths.forEach(allow);
     return Promise.all(res.filePaths.map(describe));
@@ -371,8 +379,8 @@ function registerIpc() {
   ipcMain.handle('camera-problems', () => ({ problems: camera.usbProblems(), log: camera.usbDiagnostics() }));
 
   ipcMain.handle('list-cameras', async () => {
-    cameras = await camera.listCameras();
-    for (const c of cameras) for (const f of c.files) if (c.kind === 'drive') allow(f.id);
+    // Through the one scan loop: a second scan at the same time would open the same camera twice.
+    await pollCameras();
     return summary();
   });
 
@@ -405,11 +413,11 @@ function registerIpc() {
   ipcMain.handle('library-dir', async () => libraryDir());
 
   ipcMain.handle('choose-library-dir', async () => {
-    const res = await dialog.showOpenDialog(win, {
+    const res = await dialog.showOpenDialog(...withWin({
       title: 'Choose library location',
       defaultPath: libraryDir(),
       properties: ['openDirectory', 'createDirectory'],
-    });
+    }));
     if (res.canceled || !res.filePaths.length) return null;
     settings.libraryDir = res.filePaths[0];
     await saveSettings();
@@ -420,7 +428,16 @@ function registerIpc() {
   // folder; the app then adds them to the library (and empties it).
   ipcMain.handle('import-from-camera', async (e, cameraId, fileIds) => {
     const c = findCamera(cameraId);
-    const paths = await camera.importFiles(c, fileIds, inLibrary('.incoming'), (p) => e.sender.send('import-progress', p));
+    let paths;
+    try {
+      paths = await camera.importFiles(c, fileIds, inLibrary('.incoming'), (p) => e.sender.send('import-progress', p));
+    } catch (err) {
+      // The files written before the failure stay allowed and in the staging folder; the page shows which one failed.
+      const done = err && err.imported ? err.imported : [];
+      done.forEach(allow);
+      if (done.length) err.message = `${err.message} (${done.length} photo${done.length === 1 ? ' was' : 's were'} copied before this)`;
+      throw err;
+    }
     paths.forEach(allow);
     return Promise.all(paths.map(describe));
   });
@@ -428,12 +445,17 @@ function registerIpc() {
   // The library folder (relative paths, see inLibrary).
   ipcMain.handle('lib-list', async (_e, rel) => {
     try {
-      const entries = await fsp.readdir(inLibrary(rel), { withFileTypes: true });
-      return Promise.all(entries.filter((e) => !e.name.startsWith('.')).map(async (e) => ({
-        name: e.name,
-        dir: e.isDirectory(),
-        size: e.isDirectory() ? 0 : (await fsp.stat(path.join(inLibrary(rel), e.name))).size,
-      })));
+      const dir = inLibrary(rel);
+      const entries = await fsp.readdir(dir, { withFileTypes: true });
+      // Each entry on its own: a dangling symlink or a file deleted meanwhile is skipped, it must not make the whole folder look empty.
+      const listed = await Promise.all(entries.filter((e) => !e.name.startsWith('.')).map(async (e) => {
+        try {
+          return { name: e.name, dir: e.isDirectory(), size: e.isDirectory() ? 0 : (await fsp.stat(path.join(dir, e.name))).size };
+        } catch {
+          return null;
+        }
+      }));
+      return listed.filter(Boolean);
     } catch (err) {
       if (notFound(err)) return [];
       throw err;
@@ -493,7 +515,6 @@ function registerIpc() {
     await fsp.rename(inLibrary(from), dest);
   });
 
-  // Removed photos go to the system trash where there is one.
   // Opens a folder of the library in the system's file manager (Explorer, Finder).
   ipcMain.handle('lib-open', async (_e, rel) => {
     const p = inLibrary(rel);
@@ -501,19 +522,27 @@ function registerIpc() {
     if (err) throw new Error(err);
   });
 
-  ipcMain.handle('lib-remove', async (_e, rel) => {
+  // Removed photos go to the system trash. Where the trash cannot take them (network drives, Linux without a trash) nothing is deleted unless the caller passes
+  // { permanent: true } (after asking the person). The app's scratch folders (Staging, dot folders) are never worth keeping and are removed outright.
+  ipcMain.handle('lib-remove', async (_e, rel, options) => {
     const p = inLibrary(rel);
     if (p === path.resolve(libraryDir())) throw new Error('Will not remove the library itself');
+    const scratch = /^\/*(\.|Staging(\/|$))/.test(String(rel || ''));
+    if (scratch || (options && options.permanent === true)) {
+      await fsp.rm(p, { recursive: true, force: true });
+      return;
+    }
     try {
       await shell.trashItem(p);
-    } catch {
-      await fsp.rm(p, { recursive: true, force: true });
+    } catch (err) {
+      if (notFound(err) || !fs.existsSync(p)) return;
+      throw new Error(`${path.basename(p)} could not be moved to the trash (${err.message}), so it was not deleted. Delete it permanently instead?`);
     }
   });
 
   // Picks a folder and lists the photos in it (all subfolders included).
   ipcMain.handle('pick-folder', async (_e, title) => {
-    const res = await dialog.showOpenDialog(win, { title: title || 'Choose a folder', properties: ['openDirectory'] });
+    const res = await dialog.showOpenDialog(...withWin({ title: title || 'Choose a folder', properties: ['openDirectory'] }));
     if (res.canceled || !res.filePaths.length) return null;
     const root = res.filePaths[0];
     const files = [];
@@ -532,7 +561,7 @@ function registerIpc() {
   // The render queue's files: written one after another into a folder chosen here, without asking each time.
   const outputFolders = new Set();
   ipcMain.handle('choose-output-folder', async () => {
-    const res = await dialog.showOpenDialog(win, { title: 'Choose where the render queue saves its files', properties: ['openDirectory', 'createDirectory'] });
+    const res = await dialog.showOpenDialog(...withWin({ title: 'Choose where the render queue saves its files', properties: ['openDirectory', 'createDirectory'] }));
     if (res.canceled || !res.filePaths.length) return null;
     outputFolders.add(path.resolve(res.filePaths[0]));
     return res.filePaths[0];
@@ -551,7 +580,7 @@ function registerIpc() {
   });
 
   ipcMain.handle('save-file', async (_e, name, bytes) => {
-    const res = await dialog.showSaveDialog(win, { defaultPath: path.join(app.getPath('pictures'), name) });
+    const res = await dialog.showSaveDialog(...withWin({ defaultPath: path.join(app.getPath('pictures'), name) }));
     if (res.canceled || !res.filePath) return null;
     await fsp.writeFile(res.filePath, Buffer.from(bytes));
     return res.filePath;
@@ -564,7 +593,7 @@ function registerIpc() {
 async function offerLinuxMenuEntry() {
   const appImage = process.env.APPIMAGE;
   if (process.platform !== 'linux' || !appImage || settings.menuEntry) return;
-  const res = await dialog.showMessageBox(win, {
+  const res = await dialog.showMessageBox(...withWin({
     type: 'question',
     title: 'Illuminator',
     message: 'Add Illuminator to your applications menu?',
@@ -574,7 +603,7 @@ async function offerLinuxMenuEntry() {
     cancelId: 1,
     checkboxLabel: 'Add to desktop',
     checkboxChecked: true,
-  });
+  }));
   if (res.response === 2) {
     settings.menuEntry = 'never';
     await saveSettings();
@@ -625,6 +654,60 @@ function installPermissions(ses) {
 // `Illuminator --cli ...`: no window to show, the command is run and the app exits (electron/cli.cjs).
 const CLI_AT = process.argv.indexOf('--cli');
 
+// Files handed to the app by the system (double click on a .lfr/.lfp, "Open with", drag onto the icon): macOS sends them as open-file events, Windows and Linux as
+// arguments of the process, or of a second one that the single instance lock turns into a 'second-instance' event. They go to the page as 'open-paths', the
+// same { path, name, size } records the Open dialog returns; paths that arrive before the page has loaded wait.
+let pendingOpen = [];
+function flushOpenPaths() {
+  const w = liveWin();
+  if (!w || w.webContents.isLoading() || !pendingOpen.length) return;
+  const batch = pendingOpen;
+  pendingOpen = [];
+  Promise.all(batch.map(async (file) => {
+    try {
+      const found = await describe(file);
+      allow(file);
+      return found;
+    } catch {
+      return null; // gone or unreadable
+    }
+  })).then((files) => {
+    const ok = files.filter(Boolean);
+    const target = liveWin();
+    if (ok.length && target) {
+      target.webContents.send('open-paths', ok);
+      if (target.isMinimized()) target.restore();
+      target.focus();
+    }
+  });
+}
+function openPaths(paths) {
+  pendingOpen.push(...paths);
+  // macOS keeps the app running with no window; a file opened then needs one.
+  if (paths.length && app.isReady() && !liveWin() && CLI_AT < 0) createWindow();
+  flushOpenPaths();
+}
+if (CLI_AT < 0) {
+  // argv[0] is the executable (and, unpackaged, the app folder): only the files named after it count.
+  openPaths(lytroPathsFrom(process.argv.slice(app.isPackaged ? 1 : 2)));
+  app.on('open-file', (event, file) => {
+    event.preventDefault();
+    openPaths(lytroPathsFrom([file]));
+  });
+  if (!app.requestSingleInstanceLock()) {
+    app.quit();
+  } else {
+    app.on('second-instance', (_e, argv, cwd) => {
+      const w = liveWin();
+      if (w) {
+        if (w.isMinimized()) w.restore();
+        w.focus();
+      }
+      openPaths(lytroPathsFrom(argv.slice(1), cwd));
+    });
+  }
+}
+
 app.whenReady().then(async () => {
   await loadSettings();
   const { headerPolicy } = require('./csp.cjs');
@@ -660,6 +743,7 @@ app.whenReady().then(async () => {
   });
 });
 
+// In --cli mode the command ends the process itself with its exit code: quitting here would race that and could turn a failed render into exit code 0.
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit();
+  if (CLI_AT < 0 && process.platform !== 'darwin') app.quit();
 });

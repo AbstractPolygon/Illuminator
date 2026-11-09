@@ -14,6 +14,7 @@ const fsp = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
 const { execFile, spawn } = require('node:child_process');
+const { pipeline } = require('node:stream/promises');
 const { pathToFileURL } = require('node:url');
 const lytroUsb = require('./lytro-usb.cjs');
 const lytroScsi = require('./lytro-scsi-win.cjs');
@@ -202,10 +203,13 @@ async function pullAdbCalibration(serial, destDir) {
   }
   const dest = cameraFolder(destDir, camera, '');
   await fsp.mkdir(dest, { recursive: true });
+  // adb's progress text on stdout is not wanted: left piped and unread, a big pull could fill the pipe and block.
   await new Promise((resolve, reject) => {
-    const p = spawn(adbCommand(), ['-s', serial, 'pull', 'unitdata', dest]);
+    const p = spawn(adbCommand(), ['-s', serial, 'pull', 'unitdata', dest], { stdio: ['ignore', 'ignore', 'pipe'] });
+    let errText = '';
+    p.stderr.on('data', (d) => { errText = (errText + d).slice(-500); });
     p.on('error', reject);
-    p.on('close', (code) => (code === 0 ? resolve() : reject(new Error(`adb pull failed (${code}); the camera may need adb root`))));
+    p.on('close', (code) => (code === 0 ? resolve() : reject(new Error(`adb pull failed (${code}${errText.trim() ? `: ${errText.trim()}` : ''}); the camera may need adb root`))));
   });
   return dest;
 }
@@ -221,10 +225,12 @@ const log = (line) => {
 };
 
 async function openUsbCamera(found) {
+  let opened = null;
   try {
     // The first generation camera on Windows is reached through its disk, as
     // Lytro Desktop does; otherwise over USB (libusb).
-    const { camera, close, product } = found.scsi ? await lytroScsi.connect(found, log) : await lytroUsb.connect(found, log);
+    opened = found.scsi ? await lytroScsi.connect(found, log) : await lytroUsb.connect(found, log);
+    const { camera, close, product } = opened;
     const info = await camera.hardwareInfo();
     log(`hardware info: ${JSON.stringify(info)}`);
     const pictures = await camera.pictureList();
@@ -242,6 +248,8 @@ async function openUsbCamera(found) {
     };
     return { entry, close };
   } catch (err) {
+    // The handle is released: a camera left open and unused could not be opened again.
+    if (opened) await Promise.resolve(opened.close()).catch(() => {});
     // A first generation camera on Windows should have been reached through its disk: say why that did not work.
     const why = !found.scsi && process.platform === 'win32' && found.product === lytroUsb.FIRST_GENERATION_PRODUCT ? ` Reaching it through its disk did not work: ${lytroScsi.scanStatus()}` : '';
     log(`failed: ${err.message}${why}`);
@@ -251,25 +259,42 @@ async function openUsbCamera(found) {
 
 const USB_RETRY_MS = 30000;
 
+// One open or close at a time per device: two scans overlapping would both
+// find the device not yet in usbCameras and both open it.
+const deviceLocks = new Map();
+function withDevice(key, fn) {
+  const run = (deviceLocks.get(key) || Promise.resolve()).then(fn, fn);
+  const tail = run.catch(() => {});
+  deviceLocks.set(key, tail);
+  tail.then(() => { if (deviceLocks.get(key) === tail) deviceLocks.delete(key); });
+  return run;
+}
+
 async function scanLytroUsb() {
   const scsi = process.platform === 'win32' ? lytroScsi.listDevices().map((d) => ({ ...d, product: lytroUsb.FIRST_GENERATION_PRODUCT, scsi: true })) : [];
   // On Windows the first generation camera is taken through its disk (above):
   // its USB entry is the same camera.
   const present = scsi.concat(lytroUsb.listDevices().filter((d) => !(scsi.length && d.product === lytroUsb.FIRST_GENERATION_PRODUCT)));
   const keys = new Set(present.map((d) => d.key));
-  for (const [key, c] of usbCameras) {
-    if (!keys.has(key)) {
-      if (c.close) await c.close();
+  for (const key of [...usbCameras.keys()]) {
+    if (keys.has(key)) continue;
+    await withDevice(key, async () => {
+      const c = usbCameras.get(key);
+      if (!c) return;
       usbCameras.delete(key);
-    }
+      if (c.close) await Promise.resolve(c.close()).catch(() => {});
+    });
   }
   const out = [];
   for (const found of present) {
-    let c = usbCameras.get(found.key);
-    if (!c || (c.failed && Date.now() - c.at > USB_RETRY_MS)) {
-      c = await openUsbCamera(found);
-      usbCameras.set(found.key, c);
-    }
+    const c = await withDevice(found.key, async () => {
+      let have = usbCameras.get(found.key);
+      if (!have || (have.failed && Date.now() - have.at > USB_RETRY_MS)) {
+        have = await openUsbCamera(found);
+        usbCameras.set(found.key, have);
+      }
+      return have;
+    });
     if (c.entry) out.push(c.entry);
   }
   return out;
@@ -308,13 +333,29 @@ async function listCameras({ roots, adb = true, lytro = true } = {}) {
       log(`storage wake failed: ${err.message}`);
     }
   }
-  const drives = [];
-  for (const root of roots || (await volumeRoots())) {
-    const cam = await scanVolume(root);
-    if (cam) drives.push(cam);
-  }
-  const usbFound = lytro ? await scanLytroUsb() : [];
-  return usbFound.concat(drives, adb ? await scanAdb() : []);
+  // Each source on its own: one failing must not hide the cameras the others find.
+  const guarded = async (name, fn) => {
+    try {
+      return await fn();
+    } catch (err) {
+      log(`${name} scan failed: ${err && err.message ? err.message : err}`);
+      return [];
+    }
+  };
+  const drives = await guarded('drive', async () => {
+    const found = [];
+    for (const root of roots || (await volumeRoots())) {
+      try {
+        const cam = await scanVolume(root);
+        if (cam) found.push(cam);
+      } catch (err) {
+        log(`drive ${root} scan failed: ${err.message}`);
+      }
+    }
+    return found;
+  });
+  const usbFound = lytro ? await guarded('USB', scanLytroUsb) : [];
+  return usbFound.concat(drives, adb ? await guarded('adb', scanAdb) : []);
 }
 
 // A PNG of 8 bit RGB pixels (a first generation camera's thumbnail may be raw).
@@ -583,29 +624,40 @@ async function downloadLytroPictureNow(entry, file, pic, cam) {
   return { name: `${pic.folder}_${pic.name}.lfp`, data: await assembleLfp({ raw, txt, thumb }) };
 }
 
-function copyWithProgress(src, dest, onBytes) {
-  return new Promise((resolve, reject) => {
-    const tmp = `${dest}.part`;
-    const input = fs.createReadStream(src);
-    const output = fs.createWriteStream(tmp);
-    input.on('data', (chunk) => onBytes(chunk.length));
-    input.on('error', reject);
-    output.on('error', reject);
-    output.on('finish', () => fsp.rename(tmp, dest).then(resolve, reject));
-    input.pipe(output);
-  });
+// A copy through a temporary .part file; pipeline closes both streams on any error, and the .part file is removed then.
+async function copyWithProgress(src, dest, onBytes) {
+  const tmp = `${dest}.part`;
+  const input = fs.createReadStream(src);
+  input.on('data', (chunk) => onBytes(chunk.length));
+  try {
+    await pipeline(input, fs.createWriteStream(tmp));
+    await fsp.rename(tmp, dest);
+  } catch (err) {
+    await fsp.rm(tmp, { force: true }).catch(() => {});
+    throw err;
+  }
 }
 
 function adbPull(serial, src, dest) {
+  const tmp = `${dest}.part`;
+  const cleanup = () => fsp.rm(tmp, { force: true, recursive: true }).catch(() => {});
   return new Promise((resolve, reject) => {
-    const p = spawn(adbCommand(), ['-s', serial, 'pull', src, `${dest}.part`]);
-    p.on('error', reject);
-    p.on('close', (code) => (code === 0 ? fsp.rename(`${dest}.part`, dest).then(resolve, reject) : reject(new Error(`adb pull failed (${code})`))));
+    // stdout (progress text) is ignored: unread, a big pull could fill the pipe and block adb. stderr keeps the error text.
+    const p = spawn(adbCommand(), ['-s', serial, 'pull', src, tmp], { stdio: ['ignore', 'ignore', 'pipe'] });
+    let errText = '';
+    p.stderr.on('data', (d) => { errText = (errText + d).slice(-500); });
+    p.on('error', (err) => cleanup().then(() => reject(err)));
+    p.on('close', (code) => {
+      if (code === 0) fsp.rename(tmp, dest).then(resolve, (err) => cleanup().then(() => reject(err)));
+      else cleanup().then(() => reject(new Error(`adb pull failed (${code})${errText.trim() ? `: ${errText.trim()}` : ''}`)));
+    });
   });
 }
 
 // Copies the chosen photos into destDir (skipping ones already there with
-// the same size). onProgress({ file, index, count, bytes, total }).
+// the same size). onProgress({ file, index, count, bytes, total }). A file that
+// fails leaves nothing behind (no .part, no partial photo) and stops the import
+// with an error whose `imported` holds the files already written.
 async function importFiles(camera, fileIds, destDir, onProgress = () => {}) {
   await fsp.mkdir(destDir, { recursive: true });
   const files = camera.files.filter((f) => fileIds.includes(f.id));
@@ -622,28 +674,38 @@ async function importFiles(camera, fileIds, destDir, onProgress = () => {}) {
     } catch {
       // Not there yet.
     }
-    if (existing && existing.size === f.size) {
-      done += f.size;
-    } else if (camera.kind === 'lytro') {
-      onProgress({ file: f.name, index: i, count: files.length, bytes: done, total });
-      const got = await downloadLytroPicture(camera, f);
-      const out = path.join(destDir, got.name);
-      await fsp.writeFile(`${out}.part`, got.data);
-      await fsp.rename(`${out}.part`, out);
-      imported.push(out);
-      onProgress({ file: f.name, index: i + 1, count: files.length, bytes: done, total });
-      continue;
-    } else if (camera.kind === 'adb') {
-      onProgress({ file: f.name, index: i, count: files.length, bytes: done, total });
-      await adbPull(camera.serial, f.id, dest);
-      done += f.size;
-    } else {
-      await copyWithProgress(f.id, dest, (n) => {
-        done += n;
+    let written = dest;
+    try {
+      if (existing && existing.size === f.size) {
+        done += f.size;
+      } else if (camera.kind === 'lytro') {
         onProgress({ file: f.name, index: i, count: files.length, bytes: done, total });
-      });
+        const got = await downloadLytroPicture(camera, f);
+        written = path.join(destDir, got.name);
+        try {
+          await fsp.writeFile(`${written}.part`, got.data);
+          await fsp.rename(`${written}.part`, written);
+        } catch (err) {
+          await fsp.rm(`${written}.part`, { force: true }).catch(() => {});
+          throw err;
+        }
+      } else if (camera.kind === 'adb') {
+        onProgress({ file: f.name, index: i, count: files.length, bytes: done, total });
+        await adbPull(camera.serial, f.id, dest);
+        done += f.size;
+      } else {
+        await copyWithProgress(f.id, dest, (n) => {
+          done += n;
+          onProgress({ file: f.name, index: i, count: files.length, bytes: done, total });
+        });
+      }
+    } catch (err) {
+      err.imported = imported;
+      err.failedFile = f.name;
+      err.message = `${f.name}: ${err.message}`;
+      throw err;
     }
-    imported.push(dest);
+    imported.push(written);
     onProgress({ file: f.name, index: i + 1, count: files.length, bytes: done, total });
   }
   return imported;

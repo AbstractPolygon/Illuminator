@@ -74,7 +74,7 @@ export async function makeSyntheticLfr(options = {}) {
   const sin = Math.sin(rotation);
   const radius = pitch * 0.5;
 
-  const packed = new Uint8Array(Math.ceil((width * height * 10) / 8));
+  const packed = new Uint8Array(Math.ceil((width * height) / 4) * 5);
   const quad = new Uint16Array(4);
   let q = 0;
   let j = 0;
@@ -130,6 +130,15 @@ export async function makeSyntheticLfr(options = {}) {
         q = 0;
       }
     }
+  }
+  // A last group of fewer than four pixels still gets written (padded with zeros).
+  if (q > 0) {
+    quad.fill(0, q);
+    packed[j] = quad[0] >> 2;
+    packed[j + 1] = quad[1] >> 2;
+    packed[j + 2] = quad[2] >> 2;
+    packed[j + 3] = quad[3] >> 2;
+    packed[j + 4] = (quad[0] & 3) | ((quad[1] & 3) << 2) | ((quad[2] & 3) << 4) | ((quad[3] & 3) << 6);
   }
 
   const pixelPitch = 1.4e-6;

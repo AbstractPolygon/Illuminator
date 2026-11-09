@@ -350,9 +350,10 @@ export class Library {
     return { depthMap: e.depthMap.name, depthRange: e.depthRange.name };
   }
 
-  async remove(ids) {
+  // `options.permanent`: delete for good when the folder cannot be moved to the trash (the desktop app asks before it does).
+  async remove(ids, options) {
     const gone = new Set(ids);
-    for (const id of gone) await this.store.remove(`${PHOTOS}/${id}`);
+    for (const id of gone) await this.store.remove(`${PHOTOS}/${id}`, options);
     this.photos = this.photos.filter((p) => !gone.has(p.id));
     for (const a of this.albums) a.photos = a.photos.filter((id) => !gone.has(id));
     await this.save();

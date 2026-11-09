@@ -5,28 +5,14 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { launchBrowser } from './helpers/playwright.mjs';
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'app');
 const types = { '.js': 'text/javascript', '.html': 'text/html' };
 
-async function playwright() {
-  for (const spec of ['playwright', '/opt/node-tools/node_modules/playwright/index.mjs']) {
-    try {
-      return await import(spec);
-    } catch {}
-  }
-  return null;
-}
-
 test('the GPU view blur matches the CPU version, view by view', async (t) => {
-  const pw = await playwright();
-  if (!pw) return t.skip('Playwright is not installed');
-  let browser;
-  try {
-    browser = await pw.chromium.launch({ args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
-  } catch {
-    return t.skip('No browser available');
-  }
+  const browser = await launchBrowser(t);
+  if (!browser) return;
   const server = http.createServer((q, r) => {
     const u = decodeURIComponent(q.url.split('?')[0]);
     if (u === '/t.html') {
@@ -76,7 +62,9 @@ test('the GPU view blur matches the CPU version, view by view', async (t) => {
       return out;
     });
     if (!res) return t.skip('No float-renderable WebGL2');
-    for (const [name, worst] of Object.entries(res)) assert.ok(worst < 1e-5, `${name}: largest difference ${worst}`);
+    t.diagnostic(JSON.stringify(res));
+    // Measured on SwiftShader: 1.2e-7 (one float32 step); the limit leaves headroom for other GPUs.
+    for (const [name, worst] of Object.entries(res)) assert.ok(worst < 1e-6, `${name}: largest difference ${worst}`);
   } finally {
     server.close();
     await browser.close();

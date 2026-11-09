@@ -19,7 +19,7 @@ const BAND = 256;
 const MARGIN = 80;
 const SHIFTS = 6; // the luma smoothing's recursion, in 2^k steps: 63 taps, 0.7^64 is gone
 
-const VERTEX = `#version 300 es
+export const VERTEX = `#version 300 es
 in vec2 aPos;
 void main() { gl_Position = vec4(aPos, 0.0, 1.0); }`;
 
@@ -377,17 +377,18 @@ void main() {
   o = vec4(n == uStart ? x : uA * x);
 }`;
 
-const IIR_STEP = `${HEAD}
+export const IIR_STEP = `${HEAD}
 uniform sampler2D uSrc;
 uniform ivec2 uStep;   // minus the direction of the recursion times 2^k
 uniform float uCoef;   // c^(2^k)
+uniform int uRows;     // rows of the band in use: the texture is taller, and its rows past these hold the previous band
 out vec4 o;
 void main() {
   ivec2 p = ivec2(gl_FragCoord.xy);
   ivec2 q = p + uStep;
   float v = texelFetch(uSrc, p, 0).r;
   ivec2 sz = textureSize(uSrc, 0);
-  if (q.x >= 0 && q.y >= 0 && q.x < sz.x && q.y < sz.y) v += uCoef * texelFetch(uSrc, q, 0).r;
+  if (q.x >= 0 && q.y >= 0 && q.x < sz.x && q.y < uRows) v += uCoef * texelFetch(uSrc, q, 0).r;
   o = vec4(v);
 }`;
 
@@ -418,6 +419,7 @@ uniform vec2 uSharpen;     // amount, clamp at white (0: off)
 uniform float uModPow;
 uniform float uTolerance;
 uniform vec2 uMarch;       // tolA, tolB
+uniform vec2 uStepDisp;    // march step in lambda, displacement scale
 uniform vec2 uRayShift;    // viewpoint shift of every ray (px, lens array axes)
 uniform int uExact;        // the engine's ray model (lytroSplat opts.exact)
 uniform highp sampler2D uGct;
@@ -441,6 +443,7 @@ flat out vec2 vQ;
 flat out vec4 vRgb;
 flat out float vW;
 flat out float vLam;
+flat out float vRow0;      // first row of the view the ray belongs to in the stacked texture (-1: not a view splat)
 
 const float LTA = ${LAMBDA_TO_ALPHA};
 
@@ -502,6 +505,7 @@ void main() {
   vRgb = vec4(0.0);
   vW = 0.0;
   vLam = 0.0;
+  vRow0 = -1.0;
   int idx = uStart + gl_VertexID;
   int x = idx % uSize.x;
   int y = uY0 + idx / uSize.x;
@@ -625,6 +629,7 @@ void main() {
     vRgb = vec4(rgb, 1.0);
     vW = uModPow > 0.0 ? pow(pm.g, uModPow) : 1.0;
     vLam = 0.0;
+    vRow0 = float(view) * uViewH;
     return;
   }
   // BackProjectDepthMap::RayTraceRegion
@@ -636,23 +641,23 @@ void main() {
   float lam = lam0;
   for (int it = 0; it < 1024; it++) {
     if (lam > lam1) break;
-    float a = lam * LTA;
+    float a = lam * LTA * uStepDisp.y;
     float dd = nearestDepth(lens - a * vec2(ru, rv)) / LTA;
     if (abs(dd - lam) < uMarch.x) { lamR = dd; found = true; break; }
     if (dd < lam && far < 1e29 && far > lam && far - dd < uMarch.y) {
-      float t = far - (lam - 1.0);
+      float t = far - (lam - uStepDisp.x);
       lamR = ((dd - far) * t) / ((lam - dd) + t) + far;
       found = true;
       break;
     }
     if (lam < dd) far = dd;
-    lam += 1.0;
+    lam += uStepDisp.x;
   }
   if (!found) {
     if (far < 1e29) { lamR = far; found = true; }
   }
   if (!found) return;
-  float a = lamR * LTA;
+  float a = lamR * LTA * uStepDisp.y;
   vec2 q = (lens - a * vec2(ru, rv) + 0.5) * uScaleOut - 0.5;
   vec2 f = floor(q);
   gl_Position = vec4(((f + 1.0) / vec2(uOutSize)) * 2.0 - 1.0, 0.0, 1.0);
@@ -663,7 +668,7 @@ void main() {
   vLam = lamR;
 }`;
 
-const SPLAT_FRAGMENT = `#version 300 es
+export const SPLAT_FRAGMENT = `#version 300 es
 precision highp float;
 uniform highp sampler2D uZ;
 uniform float uTolerance;
@@ -672,9 +677,13 @@ flat in vec2 vQ;
 flat in vec4 vRgb;
 flat in float vW;
 flat in float vLam;
+flat in float vRow0;
+uniform float uViewH;
 out vec4 o;
 void main() {
   ivec2 p = ivec2(gl_FragCoord.xy);
+  // the views are stacked: a tap outside its own view's rows would land in the neighbor's (the CPU skips it)
+  if (vRow0 >= 0.0 && (float(p.y) < vRow0 || float(p.y) >= vRow0 + uViewH)) discard;
   vec2 k = vec2(1.0) - abs(vec2(p) - vQ);
   if (k.x <= 0.0 || k.y <= 0.0) discard;
   if (uViewN == 0 && vLam - texelFetch(uZ, p, 0).r >= uTolerance) discard;
@@ -920,6 +929,7 @@ export function lytroSplatGpu(gpu, P, onProgress = null) {
           const dir = backward ? s : -s;
           gl.uniform2i(U.uStep, x ? dir : 0, x ? 0 : dir);
           gl.uniform1f(U.uCoef, Math.pow(c, s));
+          gl.uniform1i(U.uRows, th);
         });
         swap();
       }
@@ -964,6 +974,7 @@ export function lytroSplatGpu(gpu, P, onProgress = null) {
       gl.uniform1f(U.uModPow, P.opts.modPow || 0);
       gl.uniform1f(U.uTolerance, P.opts.tolerance);
       gl.uniform2f(U.uMarch, P.opts.tolA, P.opts.tolB);
+      gl.uniform2f(U.uStepDisp, P.opts.step ?? 1, P.opts.dispScale || 1);
       gl.uniform2f(U.uRayShift, P.rayShift ? P.rayShift[0] : 0, P.rayShift ? P.rayShift[1] : 0);
       gl.uniform2f(U.uCam, cam.width, cam.height);
       gl.uniform1f(U.uFactor, d5 ? d5.factor : 1);

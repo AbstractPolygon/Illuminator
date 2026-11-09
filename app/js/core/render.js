@@ -13,6 +13,9 @@ import { applyLook } from './color.js';
 import { sampleLut } from './lut.js';
 
 const TAPS = 8;
+// The candidate search in buildSampler looks at lens rows ra - 1 .. ra + 2 and columns cc +- 1, which holds every lens within 1.5 pitches of the output pixel (columns are the
+// limit). A larger kernel would silently lose the lenses beyond that window (and the 16 candidate slots are sized for it), so it is clamped.
+const MAX_KERNEL = 1.5;
 
 // Precomputes, for every output pixel, the nearby lenses and their weights.
 // The lens rows are offset by half a lens, so any interpolation that takes
@@ -64,7 +67,7 @@ export function buildSampler(grid, cam, detail = 1, kernel = 1.0, offsets = null
   const { spacing, xMin, xMax, yMin, yMax, outW, outH } = samplerExtent(lenses, grid, detail, cam);
   const idx = new Int32Array(outW * outH * TAPS);
   const wts = new Float32Array(outW * outH * TAPS);
-  const radius = kernel * grid.pitch;
+  const radius = Math.min(kernel, MAX_KERNEL) * grid.pitch;
   const r2 = radius * radius;
   const half = grid.pitch / 2;
   const candI = new Int32Array(16);
@@ -302,8 +305,12 @@ function sampleLenses(raw, cam, dev, lenses, grid, u, v, out) {
           const w = wyy * wx[xx - x0 + reach];
           const odd = xx & 1;
           const val = Math.min(clip, Math.max(0, (raw[rowBase + xx] - (odd ? b1 : b0)) * (odd ? s1 : s0)));
-          acc += w * val * (odd ? t1 : t0);
-          wsum += w;
+          const t = odd ? t1 : t0;
+          // A color with no weight here (its local fraction is under 1e-4) must not dilute the average of the others.
+          if (t > 0) {
+            acc += w * val * t;
+            wsum += w;
+          }
         }
         continue;
       }
@@ -312,8 +319,10 @@ function sampleLenses(raw, cam, dev, lenses, grid, u, v, out) {
         const w = wyy * wx[xx - x0 + reach];
         const ch = crow[xx & 1];
         const val = Math.min(clip, Math.max(0, (raw[rowBase + xx] - black[ch]) * scale[ch]));
-        acc += w * val * toY[ch];
-        wsum += w;
+        if (toY[ch] > 0) {
+          acc += w * val * toY[ch];
+          wsum += w;
+        }
       }
     }
     const lum = wsum > 0 ? Math.min(clip, acc / wsum) : Y[i];
@@ -464,7 +473,9 @@ export function refocus(views, outW, outH, alpha, { u0 = 0, v0 = 0, sigma = Infi
   for (const view of views) {
     const du = view.u - u0;
     const dv = view.v - v0;
-    const wv = Number.isFinite(sigma) ? Math.exp(-(du * du + dv * dv) / (2 * sigma * sigma)) : 1;
+    const d2 = du * du + dv * dv;
+    // sigma 0 is a single view: weight 1 at zero distance (exp(-0 / 0) would be NaN and blank the whole output), 0 elsewhere.
+    const wv = Number.isFinite(sigma) ? (sigma > 0 ? Math.exp(-d2 / (2 * sigma * sigma)) : d2 === 0 ? 1 : 0) : 1;
     if (wv < 1e-3) continue;
     const sx = alpha * du * view.detail;
     const sy = alpha * dv * view.detail;
@@ -480,17 +491,20 @@ export function refocus(views, outW, outH, alpha, { u0 = 0, v0 = 0, sigma = Infi
     const trust = view.trust || null;
     const gain = view.gain * wv;
     const x0 = Math.max(0, -ix);
-    const x1 = Math.min(outW, outW - ix - 1);
+    // The tap one pixel on is needed only for a fractional shift; with ax = 0 it has zero weight, so the last column (row) stays and the tap is read from the pixel itself.
+    const x1 = Math.min(outW, ax > 0 ? outW - ix - 1 : outW - ix);
     const y0 = Math.max(0, -iy);
-    const y1 = Math.min(outH, outH - iy - 1);
+    const y1 = Math.min(outH, ay > 0 ? outH - iy - 1 : outH - iy);
+    const stepX = ax > 0 ? 3 : 0;
+    const stepY = ay > 0 ? outW * 3 : 0;
     for (let y = y0; y < y1; y++) {
       const srcRow = (y + iy) * outW + ix;
       const dstRow = y * outW;
       for (let x = x0; x < x1; x++) {
         const s = (srcRow + x) * 3;
-        const t = s + 3;
-        const u = s + outW * 3;
-        const w = u + 3;
+        const t = s + stepX;
+        const u = s + stepY;
+        const w = u + stepX;
         const d = (dstRow + x) * 3;
         const k = trust ? trust[srcRow + x] / 255 : 1;
         out[d] += (data[s] * w00 + data[t] * w10 + data[u] * w01 + data[w] * w11) * gain * k;

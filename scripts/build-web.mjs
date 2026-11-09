@@ -11,6 +11,19 @@ const root = path.resolve(here, '..');
 const outArg = process.argv.indexOf('--out');
 const out = path.resolve(outArg > 0 ? process.argv[outArg + 1] : path.join(root, 'dist', 'web'));
 
+// The output folder is deleted first: refuse one that is, holds or sits inside the source or the repo.
+const appDir = path.join(root, 'app');
+const within = (a, b) => {
+  const rel = path.relative(a, b);
+  return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
+};
+for (const protectedDir of [appDir, root]) {
+  if (within(out, protectedDir) || (protectedDir === appDir && within(protectedDir, out))) {
+    console.error(`Refusing --out ${out}: it would delete the source.`);
+    process.exit(1);
+  }
+}
+
 await fs.rm(out, { recursive: true, force: true });
 await fs.cp(path.join(root, 'app'), out, { recursive: true });
 // Stops GitHub Pages from running the files through Jekyll.

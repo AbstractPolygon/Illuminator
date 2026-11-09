@@ -20,7 +20,7 @@ import { UPSCALE_MODELS, modelMethod, methodModel, modelState, downloadModel, re
 import { aiUpscale, aiUpscaleAvailable, denoiseRgb16, addGrain16 } from './core/aiupscale.js';
 import { DEPTH_MODELS, depthModelMethod, methodDepthModel, depthModelState, downloadDepthModel, removeDepthModel } from './core/depthmodels.js';
 import { setMemoryLimits, fitsMemory, memoryProblem, superResVram } from './core/memorybudget.js';
-import { openFiles, openCalibrationFile, pickFolder, isLightFieldName, findSidecar, download, native, CAMERA_IMPORT, LYTRO_USB_VENDOR, recallCameraFolder, captureDownloads } from './platform.js';
+import { NativeFile, openFiles, openCalibrationFile, pickFolder, isLightFieldName, findSidecar, download, native, CAMERA_IMPORT, LYTRO_USB_VENDOR, recallCameraFolder, captureDownloads } from './platform.js';
 import { Library } from './library/library.js';
 import { openStorage, memoryStorage } from './library/storage.js';
 import { groupPhotos } from './library/scan.js';
@@ -713,7 +713,14 @@ function photoMenu(photo, button, at = null) {
       const remove = async () => {
         // Nothing pending may write the photo's folder again once it is gone (edits are not flushed: the photo is deleted).
         cancelSaves(photo);
-        await state.lib.remove([photo.id]);
+        try {
+          await state.lib.remove([photo.id]);
+        } catch (err) {
+          // The desktop app does not delete for good behind the user's back: when the trash is not available (network drives, some Linux systems) it asks first.
+          if (!/could not be moved to the trash/i.test(String((err && err.message) || err))) throw err;
+          if (!window.confirm(`${err.message}`)) return;
+          await state.lib.remove([photo.id], { permanent: true });
+        }
         const url = thumbs.get(photo.id);
         if (url) URL.revokeObjectURL(url);
         thumbs.delete(photo.id);
@@ -3982,6 +3989,8 @@ $('open-btn').onclick = async () => openPicked(await openFiles());
 $('library-import').onclick = () => importFolder();
 // Commands from the desktop app's menu bar.
 let checkForUpdateNow = () => {};
+// Photos opened from outside the page (double-clicked in the file manager, or sent to a second instance).
+if (native && native.onOpenPaths) native.onOpenPaths((files) => openPicked(files.map((f) => new NativeFile(f))));
 if (native && native.onMenu) {
   native.onMenu((id) => {
     if (id === 'undo' || id === 'redo') {

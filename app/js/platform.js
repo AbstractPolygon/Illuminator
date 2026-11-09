@@ -43,11 +43,37 @@ export class NativeFile {
   }
 }
 
+// The pick still waiting for an answer, per input: a new pick on the same
+// input settles it as cancelled instead of leaving its promise hanging.
+const pendingPicks = new WeakMap();
+
 function pickWithInput(input) {
+  const previous = pendingPicks.get(input);
+  if (previous) previous([]);
   return new Promise((resolve) => {
+    let done = false;
+    let timer = null;
+    const finish = (files) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      window.removeEventListener('focus', onFocus);
+      input.onchange = null;
+      input.oncancel = null;
+      if (pendingPicks.get(input) === finish) pendingPicks.delete(input);
+      resolve(files);
+    };
+    // Older browsers fire no cancel event: when the window regains focus
+    // and no change arrived shortly after, the dialog was dismissed.
+    const onFocus = () => {
+      timer = setTimeout(() => finish(input.files && input.files.length ? [...input.files] : []), 1000);
+    };
+    pendingPicks.set(input, finish);
     input.value = '';
-    input.onchange = () => resolve([...input.files]);
-    input.oncancel = () => resolve([]);
+    input.onchange = () => finish([...input.files]);
+    input.oncancel = () => finish([]);
+    input.addEventListener('cancel', () => finish([]), { once: true });
+    window.addEventListener('focus', onFocus, { once: true });
     input.click();
   });
 }
@@ -117,14 +143,30 @@ function handleStore(mode, run) {
     const open = indexedDB.open(HANDLE_DB, 1);
     open.onupgradeneeded = () => open.result.createObjectStore('handles');
     open.onerror = () => reject(open.error);
+    // Another tab holds an older connection open: do not wait forever.
+    open.onblocked = () => reject(new Error('The handle store is in use by another tab.'));
     open.onsuccess = () => {
-      const tx = open.result.transaction('handles', mode);
-      const req = run(tx.objectStore('handles'));
-      tx.oncomplete = () => {
-        open.result.close();
-        resolve(req && req.result);
-      };
-      tx.onerror = () => reject(tx.error);
+      const db = open.result;
+      try {
+        const tx = db.transaction('handles', mode);
+        const req = run(tx.objectStore('handles'));
+        tx.oncomplete = () => {
+          db.close();
+          resolve(req && req.result);
+        };
+        tx.onerror = () => {
+          db.close();
+          reject(tx.error);
+        };
+        tx.onabort = () => {
+          db.close();
+          reject(tx.error || new Error('The handle store transaction was aborted.'));
+        };
+      } catch (err) {
+        // For example a DataCloneError from put().
+        db.close();
+        reject(err);
+      }
     };
   });
 }
