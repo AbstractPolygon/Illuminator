@@ -160,29 +160,27 @@ async function asBlob(f) {
   return new Blob([await f.arrayBuffer()], { type: /\.png$/i.test(f.name) ? 'image/png' : 'image/jpeg' });
 }
 
-// The library's pictures load a few at a time, and the list is drawn again once for a batch of them, not once for each: with hundreds of photos, drawing the whole list after every
+// The library's pictures load a few at a time, and the list is drawn again once for a batch of them, not once for each: drawing the whole list after every
 // picture made opening a big library cost the square of its size.
 const THUMB_LOADS_AT_ONCE = 6;
-let thumbWaiting = [];
-let thumbLoading = 0;
+const thumbWaiting = [];
+let thumbWorkers = 0;
 let thumbRedraw = null;
-function loadNextThumbs() {
-  while (thumbLoading < THUMB_LOADS_AT_ONCE && thumbWaiting.length) {
+async function loadThumbs() {
+  while (thumbWaiting.length) {
     const photo = thumbWaiting.shift();
-    thumbLoading++;
-    state.lib.thumbnail(photo).then(asBlob).then((blob) => {
-      if (!blob || thumbs.get(photo.id) !== null) return;
+    if (!state.lib || !state.lib.get(photo.id)) continue; // removed from the library meanwhile
+    try {
+      const blob = await asBlob(await state.lib.thumbnail(photo));
+      if (!blob || thumbs.get(photo.id) !== null) continue;
       thumbs.set(photo.id, URL.createObjectURL(blob));
-      if (!thumbRedraw) {
-        thumbRedraw = setTimeout(() => {
-          thumbRedraw = null;
-          renderLibrary();
-        }, 150);
-      }
-    }).catch(() => {}).finally(() => {
-      thumbLoading--;
-      loadNextThumbs();
-    });
+      thumbRedraw ||= setTimeout(() => {
+        thumbRedraw = null;
+        renderLibrary();
+      }, 150);
+    } catch {
+      // (the picture stays missing)
+    }
   }
 }
 
@@ -191,7 +189,10 @@ function thumbFor(photo) {
   thumbs.set(photo.id, null);
   if (photo.thumb) {
     thumbWaiting.push(photo);
-    loadNextThumbs();
+    if (thumbWorkers < THUMB_LOADS_AT_ONCE) {
+      thumbWorkers++;
+      loadThumbs().finally(() => thumbWorkers--);
+    }
   }
   return null;
 }
@@ -756,21 +757,27 @@ const keepsDepth = () => !!(state.lib && state.lib.persistent);
 // What a library photo brings to opening besides its file: the depth map made in Lytro Desktop, and (desktop app) the processed version kept next to the photo, so the depth is not
 // measured again (core/processed-cache.js). `transfer` starts with the buffers already going to the worker and gets theirs added.
 async function depthInputs(photo, transfer = []) {
-  const userDepth = await readUserDepth(photo);
-  const depthCache = keepsDepth() ? decodeProcessed(await state.lib.processed(photo).catch(() => null)) : null;
+  const [userDepth, depthCache] = await Promise.all([
+    readUserDepth(photo),
+    keepsDepth() ? state.lib.processed(photo).catch(() => null).then(decodeProcessed) : null,
+  ]);
+  return { userDepth, depthCache, transfer: depthTransfer(userDepth, depthCache, transfer) };
+}
+
+// Adds the buffers of these depth inputs to the list of what is handed over to the worker (not copied).
+function depthTransfer(userDepth, depthCache, transfer) {
   if (userDepth) transfer.push(userDepth.data.buffer);
   if (depthCache) transfer.push(depthCache.alpha.buffer, ...depthCache.extra.flatMap((e) => [e.alpha.buffer, e.confidence.buffer]));
-  return { userDepth, depthCache, transfer };
+  return transfer;
 }
 
 // The worker measured something worth keeping (the depth, the focus offset): saved next to the photo, a moment after the last change.
 let processedTimer = null;
-engine.onCache = (msg) => {
-  // The Render Queue's hidden copy has no library: the page that runs the queue takes this and keeps it (api.processed).
-  if (QUEUE_RUNNER) {
-    state.lastProcessed = { photoId: msg.photoId, cache: msg.cache };
-    return;
-  }
+// The Render Queue's hidden copy has no library: the page that runs the queue takes the latest of these and keeps it (api.processed).
+const holdProcessed = (msg) => {
+  state.lastProcessed = { photoId: msg.photoId, cache: msg.cache };
+};
+const saveProcessed = (msg) => {
   if (!keepsDepth() || !state.current || !state.current.photo || !state.info || state.info.photoId !== msg.photoId) return;
   const photo = state.current.photo;
   clearTimeout(processedTimer);
@@ -778,6 +785,7 @@ engine.onCache = (msg) => {
     state.lib.saveProcessed(photo, encodeProcessed(msg.cache)).catch((err) => console.warn('Could not save the processed version', err));
   }, 1500);
 };
+engine.onCache = QUEUE_RUNNER ? holdProcessed : saveProcessed;
 
 // The worker made a full sensor picture before its color pass: saved next to the photo (desktop app), so a color change on a photo opened again does not render it again.
 engine.onStillKept = (msg) => {
@@ -3916,10 +3924,7 @@ $('png-btn').onclick = savePng;
     state.wantThumb = false;
     timings.clear();
     renderLibrary();
-    const transfer = [copy];
-    if (userDepth) transfer.push(userDepth.data.buffer);
-    if (depthCache) transfer.push(depthCache.alpha.buffer, ...depthCache.extra.flatMap((e) => [e.alpha.buffer, e.confidence.buffer]));
-    await openWith({ bytes: copy, userDepth, depthCache }, transfer);
+    await openWith({ bytes: copy, userDepth, depthCache }, depthTransfer(userDepth, depthCache, [copy]));
   },
   // What opening and rendering the photo measured, as the file kept next to a library photo (the Render Queue saves it for the photo), or null.
   processedBytes: () => (state.lastProcessed && state.info && state.lastProcessed.photoId === state.info.photoId ? encodeProcessed(state.lastProcessed.cache) : null),

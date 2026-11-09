@@ -13,7 +13,7 @@ import { program } from './renderer.js';
 import { DEPTH_CBCA, DEPTH_EDGE, DEPTH_TRWS, DEPTH_LCOST, depthColorGuide, median3 } from '../core/depth.js';
 import { DEPTH_PASSES, viewColors } from '../core/depthmatch.js';
 import { ENGINE_AGG, ENGINE_MRF } from '../core/enginedepth.js';
-import { mapF32, nthSmallest } from '../core/typed.js';
+import { mapF32, nthSmallestPair } from '../core/typed.js';
 
 const MAX_VIEWS = 64;
 // The most labels the engine's range can come to: -35 up to its top (at most 100), padded to a multiple of four.
@@ -1277,8 +1277,9 @@ export function measureMatchGpu(gpu, views, w, h, { onProgress } = {}) {
     let labels = pass1;
     if (P.adapt.on) {
       const step = alphas[1] - alphas[0];
-      const lo = Math.max(alphas[0], nthSmallest(depths[c], Math.floor(P.adapt.lowQ * (n - 1))) - P.adapt.pad * step);
-      const hi = Math.min(alphas[count - 1], nthSmallest(depths[c], Math.floor(P.adapt.highQ * (n - 1))) + P.adapt.pad * step);
+      const [low, high] = nthSmallestPair(depths[c], Math.floor(P.adapt.lowQ * (n - 1)), Math.floor(P.adapt.highQ * (n - 1)));
+      const lo = Math.max(alphas[0], low - P.adapt.pad * step);
+      const hi = Math.min(alphas[count - 1], high + P.adapt.pad * step);
       labels = labelsOf(lo, (hi - lo) / (P.adapt.fine - 1), P.adapt.fine);
     }
     done(0.85);

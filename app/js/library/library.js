@@ -155,62 +155,53 @@ export class Library {
   async add(entries, { onProgress = () => {}, replace = false } = {}) {
     const out = [];
     // The index is written every so many photos and at the end, not after each one: writing it whole each time made a big import cost more with every photo it added.
-    let unsaved = 0;
-    const changed = async () => {
-      if (++unsaved >= INDEX_SAVE_EVERY) {
-        unsaved = 0;
-        await this.save();
-      }
-    };
+    let added = 0;
+    const changed = () => (++added % INDEX_SAVE_EVERY ? null : this.save());
     try {
-      await this.addEach(entries, { onProgress, replace, out, changed });
+      for (let i = 0; i < entries.length; i++) {
+        const e = entries[i];
+        onProgress(e, i, entries.length);
+        let summary = { photoId: null, thumbnail: null };
+        try {
+          summary = await this.readSummary(e.file);
+        } catch {
+          // Not readable as an LFP (a .raw dump): no id, no thumbnail.
+        }
+        const sameName = (p) => p.name.toLowerCase() === String(e.name).toLowerCase();
+        const old = replace && (this.photos.find(sameName) || (summary.photoId && this.photos.find((p) => p.photoId === summary.photoId)));
+        if (old) {
+          await this.store.remove(`${PHOTOS}/${old.id}`);
+          Object.assign(old, await this.copyFiles(e, old.id, summary), { name: e.name, size: e.file.size, photoId: summary.photoId, added: new Date().toISOString() });
+          out.push(old);
+          await changed();
+          continue;
+        }
+        const existing = summary.photoId && this.photos.find((p) => p.photoId === summary.photoId);
+        if (existing) {
+          if (e.sidecar && !existing.sidecar) {
+            await this.store.copyIn(e.sidecar, `${PHOTOS}/${existing.id}/${e.sidecar.name}`);
+            existing.sidecar = e.sidecar.name;
+          }
+          if ((e.depthMap && e.depthRange && !existing.depthMap) || (e.stack && !existing.stack)) {
+            const dir = `${PHOTOS}/${existing.id}`;
+            if (e.depthMap && e.depthRange && !existing.depthMap) Object.assign(existing, await this.copyDepth(e, dir));
+            if (e.stack && !existing.stack) existing.stack = await this.copyStack(e, dir);
+            await changed();
+          }
+          out.push(existing);
+          continue;
+        }
+        const id = this.uniqueId(e.label || stem(e.name));
+        const photo = { id, name: e.name, ...(await this.copyFiles(e, id, summary)), size: e.file.size, photoId: summary.photoId, added: new Date().toISOString() };
+        this.photos.push(photo);
+        out.push(photo);
+        await changed();
+      }
     } finally {
       await this.save();
     }
     onProgress(null, entries.length, entries.length);
     return out;
-  }
-
-  async addEach(entries, { onProgress, replace, out, changed }) {
-    for (let i = 0; i < entries.length; i++) {
-      const e = entries[i];
-      onProgress(e, i, entries.length);
-      let summary = { photoId: null, thumbnail: null };
-      try {
-        summary = await this.readSummary(e.file);
-      } catch {
-        // Not readable as an LFP (a .raw dump): no id, no thumbnail.
-      }
-      const sameName = (p) => p.name.toLowerCase() === String(e.name).toLowerCase();
-      const old = replace && (this.photos.find(sameName) || (summary.photoId && this.photos.find((p) => p.photoId === summary.photoId)));
-      if (old) {
-        await this.store.remove(`${PHOTOS}/${old.id}`);
-        Object.assign(old, await this.copyFiles(e, old.id, summary), { name: e.name, size: e.file.size, photoId: summary.photoId, added: new Date().toISOString() });
-        out.push(old);
-        await changed();
-        continue;
-      }
-      const existing = summary.photoId && this.photos.find((p) => p.photoId === summary.photoId);
-      if (existing) {
-        if (e.sidecar && !existing.sidecar) {
-          await this.store.copyIn(e.sidecar, `${PHOTOS}/${existing.id}/${e.sidecar.name}`);
-          existing.sidecar = e.sidecar.name;
-        }
-        if ((e.depthMap && e.depthRange && !existing.depthMap) || (e.stack && !existing.stack)) {
-          const dir = `${PHOTOS}/${existing.id}`;
-          if (e.depthMap && e.depthRange && !existing.depthMap) Object.assign(existing, await this.copyDepth(e, dir));
-          if (e.stack && !existing.stack) existing.stack = await this.copyStack(e, dir);
-          await changed();
-        }
-        out.push(existing);
-        continue;
-      }
-      const id = this.uniqueId(e.label || stem(e.name));
-      const photo = { id, name: e.name, ...(await this.copyFiles(e, id, summary)), size: e.file.size, photoId: summary.photoId, added: new Date().toISOString() };
-      this.photos.push(photo);
-      out.push(photo);
-      await changed();
-    }
   }
 
   // Copies an entry's photo, edits and thumbnail into the folder `id`.

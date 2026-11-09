@@ -3005,12 +3005,22 @@ export class GpuRenderer {
     for (const w of [gl.TEXTURE_WRAP_S, gl.TEXTURE_WRAP_T, gl.TEXTURE_WRAP_R]) gl.texParameteri(gl.TEXTURE_3D, w, gl.CLAMP_TO_EDGE);
   }
 
-  setDepth(alpha, w, h) {
+  // A one channel float texture holding `data` (w x h): `old`, with its contents replaced, when it is already that size (`oldSize`), else a new one (and `old` is freed).
+  uploadR32F(old, oldSize, data, w, h) {
     const gl = this.gl;
-    if (this.depthTex) gl.deleteTexture(this.depthTex);
-    this.depthTex = this.texture(w, h, gl.R32F);
-    gl.bindTexture(gl.TEXTURE_2D, this.depthTex);
-    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, w, h, gl.RED, gl.FLOAT, alpha);
+    let tex = old;
+    if (!tex || !oldSize || oldSize[0] !== w || oldSize[1] !== h) {
+      if (old) gl.deleteTexture(old);
+      tex = this.texture(w, h, gl.R32F);
+    }
+    gl.activeTexture(gl.TEXTURE0 + SPARE_UNIT);
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, w, h, gl.RED, gl.FLOAT, data);
+    return tex;
+  }
+
+  setDepth(alpha, w, h) {
+    this.depthTex = this.uploadR32F(this.depthTex, this.depthSize, alpha, w, h);
     let lo = Infinity;
     let hi = -Infinity;
     for (let i = 0; i < alpha.length; i++) {
@@ -3023,13 +3033,12 @@ export class GpuRenderer {
 
   // The reshaped depth minus the measured depth (null: none), for parallaxWarp.
   setParallax(extra, w, h) {
-    const gl = this.gl;
-    if (this.parallaxTex) gl.deleteTexture(this.parallaxTex);
-    this.parallaxTex = null;
-    if (!extra) return;
-    this.parallaxTex = this.texture(w, h, gl.R32F);
-    gl.bindTexture(gl.TEXTURE_2D, this.parallaxTex);
-    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, w, h, gl.RED, gl.FLOAT, extra);
+    if (!extra) {
+      if (this.parallaxTex) this.gl.deleteTexture(this.parallaxTex);
+      this.parallaxTex = null;
+      return;
+    }
+    this.parallaxTex = this.uploadR32F(this.parallaxTex, this.parallaxSize, extra, w, h);
     this.parallaxSize = [w, h];
   }
 

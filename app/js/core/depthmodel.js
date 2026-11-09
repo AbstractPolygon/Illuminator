@@ -3,7 +3,7 @@
 // trust) and the two are mixed by a setting.
 
 import { aiUpscaleAvailable } from './aiupscale.js';
-import { nthSmallest } from './typed.js';
+import { nthSmallest, nthSmallestPair } from './typed.js';
 
 const sessions = new Map();
 
@@ -185,8 +185,7 @@ export function shapeModelDepth(rel, w, h, { smooth = 0, curve = 0.5 } = {}) {
   }
   const gamma = 2 ** ((0.5 - curve) * 2);
   if (Math.abs(gamma - 1) > 1e-3) {
-    const lo = nthSmallest(out, Math.floor(0.01 * (out.length - 1)));
-    const hi = nthSmallest(out, Math.floor(0.99 * (out.length - 1)));
+    const [lo, hi] = nthSmallestPair(out, Math.floor(0.01 * (out.length - 1)), Math.floor(0.99 * (out.length - 1)));
     const span = hi - lo;
     if (span > 1e-9) {
       const bent = new Float32Array(out.length);

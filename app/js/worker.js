@@ -62,7 +62,7 @@ import { depthHelperCount, createDepthPool } from './depthpool.js';
 import { costHelperCount, pooledCostVolume } from './costpool.js';
 import { STAGE_NAMES } from './core/speedreport.js';
 import { encodeKept, decodeKept, fingerprint, keptHash, hashBytes } from './core/keptpicture.js';
-import { mapF32, nthSmallest } from './core/typed.js';
+import { mapF32, nthSmallestPair } from './core/typed.js';
 
 // Requests whose picture is wanted at 16 bits per channel (see finishGpu).
 const bits16Ids = new Set();
@@ -512,8 +512,9 @@ function postKeptPicture(hash, w, h, rgb) {
 async function presentGpu(id, tex, w, h, { alpha = 0, dof = 0, bokeh = {}, pxPerUnit, masks = { focus: alpha }, keep = null, keepStill = null, draft = false, mode = undefined, color = null, distortionCorrected = false, parallax = false }, message) {
   const gpu = state.gpu;
   // Depth map contrast on the viewpoint's parallax (see state.depthParallax).
-  if (parallax && masks.view && (masks.view.u || masks.view.v) && wantsParallax()) await ensureViewDepth(id);
-  if (parallax && state.depthParallax && masks.view && (masks.view.u || masks.view.v)) tex = gpu.parallaxWarp(tex, w, h, masks.view.u, masks.view.v, state.settings.detail);
+  const moved = parallax && masks.view && (masks.view.u || masks.view.v);
+  if (moved && wantsParallax()) await ensureViewDepth(id);
+  if (moved && state.depthParallax) tex = gpu.parallaxWarp(tex, w, h, masks.view.u, masks.view.v, state.settings.detail);
   if (dof > 0 && (await ensureViewDepth(id))) {
     // Whatever really is at the focus depth stays sharp, also where the depth map has it wrong (thin near objects, such as the wires of a fence): see GpuRenderer.focusMask.
     // (not with a tilted focus plane, whose depth differs across the picture)
@@ -903,7 +904,7 @@ async function frames({ id, job, path, alpha = 0, aperture = 0, dof = 0, bokeh }
       continue;
     }
     let rgb = f.aperture > 0 ? refocusRGB(f.alpha, apertureOptions(f)) : await singleView(id, f.u, f.v);
-    if (wantsParallax() && (await ensureViewDepth(id))) rgb = withParallax(rgb, outW, outH, f.u, f.v);
+    rgb = await applyParallax(id, rgb, outW, outH, f.u, f.v);
     frameMessage(id, i, await withDepthOfField(id, rgb, outW, outH, f.alpha, f.dof, 1, f.bokeh), { focus: f.alpha, overrides: f.masks, view: viewOf(f.u, f.v) }, colorState(f.color));
     await tick();
   }
@@ -1104,6 +1105,11 @@ function withParallax(rgb, w, h, u, v) {
   return out;
 }
 
+// A view's picture (the CPU path) with the depth contrast on its parallax, when that is on: the depth is measured first if need be.
+async function applyParallax(id, rgb, w, h, u, v) {
+  return wantsParallax() && (await ensureViewDepth(id)) ? withParallax(rgb, w, h, u, v) : rgb;
+}
+
 async function withDepthOfField(id, rgb, w, h, alpha, dof, scale = 1, bokeh = {}) {
   if (!(dof > 0)) return rgb;
   if (!(await ensureViewDepth(id))) return rgb;
@@ -1130,7 +1136,7 @@ async function refocusFrames({ id, job, alphas, u, v, aperture, dof = 0, bokeh }
       continue;
     }
     let rgb = refocusRGB(alphas[i], opts);
-    if (wantsParallax() && (await ensureViewDepth(id))) rgb = withParallax(rgb, outW, outH, u, v);
+    rgb = await applyParallax(id, rgb, outW, outH, u, v);
     frameMessage(id, i, await withDepthOfField(id, rgb, outW, outH, alphas[i], dof, 1, bokeh), { focus: alphas[i], view: viewOf(u, v) });
     await tick();
   }
@@ -1705,7 +1711,7 @@ async function view({ id, u, v, alpha = 0, aperture = 0, dof = 0, bokeh, draft =
   } else {
     rgb = await singleView(id, u, v);
   }
-  if (wantsParallax() && (await ensureViewDepth(id))) rgb = withParallax(rgb, state.sampler.outW, state.sampler.outH, u, v);
+  rgb = await applyParallax(id, rgb, state.sampler.outW, state.sampler.outH, u, v);
   rgb = await withDepthOfField(id, rgb, state.sampler.outW, state.sampler.outH, alpha, dof, 1, bokeh);
   const skipNr = draft || deferNr;
   const pixels = toPixels(rgb, state.sampler.outW, state.sampler.outH, { focus: alpha, view: viewOf(u, v) }, state, false, false, skipNr);
@@ -2948,7 +2954,7 @@ function settleDepth(outW, outH, lap = {}) {
 // The center view equalized, as the depth filters take it as their guide: the same for every change of a depth setting, so kept for the center view.
 function equalizedCenter() {
   const center = centerView();
-  if (!state.equalizedCenterFor || state.equalizedCenterFor.center !== center) state.equalizedCenterFor = { center, guide: equalize(Float32Array.from(center)) };
+  if (!state.equalizedCenterFor || state.equalizedCenterFor.center !== center) state.equalizedCenterFor = { center, guide: equalize(new Float32Array(center)) };
   return state.equalizedCenterFor.guide;
 }
 
@@ -2980,19 +2986,10 @@ function applyDepthSmoothing() {
   const field = rayWarpField(outW, outH);
   // Kept without the shift as well: the engine's own picture reads Lytro's depth as it is (lytroEdof).
   state.depthPlain = smoothed;
-  let placed = smoothed;
-  if (shift || field) {
-    placed = new Float32Array(smoothed.length);
-    for (let i = 0; i < placed.length; i++) placed[i] = smoothed[i] + shift + (field ? field[i] : 0);
-  }
+  const placed = shift || field ? mapF32(smoothed, (x, i) => x + shift + (field ? field[i] : 0)) : smoothed;
   state.depth = { ...raw, alpha: shapeDepthContrast(placed, state.settings.depthContrast ?? 0) };
   // With "Apply to perspective shift": how much farther the reshaped depth is from the measured one at each pixel (the viewpoint's parallax is changed by that).
-  state.depthParallax = null;
-  if (state.settings.depthContrastPersp && state.depth.alpha !== placed) {
-    const shaped = state.depth.alpha;
-    state.depthParallax = new Float32Array(shaped.length);
-    for (let i = 0; i < shaped.length; i++) state.depthParallax[i] = shaped[i] - placed[i];
-  }
+  state.depthParallax = state.settings.depthContrastPersp && state.depth.alpha !== placed ? mapF32(state.depth.alpha, (x, i) => x - placed[i]) : null;
   state.depthSmoothingApplied = amount;
   state.gen++;
   if (state.gpu) {
@@ -3025,8 +3022,7 @@ async function depthMap({ id, grey = false, contrast = 0 }) {
   // Raw photos: the contrast is already in the depth (shapeDepth); a processed file's depth map is shaped here.
   if (!state.pp) contrast = 0;
   const cut = 0.02 + 0.28 * Math.max(0, Math.min(1, contrast));
-  const lo = nthSmallest(alpha, Math.floor((alpha.length - 1) * cut));
-  const hi = nthSmallest(alpha, Math.floor((alpha.length - 1) * (1 - cut)));
+  const [lo, hi] = nthSmallestPair(alpha, Math.floor((alpha.length - 1) * cut), Math.floor((alpha.length - 1) * (1 - cut)));
   const pixels = new Uint8ClampedArray(alpha.length * 4);
   for (let i = 0; i < alpha.length; i++) {
     // alpha < 0 is nearer than the camera's focus plane.
