@@ -16,7 +16,7 @@ const FILES = [
   'core/enginewb.js', 'core/enginewb-tables.js', 'core/enginemod.js', 'core/enginemod-tables.js', 'core/lensshift.js', 'core/lens.js', 'core/lenslet.js', 'core/raywarp.js',
   'gpu/depthmatch.js', 'gpu/enginecost.js', 'gpu/regions.js', 'gpu/lytroengine.js', 'gpu/enginemod.js',
 ];
-const EXPECTED = { rev: 1, checksum: '9d6442b153e37da1' };
+const EXPECTED = { rev: 1, checksum: '9b5981a3f3159971' };
 
 // Comments and white space do not change a result: they are left out of the checksum.
 function checksum() {

@@ -1,5 +1,5 @@
 import { segmentDepth, guidedFilterColor, snapDepthEdges } from './segments.js';
-import { mapF32, nthSmallest } from './typed.js';
+import { mapF32, nthSmallest, nthSmallestPair } from './typed.js';
 
 // Depth from the light field: for a range of refocus depths (alpha), shift
 // every view as refocusing would and measure how well they agree. At the
@@ -343,8 +343,6 @@ export function edgeAwareFill(values, conf, guide, w, h, sigmaS, sigmaR, iterati
   for (let i = 0; i < n; i++) out[i] = den[i] > 1e-12 ? num[i] / den[i] : values[i];
   return out;
 }
-
-export { nthSmallest };
 
 // Sorts the first n values of a small array in place (insertion sort: quicker than a typed array's sort for a window of 9 or 25 values).
 function sortSmall(a, n) {
@@ -1241,8 +1239,9 @@ export function estimateDepth(views, width, height, { min = DEPTH_SEARCH.min, ma
     // Second, fine pass over the depth range this picture really uses.
     const { fine, lowQ, highQ, pad } = DEPTH_MATCH.adapt;
     const step = alphas[1] - alphas[0];
-    const lo = Math.max(min, nthSmallest(measured.alpha, Math.floor(lowQ * (n - 1))) - pad * step);
-    const hi = Math.min(max, nthSmallest(measured.alpha, Math.floor(highQ * (n - 1))) + pad * step);
+    const [low, high] = nthSmallestPair(measured.alpha, Math.floor(lowQ * (n - 1)), Math.floor(highQ * (n - 1)));
+    const lo = Math.max(min, low - pad * step);
+    const hi = Math.min(max, high + pad * step);
     alphas = Array.from({ length: fine }, (_, i) => lo + ((hi - lo) * i) / (fine - 1));
     measured = match(detailImages, centerLocal, occlusion, window, 0, coarse ? 0.6 : 1);
   }
@@ -1603,8 +1602,7 @@ export function shapeDepthContrast(alpha, contrast) {
   if (!(contrast > 0)) return alpha;
   const cut = 0.28 * Math.min(1, contrast);
   // The two ends of the range by selection, not a sort of the whole map (the same values, a sixth of the time).
-  const lo = nthSmallest(alpha, Math.floor((alpha.length - 1) * cut));
-  const hi = nthSmallest(alpha, Math.floor((alpha.length - 1) * (1 - cut)));
+  const [lo, hi] = nthSmallestPair(alpha, Math.floor((alpha.length - 1) * cut), Math.floor((alpha.length - 1) * (1 - cut)));
   const span = Math.max(1e-6, hi - lo);
   const out = new Float32Array(alpha.length);
   for (let i = 0; i < alpha.length; i++) {

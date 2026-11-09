@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { nthSmallest } from '../app/js/core/depth.js';
+import { nthSmallest, nthSmallestPair } from '../app/js/core/typed.js';
 import { helperCount } from '../app/js/viewpool.js';
 
 // A small deterministic generator, so a failure can be repeated.
@@ -32,6 +32,20 @@ test('nthSmallest puts NaN last, as a sort does, and does not change its input',
   assert.equal(nthSmallest(values, 2), 3);
   assert.ok(Number.isNaN(nthSmallest(values, 3)));
   assert.deepEqual(Array.from(values).map(String), Array.from(copy).map(String));
+});
+
+test('nthSmallestPair gives the two values a sort gives, with repeats, NaN and equal positions', () => {
+  const r = rng(11);
+  for (const n of [1, 2, 5, 64, 1001]) {
+    const values = Float32Array.from({ length: n }, () => (r() < 0.05 ? NaN : Math.round(r() * 20 - 10) / 4));
+    const sorted = Float32Array.from(values).sort();
+    const same = (a, b) => assert.ok(a === b || (Number.isNaN(a) && Number.isNaN(b)), `${a} against ${b}`);
+    for (const [k1, k2] of [[0, n - 1], [n >> 2, n >> 1], [n >> 1, n >> 1], [0, 0], [n - 1, n - 1], [Math.floor(0.05 * (n - 1)), Math.floor(0.95 * (n - 1))]]) {
+      const [a, b] = nthSmallestPair(values, k1, k2);
+      same(a, sorted[k1]);
+      same(b, sorted[k2]);
+    }
+  }
 });
 
 test('helper workers: none for a small job or a computer with few cores, at most three, fewer when the sensor is large', () => {

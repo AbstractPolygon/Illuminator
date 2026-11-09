@@ -9,7 +9,7 @@
 import { engineTone } from './base.js';
 import { crossArms, aggregateCross, flatness, trwsVolume, bestDepth, depthColorGuide, median3, DEPTH_CBCA, DEPTH_EDGE, DEPTH_TRWS, DEPTH_LCOST } from './depth.js';
 import { hook } from './debugflags.js';
-import { mapF32, nthSmallest } from './typed.js';
+import { mapF32, nthSmallestPair } from './typed.js';
 
 export const DEPTH_PASSES = {
   // 3x3 colour matrix (row-major) of the engine's depth views; null: linear views.
@@ -368,8 +368,9 @@ export function measureMatch(views, w, h, { onProgress } = {}) {
   let labels = alphas;
   if (P.adapt.on) {
     const step = alphas[1] - alphas[0];
-    const lo = Math.max(alphas[0], nthSmallest(depths[c], Math.floor(P.adapt.lowQ * (n - 1))) - P.adapt.pad * step);
-    const hi = Math.min(alphas[count - 1], nthSmallest(depths[c], Math.floor(P.adapt.highQ * (n - 1))) + P.adapt.pad * step);
+    const [low, high] = nthSmallestPair(depths[c], Math.floor(P.adapt.lowQ * (n - 1)), Math.floor(P.adapt.highQ * (n - 1)));
+    const lo = Math.max(alphas[0], low - P.adapt.pad * step);
+    const hi = Math.min(alphas[count - 1], high + P.adapt.pad * step);
     labels = Array.from({ length: P.adapt.fine }, (_, i) => lo + ((hi - lo) * i) / (P.adapt.fine - 1));
   }
   if (onProgress) onProgress(0.85);

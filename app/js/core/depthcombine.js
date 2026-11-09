@@ -7,13 +7,16 @@
 // outlines along its depth edges only (a blanket median would erase thin
 // features). Measured against Lytro Desktop's maps: see the plan, #112.
 
-import { mapF32, nthSmallest } from './typed.js';
+import { mapF32, nthSmallestPair } from './typed.js';
 
 export const DEPTH_COMBINE = { near: 0.45, far: 0.65, blendSigma: 3, edge: 0.15, edgeWindow: 9, bandSteps: 3, median: 9 };
 
-// Value at fraction q (0..1) of the sorted finite values.
-function percentile(values, q) {
-  return nthSmallest(values, Math.floor(q * (values.length - 1)));
+// The values at fractions qa and qb (0..1) of the sorted values, in that order.
+function percentiles(values, qa, qb) {
+  const at = (q) => Math.floor(q * (values.length - 1));
+  // (one copy for both; the pair is taken lowest first)
+  if (qa <= qb) return nthSmallestPair(values, at(qa), at(qb));
+  return nthSmallestPair(values, at(qb), at(qa)).reverse();
 }
 
 // Robust affine fit a -> r over `ok` pixels (iteratively reweighted least squares).
@@ -133,8 +136,7 @@ export function combineDepth(classic, match, w, h, P = DEPTH_COMBINE, amount = 0
   }
   if (valid.length < 16) return Float32Array.from(match);
   const [p0, p1] = fitAffine(classic, match, ok);
-  const t0 = percentile(valid, P.near);
-  const t1 = percentile(valid, P.far);
+  const [t0, t1] = percentiles(valid, P.near, P.far);
   const weight = new Float32Array(n);
   for (let i = 0; i < n; i++) {
     const t = Math.min(1, Math.max(0, (match[i] - t0) / (t1 - t0 || 1)));
@@ -153,7 +155,8 @@ export function combineDepth(classic, match, w, h, P = DEPTH_COMBINE, amount = 0
   }
   // The outline cleanup belongs to the Lytro-style half: it fades out towards the classic end.
   const cleanup = Math.min(1, amount / 0.5);
-  const range = percentile(valid, 0.95) - percentile(valid, 0.05);
+  const [p05, p95] = percentiles(valid, 0.05, 0.95);
+  const range = p95 - p05;
   const spread = localRange(match, w, h, P.edgeWindow);
   const jump = new Uint8Array(n);
   for (let i = 0; i < n; i++) jump[i] = spread[i] > P.edge * range ? 1 : 0;
