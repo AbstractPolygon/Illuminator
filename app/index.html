@@ -621,6 +621,7 @@
           <label title="Stretches the depth map's colors over a narrower range of depth, so differences show more, as Lytro Desktop's depth maps do. It reshapes the depth itself, so the depth map and the depth of field change together">Depth map contrast <output for="depth-contrast" data-for="depth-contrast">0</output>
             <input id="depth-contrast" type="range" min="0" max="100" step="5" value="0" data-default="0">
           </label>
+          <label class="check" title="Also uses the reshaped depth when the viewpoint moves, so near and far objects shift against each other as much as the contrast makes their depth differ. Applies to the camera view and animations; a Full sensor render keeps the measured parallax"><input id="depth-contrast-persp" type="checkbox"> Apply to perspective shift</label>
         </details>
         <details class="subpanel">
           <summary><h3>Focus Spread</h3></summary>

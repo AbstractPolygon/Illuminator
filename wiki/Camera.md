@@ -16,7 +16,8 @@ The light field controls. Each can be animated: the <img src="images/key-prev.pn
 - *High quality depth map:* sharper depth edges that match the photo, and depth found even on far, very out-of-focus surfaces (a textured wall behind the subject), about two to three times as slow to measure. On by default; off, the faster, blockier depth map is used.
 - *Show depth map:* shows the depth map in color. It stays on while you change settings, move the viewpoint or press Render (the full sensor still is made meanwhile and shows when the depth map is turned off).
 - *Grayscale:* (next to Show depth map) shows the depth map in gray instead of in color.
-- *Depth map contrast:* stretches the depth map's colors over a narrower range of depth, so small differences show more (Lytro Desktop's depth maps look this way). It only changes how the depth map is shown, not the depth.
+- *Depth map contrast:* stretches the depth over a narrower range, so small differences show more (Lytro Desktop's depth maps look this way). It reshapes the depth itself, so the depth map and the depth of field change together.
+- *Apply to perspective shift:* also moves the viewpoint's parallax by the reshaped depth, so near and far objects slide against each other as much as the contrast makes their depth differ. It applies to the camera view and animations; a Full sensor render keeps the measured parallax.
 
 ## Focus Spread
 
