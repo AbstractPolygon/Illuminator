@@ -3,7 +3,7 @@
 // and the focus offset found for the photo. Like Lytro Desktop's stack.lfp next to its raw.lfp, but in Illuminator's own format.
 //
 // Layout: 'ILPC', uint32 format version, uint32 header length, the header (JSON, UTF-8, padded to 4 bytes), then the depth as float32.
-// The header's `key` says what the depth was measured with (this app's version, the photo, the settings that change it); a cache whose key
+// The header's `key` says what the depth was measured with (the cache revision in core/cacherev.js, the photo, the settings that change it); a cache whose key
 // differs from the photo's current one is not used, and is written again after the new measurement.
 
 export const PROCESSED_FILE = 'processed.illuminator.bin';
