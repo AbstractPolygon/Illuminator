@@ -233,7 +233,10 @@ test('symlinks: write-output refuses a link that leads out of the chosen folder'
 
 test('a library root that is a drive or share root (win32 rules)', async () => {
   for (const root of ['C:\\', '\\\\srv\\share\\']) {
-    const t = await setup({ path: path.win32, platform: 'win32', fs: { existsSync: () => false } });
+    // The real file system would be asked about a made-up share (a Windows runner answers a UNC name with an unknown error, not ENOENT): nothing of these paths exists.
+    const gone = () => Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+    const nothing = { ...fsp, realpath: async () => { throw gone(); }, lstat: async () => { throw gone(); }, stat: async () => { throw gone(); } };
+    const t = await setup({ path: path.win32, platform: 'win32', fs: { existsSync: () => false }, fsp: nothing });
     t.settings.libraryDir = root;
     // Resolved before any disk access, so the escapes can be checked on any system.
     for (const rel of ['..\\x', 'a/../../x', 'D:/x', '.']) await assert.rejects(t.h['lib-stat'](rel), /Outside the library/, rel);

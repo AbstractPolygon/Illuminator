@@ -156,13 +156,15 @@ function queueFixture(over = {}) {
 }
 
 test('open queue: only Lytro files that exist reach the page, and they become readable', async () => {
-  const f = queueFixture({ existing: ['/p/a.lfr', '/p/b.RAW'] });
+  // Relative names are resolved against the working folder with the system's own rules ('/p/a.lfr' on POSIX, 'D:\\p\\a.lfr' on Windows).
   const cwd = '/p';
+  const at = (name) => path.resolve(cwd, name);
+  const f = queueFixture({ existing: [at('a.lfr'), at('b.RAW')] });
   await f.q.fromSecondInstance(['/app/exe', '--flag', 'a.lfr', 'b.RAW', 'gone.lfp', 'notes.txt', '', '-x.lfr'], cwd);
   assert.equal(f.sent.length, 1);
   assert.equal(f.sent[0][0], 'open-paths');
-  assert.deepEqual(f.sent[0][1].map((x) => x.path), ['/p/a.lfr', '/p/b.RAW']);
-  assert.deepEqual(f.state.allowed, ['/p/a.lfr', '/p/b.RAW']);
+  assert.deepEqual(f.sent[0][1].map((x) => x.path), [at('a.lfr'), at('b.RAW')]);
+  assert.deepEqual(f.state.allowed, [at('a.lfr'), at('b.RAW')]);
   assert.deepEqual(f.events, ['focus', 'focus']); // forward on a second launch, then for the files
 });
 
