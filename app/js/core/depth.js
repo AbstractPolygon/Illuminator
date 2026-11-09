@@ -1636,10 +1636,10 @@ export function setDepthStyle(style) {
 // is added, so a narrow span of depth takes the whole range of blur; the shown depth map and the depth of field use the same values. 0 leaves the depth as measured.
 export function shapeDepthContrast(alpha, contrast) {
   if (!(contrast > 0)) return alpha;
-  const sorted = Float32Array.from(alpha).sort();
   const cut = 0.28 * Math.min(1, contrast);
-  const lo = sorted[Math.floor((sorted.length - 1) * cut)];
-  const hi = sorted[Math.floor((sorted.length - 1) * (1 - cut))];
+  // The two ends of the range by selection, not a sort of the whole map (the same values, a sixth of the time).
+  const lo = nthSmallest(alpha, Math.floor((alpha.length - 1) * cut));
+  const hi = nthSmallest(alpha, Math.floor((alpha.length - 1) * (1 - cut)));
   const span = Math.max(1e-6, hi - lo);
   const out = new Float32Array(alpha.length);
   for (let i = 0; i < alpha.length; i++) {

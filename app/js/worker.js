@@ -2916,7 +2916,7 @@ function fieldPlacedGrid(alpha, w, h, sign, exact = false) {
 // A depth map (alpha, the sampler's grid) smoothed by the Depth > Smoothing setting, guided by the picture.
 function smoothedDepth(alpha, confidence) {
   const { outW, outH } = state.sampler;
-  const guide = equalize(Float32Array.from(centerView()));
+  const guide = equalizedCenter();
   const smooth = state.gpu ? state.gpu.smoothDepth.bind(state.gpu) : smoothDepth;
   return smooth(alpha, outW, outH, guide, { amount: state.settings.depthSmoothing ?? 0.3, confidence, step: state.depthRaw && state.depthRaw.flat ? DEPTH_STEP : 0 });
 }
@@ -2944,6 +2944,13 @@ function settleDepth(outW, outH, lap = {}) {
   applyDepthSmoothing();
 }
 
+// The center view equalized, as the depth filters take it as their guide: the same for every change of a depth setting, so kept for the center view.
+function equalizedCenter() {
+  const center = centerView();
+  if (!state.equalizedCenterFor || state.equalizedCenterFor.center !== center) state.equalizedCenterFor = { center, guide: equalize(Float32Array.from(center)) };
+  return state.equalizedCenterFor.guide;
+}
+
 // The widest softening of object edges (pixels of the depth map; the slider's top).
 const OBJECT_SOFT_MAX = 8;
 
@@ -2956,7 +2963,7 @@ function applyDepthSmoothing() {
   const raw = state.depthRaw;
   if (!raw) return;
   const { outW, outH } = state.sampler;
-  const guide = equalize(Float32Array.from(centerView()));
+  const guide = equalizedCenter();
   const smooth = state.gpu ? state.gpu.smoothDepth.bind(state.gpu) : smoothDepth;
   let smoothed = smooth(raw.alpha, outW, outH, guide, { amount, confidence: raw.confidence, step: raw.flat ? DEPTH_STEP : 0 });
   // Object edges: the steps at the outlines made a ramp (Camera > Depth > Object edges, Smooth edges).
@@ -2972,10 +2979,19 @@ function applyDepthSmoothing() {
   const field = rayWarpField(outW, outH);
   // Kept without the shift as well: the engine's own picture reads Lytro's depth as it is (lytroEdof).
   state.depthPlain = smoothed;
-  const placed = shift || field ? Float32Array.from(smoothed, (x, i) => x + shift + (field ? field[i] : 0)) : smoothed;
+  let placed = smoothed;
+  if (shift || field) {
+    placed = new Float32Array(smoothed.length);
+    for (let i = 0; i < placed.length; i++) placed[i] = smoothed[i] + shift + (field ? field[i] : 0);
+  }
   state.depth = { ...raw, alpha: shapeDepthContrast(placed, state.settings.depthContrast ?? 0) };
   // With "Apply to perspective shift": how much farther the reshaped depth is from the measured one at each pixel (the viewpoint's parallax is changed by that).
-  state.depthParallax = state.settings.depthContrastPersp && state.depth.alpha !== placed ? Float32Array.from(state.depth.alpha, (x, i) => x - placed[i]) : null;
+  state.depthParallax = null;
+  if (state.settings.depthContrastPersp && state.depth.alpha !== placed) {
+    const shaped = state.depth.alpha;
+    state.depthParallax = new Float32Array(shaped.length);
+    for (let i = 0; i < shaped.length; i++) state.depthParallax[i] = shaped[i] - placed[i];
+  }
   state.depthSmoothingApplied = amount;
   state.gen++;
   if (state.gpu) {
