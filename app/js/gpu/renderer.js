@@ -595,8 +595,11 @@ float weightFor(float dist, float r) {
 }
 
 // The gathered color at full size pixel position pf (pixel centers at
-// integers), whose own prepared value is c.
-vec3 gather(vec2 pf, vec4 c, ivec2 size) {
+// integers), whose own prepared value is c. snap: each tap reads the pixel it
+// falls in, not a bilinear mix of the four around it. With small blur radii a
+// bilinear read at a fraction of a pixel is itself a blur, which softened the
+// whole picture (also what is exactly in focus) as soon as any blur was on.
+vec3 gather(vec2 pf, vec4 c, ivec2 size, bool snap) {
   float rc = abs(c.a);
   vec3 sum = c.rgb * weightFor(0.0, rc);
   float wsum = weightFor(0.0, rc);
@@ -612,10 +615,13 @@ vec3 gather(vec2 pf, vec4 c, ivec2 size) {
     float rr = sqrt((float(i) + 0.5) / float(taps)) * maxR;
     float th = float(i) * 2.39996323;
     vec2 o = rr * vec2(cos(th), sin(th));
-    vec2 qf = clamp(pf + o, vec2(0.0), vec2(size - 1));
+    vec2 qf = snap ? floor(pf + o + 0.5) : pf + o;
+    // (a tap outside the picture adds nothing: clamped onto the border it counted the border pixels again and again)
+    if (qf.x < 0.0 || qf.y < 0.0 || qf.x > float(size.x - 1) || qf.y > float(size.y - 1)) continue;
     vec4 s = textureLod(uPrep, (qf + 0.5) / vec2(size), lod);
     float rq = abs(s.a);
-    float dist = shapeDist(o);
+    // (the distance of the pixel really read, which after snapping is not where the tap was aimed)
+    float dist = shapeDist(qf - pf);
     // Behind this pixel: only within this pixel's own blur.
     if (s.a > c.a + 0.5 && dist > rc + 0.5) continue;
     float w = weightFor(dist, rq);
@@ -632,7 +638,7 @@ void main() {
     // Half size: one pixel per 2 x 2 block, at the block's center.
     ivec2 q = min(p * 2, size - 1);
     vec4 c = texelFetch(uPrep, q, 0);
-    outColor = vec4(gather(vec2(p * 2) + 0.5, c, size), c.a);
+    outColor = vec4(gather(vec2(p * 2) + 0.5, c, size, false), c.a);
     return;
   }
   vec4 c = texelFetch(uPrep, p, 0);
@@ -660,7 +666,7 @@ void main() {
       return;
     }
   }
-  outColor = vec4(gather(vec2(p), c, size), 1.0);
+  outColor = vec4(gather(vec2(p), c, size, true), 1.0);
 }`;
 
 // Largest blur radius in each 8 x 8 tile (uPass 0), then the largest within
