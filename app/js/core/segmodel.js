@@ -3,6 +3,8 @@
 // downloaded once, when the setting is first turned on, and kept in the
 // browser's cache. Used for depth edges (core/objects.js, core/segments.js).
 
+import { nthSmallest } from './typed.js';
+
 const MODEL_BASE = 'https://huggingface.co/Acly/MobileSAM/resolve/main/';
 export const SEG_FILES = { encoder: 'mobile_sam_image_encoder.onnx', decoder: 'sam_mask_decoder_single.onnx' };
 const CACHE = 'illuminator-models-v1';
@@ -105,8 +107,7 @@ export function segmentInput(rgb, w, h) {
   const n = w * h;
   const luma = new Float32Array(n);
   for (let i = 0; i < n; i++) luma[i] = 0.2126 * rgb[3 * i] + 0.7152 * rgb[3 * i + 1] + 0.0722 * rgb[3 * i + 2];
-  const sorted = Float32Array.from(luma).sort();
-  const white = Math.max(1e-4, sorted[Math.floor(n * 0.995)]);
+  const white = Math.max(1e-4, nthSmallest(luma, Math.floor(n * 0.995)));
   const scale = 1024 / Math.max(w, h);
   const nw = Math.round(w * scale);
   const nh = Math.round(h * scale);

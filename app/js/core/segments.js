@@ -1,5 +1,6 @@
 import { signatureDistance } from './objects.js';
 import { hook } from './debugflags.js';
+import { nthSmallest } from './typed.js';
 
 // Region cleanup of a depth map, the way Lytro Desktop's maps look: the
 // picture is cut into small regions of like color (SLIC superpixels), each
@@ -417,7 +418,7 @@ export function flattenObjects(depth, objects, w, h, { min = 0.004, max = 0.2, q
   const n = w * h;
   const out = Float32Array.from(depth);
   // Only objects in the nearest `nearShare` of the picture are touched.
-  const cut = nearShare < 1 ? Float32Array.from(depth).sort()[Math.floor(nearShare * (n - 1))] : Infinity;
+  const cut = nearShare < 1 ? nthSmallest(depth, Math.floor(nearShare * (n - 1))) : Infinity;
   const groups = new Map();
   for (let i = 0; i < n; i++) {
     const l = objects[i];

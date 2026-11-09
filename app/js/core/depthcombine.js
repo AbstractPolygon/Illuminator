@@ -7,12 +7,13 @@
 // outlines along its depth edges only (a blanket median would erase thin
 // features). Measured against Lytro Desktop's maps: see the plan, #112.
 
+import { mapF32, nthSmallest } from './typed.js';
+
 export const DEPTH_COMBINE = { near: 0.45, far: 0.65, blendSigma: 3, edge: 0.15, edgeWindow: 9, bandSteps: 3, median: 9 };
 
 // Value at fraction q (0..1) of the sorted finite values.
 function percentile(values, q) {
-  const sorted = Float32Array.from(values).sort();
-  return sorted[Math.floor(q * (sorted.length - 1))];
+  return nthSmallest(values, Math.floor(q * (values.length - 1)));
 }
 
 // Robust affine fit a -> r over `ok` pixels (iteratively reweighted least squares).
@@ -98,7 +99,7 @@ function localRange(src, w, h, size) {
   };
   const base = { hi: src, lo: src };
   const v = pass(pass(base, true), false);
-  return Float32Array.from(v.hi, (x, i) => x - v.lo[i]);
+  return mapF32(v.hi, (x, i) => x - v.lo[i]);
 }
 
 // Dilation by a cross-shaped element, `steps` times.

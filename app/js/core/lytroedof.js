@@ -189,8 +189,8 @@ function rank1(k, w, h) {
   let sv = 0;
   for (let y = 0; y < h; y++) su += u[y];
   for (let x = 0; x < w; x++) sv += v[x];
-  const col = Float32Array.from(u, (a) => a / su);
-  const row = Float32Array.from(v, (a) => a / sv);
+  const col = mapF32(u, (a) => a / su);
+  const row = mapF32(v, (a) => a / sv);
   return { col, row, gain: su * s * sv };
 }
 
@@ -392,6 +392,7 @@ import { forEachLensPixel, tileWeights, isDefect, sampleDepth, depthFilter } fro
 import { LAMBDA_TO_ALPHA } from './recipe.js';
 import { createLfDemosaic } from './lfdemosaic.js';
 import { debugFlags, hook } from './debugflags.js';
+import { mapF32 } from './typed.js';
 
 // aperture: the engine's HexAperture value, LightfieldLogic::NominalApertureFraction = min(micro f-number / main f-number, 2 - that - 2 / pitch)
 // clamped to 0..1, which is 1 - 2/14 on the 14 px standardized lightfield; 'hex' is HexAperture's shape (apothem 0.5 * value lens pitches),

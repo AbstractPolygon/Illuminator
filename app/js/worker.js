@@ -62,6 +62,7 @@ import { depthHelperCount, createDepthPool } from './depthpool.js';
 import { costHelperCount, pooledCostVolume } from './costpool.js';
 import { STAGE_NAMES } from './core/speedreport.js';
 import { encodeKept, decodeKept, fingerprint, keptHash, hashBytes } from './core/keptpicture.js';
+import { mapF32, nthSmallest } from './core/typed.js';
 
 // Requests whose picture is wanted at 16 bits per channel (see finishGpu).
 const bits16Ids = new Set();
@@ -1462,23 +1463,23 @@ async function lytroEdof({ id, job, scale = 3, color = null, masks = null, quiet
       console.error('CMPDEPTH', JSON.stringify({ meanEng: sx / m, meanOurs: sy / m, slope, icpt, corr }));
     }
     if (dbg.printGrid) console.error('DEPTHPATH', JSON.stringify({ exactDepth, engineShift, ownField, hasOffsets: !!state.exactOffsets, fromLytro: !!(state.depthRaw && state.depthRaw.fromLytro), pp: !!state.pp, userDepth: !!state.userDepth }));
-    const depthUsed = exactDepth ? Float32Array.from(state.depthExact.plain, (x) => x + (dbg.shiftConst ?? 0) * LAMBDA_TO_ALPHA) : engineShift ? Float32Array.from(state.depthEngine.plain, (x) => x + engineShift) : ownField ? Float32Array.from(state.depthOwnF.plain, (x, i) => x * (dbg.ownGain ?? 1) + ownShift + (dbg.noExtras ? 0 : state.depth.alpha[i] - state.depthPlain[i])) : ownPlace ? Float32Array.from(state.depthOwn.plain, (x) => x * (dbg.ownGain ?? 1) + ownShift) : ownShift ? Float32Array.from(state.depthPlain, (x) => x * (dbg.ownGain ?? 1) + ownShift) : state.depth.alpha;
+    const depthUsed = exactDepth ? mapF32(state.depthExact.plain, (x) => x + (dbg.shiftConst ?? 0) * LAMBDA_TO_ALPHA) : engineShift ? mapF32(state.depthEngine.plain, (x) => x + engineShift) : ownField ? mapF32(state.depthOwnF.plain, (x, i) => x * (dbg.ownGain ?? 1) + ownShift + (dbg.noExtras ? 0 : state.depth.alpha[i] - state.depthPlain[i])) : ownPlace ? mapF32(state.depthOwn.plain, (x) => x * (dbg.ownGain ?? 1) + ownShift) : ownShift ? mapF32(state.depthPlain, (x) => x * (dbg.ownGain ?? 1) + ownShift) : state.depth.alpha;
     state.usmMap = null;
-    state.usmDepth = state.pp ? null : { lambda: Float32Array.from(depthUsed, (a) => a / LAMBDA_TO_ALPHA), w: state.sampler.outW, h: state.sampler.outH };
+    state.usmDepth = state.pp ? null : { lambda: mapF32(depthUsed, (a) => a / LAMBDA_TO_ALPHA), w: state.sampler.outW, h: state.sampler.outH };
     let depth5 = null;
     if (!state.userDepth && !state.pp && dbg.own5) {
       // A depth measured here goes through the same upscaling (the engine upscales whatever depth it has): the map is in lambda on the sampler's grid.
       const { outW, outH } = state.sampler;
       const k = `own:${outW}x${outH}:${state.depthSmoothingApplied}:${ownPlace ? state.depthOwn.key : ''}`;
       if (!state.depth5 || state.depth5.key !== k || state.depth5.src !== state.depthPlain) {
-        const lambda = Float32Array.from(ownPlace ? state.depthOwn.plain : state.depthPlain, (a) => a / LAMBDA_TO_ALPHA);
+        const lambda = mapF32(ownPlace ? state.depthOwn.plain : state.depthPlain, (a) => a / LAMBDA_TO_ALPHA);
         let lo = Infinity;
         let hi = -Infinity;
         for (const v of lambda) {
           if (v < lo) lo = v;
           if (v > hi) hi = v;
         }
-        const data = Float32Array.from(lambda, (v) => (v - lo) / (hi - lo));
+        const data = mapF32(lambda, (v) => (v - lo) / (hi - lo));
         state.depth5 = { key: k, src: state.depthPlain, map: userDepthAlphaUpscaled({ width: outW, height: outH, data, min: lo, max: hi, identity: true }, state.sampler, state.lf.cam, 0, null, 5, dbg.dmSimilar ?? 0.8, dbg.dmLevel ?? D5_LEVEL) };
       }
       depth5 = state.depth5.map;
@@ -1502,13 +1503,13 @@ async function lytroEdof({ id, job, scale = 3, color = null, masks = null, quiet
       if (engineShift) {
         const key2 = `${engineShift}:${grow}:${!!dbg.d5Round}`;
         if (!state.depth5.shifted || state.depth5.shiftedKey !== key2) {
-          state.depth5.shifted = { ...depth5, data: Float32Array.from(depth5.data, (x) => x + engineShift) };
+          state.depth5.shifted = { ...depth5, data: mapF32(depth5.data, (x) => x + engineShift) };
           state.depth5.shiftedKey = key2;
         }
         depth5 = state.depth5.shifted;
       }
     }
-    if (exactDepth) depth5 = dbg.shiftConst ? { ...state.depthExact.up, data: Float32Array.from(state.depthExact.up.data, (x) => x + dbg.shiftConst * LAMBDA_TO_ALPHA) } : state.depthExact.up;
+    if (exactDepth) depth5 = dbg.shiftConst ? { ...state.depthExact.up, data: mapF32(state.depthExact.up.data, (x) => x + dbg.shiftConst * LAMBDA_TO_ALPHA) } : state.depthExact.up;
     progress('Splatting the rays', 0);
     if (state.modulation === undefined) state.modulation = lf.readModulation ? await loadModulation(lf) : null;
     const sp = lytroSplat({
@@ -1569,7 +1570,7 @@ async function lytroEdof({ id, job, scale = 3, color = null, masks = null, quiet
       const imgW = (lf.cam.width * 14) / lf.grid.pitch;
       const imgH = (lf.cam.height * 14) / lf.grid.pitch;
       // opts: the engine's filters are keyed by its own lambda, which differs from the plain-ray lambda of a depth measured here by a per-photo amount
-      const bz = dbg.bankShift ? Float32Array.from(sp.zMap, (z) => z + dbg.bankShift) : sp.zMap;
+      const bz = dbg.bankShift ? mapF32(sp.zMap, (z) => z + dbg.bankShift) : sp.zMap;
       const bank = buildEngineBank(W * (dbg.bankSize || 1), H * (dbg.bankSize || 1), imgW, imgH, lo + (dbg.bankShift || 0), hi + (dbg.bankShift || 0));
       const r = applyBank(img, bz, W, H, bank);
       out = r.rgb;
@@ -2734,7 +2735,7 @@ async function measureLytro(progress) {
     const lam = engineDepthMap(ordered, outW, outH, labelValues, (stage, p) => progress(p), state.gpu && !debugFlags().noGpuCost ? gpuCostVolume : sharedCost ? () => sharedCost : null, state.gpu && !debugFlags().noGpuSolve ? (cost, guide, w, h, labels, prog) => { try { return engineSolveGpu(state.gpu, cost, guide, w, h, labels, prog); } catch (e) { gpuFellBack('The depth solver', e); throw e; } } : null);
     // pixels of blown-out highlights have no cost to solve from: they take their surroundings' depth (core/enginedepth.js fillBlownDepth)
     const filled = fillBlownDepth(lam, ordered[8], outW, outH);
-    measured = { alpha: Float32Array.from(filled, (v) => v * LAMBDA_TO_ALPHA), cost: null, meanCost: null };
+    measured = { alpha: mapF32(filled, (v) => v * LAMBDA_TO_ALPHA), cost: null, meanCost: null };
   }
   if (engineMeasured && measured) {
     state.depthCacheOut = { key: depthCacheKey(), w: raster.w, h: raster.h, alpha: measured.alpha };
@@ -2750,14 +2751,14 @@ async function measureLytro(progress) {
   if (!measured) measured = measureMatch(depthViews(), outW, outH, { onProgress: progress });
   if (raster && measured && !debugFlags().rasterFinish) {
     // On the engine's raster the measurement is final as the engine leaves it (sub label estimate, 3 x 3 median); it is read into the picture's frame the way the engine reads its own map.
-    const lam = Float32Array.from(measured.alpha, (a) => a / LAMBDA_TO_ALPHA);
+    const lam = mapF32(measured.alpha, (a) => a / LAMBDA_TO_ALPHA);
     let lo = Infinity;
     let hi = -Infinity;
     for (const v of lam) {
       if (v < lo) lo = v;
       if (v > hi) hi = v;
     }
-    const map = { width: outW, height: outH, data: Float32Array.from(lam, (v) => (v - lo) / (hi - lo || 1)), min: lo, max: hi };
+    const map = { width: outW, height: outH, data: mapF32(lam, (v) => (v - lo) / (hi - lo || 1)), min: lo, max: hi };
     if (hook('rasterDump')) hook('rasterDump')(lam, outW, outH, state.userDepth);
     const dbg = debugFlags();
     const tFrame = Date.now();
@@ -3019,14 +3020,13 @@ async function depthMap({ id, grey = false, contrast = 0 }) {
   if (!src) return { cancelled: true };
   const { alpha } = src;
   if (hook('depthDump')) hook('depthDump')(alpha, src.w, src.h); // debugging aid: the depth values behind the picture
-  const sorted = Float32Array.from(alpha).sort();
   // Contrast pulls the ends of the range in (2% and 98% of the picture, up to
   // 30% and 70%) and adds an S curve, so a narrow span of depth fills the colors.
   // Raw photos: the contrast is already in the depth (shapeDepth); a processed file's depth map is shaped here.
   if (!state.pp) contrast = 0;
   const cut = 0.02 + 0.28 * Math.max(0, Math.min(1, contrast));
-  const lo = sorted[Math.floor((sorted.length - 1) * cut)];
-  const hi = sorted[Math.floor((sorted.length - 1) * (1 - cut))];
+  const lo = nthSmallest(alpha, Math.floor((alpha.length - 1) * cut));
+  const hi = nthSmallest(alpha, Math.floor((alpha.length - 1) * (1 - cut)));
   const pixels = new Uint8ClampedArray(alpha.length * 4);
   for (let i = 0; i < alpha.length; i++) {
     // alpha < 0 is nearer than the camera's focus plane.

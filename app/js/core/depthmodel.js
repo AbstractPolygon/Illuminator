@@ -3,6 +3,7 @@
 // trust) and the two are mixed by a setting.
 
 import { aiUpscaleAvailable } from './aiupscale.js';
+import { nthSmallest } from './typed.js';
 
 const sessions = new Map();
 
@@ -36,8 +37,7 @@ export function modelInput(model, rgb, w, h) {
   const n = w * h;
   const luma = new Float32Array(n);
   for (let i = 0; i < n; i++) luma[i] = 0.2126 * rgb[3 * i] + 0.7152 * rgb[3 * i + 1] + 0.0722 * rgb[3 * i + 2];
-  const sorted = Float32Array.from(luma).sort();
-  const white = Math.max(1e-4, sorted[Math.floor(n * 0.995)]);
+  const white = Math.max(1e-4, nthSmallest(luma, Math.floor(n * 0.995)));
   const S = model.input;
   const out = new Float32Array(3 * S * S);
   for (let y = 0; y < S; y++) {
@@ -124,8 +124,7 @@ export function fitModelDepth(rel, measured, confidence, w, h) {
     a = (sw * sxy - sx * sy) / den;
     b = (sy - a * sx) / sw;
     const res = idx.map((i) => Math.abs(measured[i] - (a * rel[i] + b)));
-    const sorted = Float32Array.from(res).sort();
-    spread = Math.max(1e-6, 1.4826 * sorted[sorted.length >> 1]);
+    spread = Math.max(1e-6, 1.4826 * nthSmallest(res, res.length >> 1));
     wt = res.map((r, k) => {
       const u = r / (4.685 * spread);
       return u >= 1 ? 0 : base[k] * (1 - u * u) ** 2;
@@ -186,9 +185,8 @@ export function shapeModelDepth(rel, w, h, { smooth = 0, curve = 0.5 } = {}) {
   }
   const gamma = 2 ** ((0.5 - curve) * 2);
   if (Math.abs(gamma - 1) > 1e-3) {
-    const sorted = Float32Array.from(out).sort();
-    const lo = sorted[Math.floor(0.01 * (sorted.length - 1))];
-    const hi = sorted[Math.floor(0.99 * (sorted.length - 1))];
+    const lo = nthSmallest(out, Math.floor(0.01 * (out.length - 1)));
+    const hi = nthSmallest(out, Math.floor(0.99 * (out.length - 1)));
     const span = hi - lo;
     if (span > 1e-9) {
       const bent = new Float32Array(out.length);
