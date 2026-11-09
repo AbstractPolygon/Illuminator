@@ -152,7 +152,10 @@ class ScsiTransport {
   async read(cdb, size) {
     const buf = passThrough(cdb, size ? DATA_IN : NO_DATA, size);
     this.send(buf);
-    return Buffer.from(buf.subarray(DATA_OFFSET, DATA_OFFSET + size));
+    // The driver writes the bytes actually transferred back into
+    // DataTransferLength; padding a short answer with zeros would look like data.
+    const got = Math.min(size, buf.readUInt32LE(12));
+    return Buffer.from(buf.subarray(DATA_OFFSET, DATA_OFFSET + got));
   }
 
   async write(cdb, data) {

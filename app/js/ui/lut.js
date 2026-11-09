@@ -1,6 +1,8 @@
 // LUT: moved out of main.js. initLut() runs where the section used to, with what it uses from the rest of the page.
 import { decodeLut, encodeLut, parseCube } from '../core/lut.js';
 
+const MAX_CUBE_BYTES = 64 * 1024 * 1024;
+
 export function initLut({ $, engine, showProgress, hideProgress, canRender, showNotice, startNoticeTimer, showError, scheduleSave, applySettingsSoon, TRASH_ICON, showSliderValue }) {
   // Process > LUT: a .cube color lookup table, kept with the photo's edits
   // (core/lut.js) and applied as the last step of the look.
@@ -31,9 +33,33 @@ export function initLut({ $, engine, showProgress, hideProgress, canRender, show
   async function sendLut() {
     const text = $('lut-data').value;
     if (text === lutSent) return;
-    lutSent = text;
     const saved = showLut();
-    await engine.request('setLut', { lut: saved ? decodeLut(saved) : null });
+    let lut = null;
+    try {
+      lut = saved ? decodeLut(saved) : null;
+    } catch {
+      lut = null;
+    }
+    if (saved && !lut) {
+      // Unusable data kept with the photo: drop it so the UI does not claim a LUT the render ignores.
+      $('lut-data').value = '';
+      showLut();
+      showNotice('The LUT saved with this photo could not be read and was removed.');
+      startNoticeTimer();
+      scheduleSave();
+      lutSent = null;
+      await engine.request('setLut', { lut: null }).catch(() => {});
+      lutSent = '';
+      return;
+    }
+    try {
+      await engine.request('setLut', { lut });
+      // Only after success, so a failed send is tried again on the next render.
+      lutSent = text;
+    } catch (err) {
+      showNotice(`The LUT could not be applied: ${err.message}`);
+      startNoticeTimer();
+    }
   }
 
   // Film looks bundled with the app (app/luts, built by
@@ -65,7 +91,13 @@ export function initLut({ $, engine, showProgress, hideProgress, canRender, show
     if (!filmLuts.data) {
       showProgress('Loading film looks', 0);
       try {
-        filmLuts.data = await (await fetch('luts/film-luts.bin')).arrayBuffer();
+        const res = await fetch('luts/film-luts.bin');
+        if (!res.ok) throw new Error(`Could not load the film looks (${res.status}).`);
+        const buf = await res.arrayBuffer();
+        // A server may answer 200 with an HTML page; cache only data that covers every LUT.
+        const need = filmLuts.index.luts.reduce((m, l) => Math.max(m, l.offset + l.size ** 3 * 6), 0);
+        if (buf.byteLength < need) throw new Error('The film looks file is incomplete or not the expected file.');
+        filmLuts.data = buf;
       } finally {
         hideProgress();
       }
@@ -119,6 +151,8 @@ export function initLut({ $, engine, showProgress, hideProgress, canRender, show
     $('lut-file').value = '';
     if (!file) return;
     try {
+      // A 65^3 .cube is about 5 MB; refuse anything far beyond that before reading it into memory.
+      if (file.size > MAX_CUBE_BYTES) throw new Error('the file is larger than 64 MB, too big for a .cube LUT');
       const lut = parseCube(await file.text());
       $('lut-data').value = JSON.stringify(encodeLut(lut, file.name.replace(/\.cube$/i, '')));
     } catch (err) {

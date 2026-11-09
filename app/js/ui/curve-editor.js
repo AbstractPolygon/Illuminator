@@ -106,7 +106,7 @@ export function curveEditor(canvas, { getPoints, getRegions, setPoints }) {
       index = pts.findIndex((p) => p[0] === x);
       setPoints(pts, false);
     }
-    drag = { index };
+    drag = { index, count: pts.length };
     canvas.setPointerCapture(e.pointerId);
     draw();
   });
@@ -116,6 +116,12 @@ export function curveEditor(canvas, { getPoints, getRegions, setPoints }) {
     const pts = getPoints().map((p) => [...p]);
     const [x, y] = toCurve(e);
     const i = drag.index;
+    // The points text can change mid-drag (undo, another photo): the index would point at a different or missing point.
+    if (pts.length !== drag.count || i >= pts.length) {
+      drag = null;
+      draw();
+      return;
+    }
     const last = pts.length - 1;
     // End points keep their place on the edges; the others stay between
     // their neighbours.

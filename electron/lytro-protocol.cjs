@@ -17,6 +17,7 @@
 
 const LOAD_TYPES = { hardware_info: 0, file: 1, picture_list: 2, picture: 5, calibration: 6, rawcompressedpicture: 7 };
 const PACKET = 65536;
+const MAX_EMPTY_READS = 3;
 const CALIBRATION_FILES = 62;
 const PICTURE_FORMATS = ['jpg', 'raw', 'txt', '128', 'stk'];
 
@@ -69,15 +70,27 @@ class LytroCamera {
     // In packets of 64 KB, each asked for by its offset, as Lyli does (a
     // camera answers big single reads less reliably).
     const parts = [];
-    for (let offset = 0; offset < size; offset += PACKET) {
+    let total = 0;
+    let empty = 0;
+    for (let offset = 0; offset < size;) {
+      const want = Math.min(PACKET, size - offset);
       const read = Buffer.alloc(16);
       read[0] = 0xc4;
       read[2] = 1;
       read.writeUInt32LE(offset, 3);
-      const part = await this.t.read(read, Math.min(PACKET, size - offset));
+      const part = await this.t.read(read, want);
+      if (!part.length) {
+        // A camera that answers with nothing is retried a few times, then the
+        // download fails: truncated data must never pass as a complete file.
+        if (++empty >= MAX_EMPTY_READS) break;
+        continue;
+      }
+      empty = 0;
       parts.push(part);
-      if (part.length < Math.min(PACKET, size - offset)) break;
+      total += part.length;
+      offset += part.length;
     }
+    if (total < size) throw new Error(`The camera sent only ${total} of ${size} bytes of ${name || type}`);
     return Buffer.concat(parts).subarray(0, size);
   }
 

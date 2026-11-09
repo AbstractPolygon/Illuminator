@@ -5,28 +5,14 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { launchBrowser } from './helpers/playwright.mjs';
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'app');
 const types = { '.js': 'text/javascript', '.html': 'text/html' };
 
-async function playwright() {
-  for (const spec of ['playwright', '/opt/node-tools/node_modules/playwright/index.mjs']) {
-    try {
-      return await import(spec);
-    } catch {}
-  }
-  return null;
-}
-
 test('the GPU noise reduction between textures matches the CPU port', async (t) => {
-  const pw = await playwright();
-  if (!pw) return t.skip('Playwright is not installed');
-  let browser;
-  try {
-    browser = await pw.chromium.launch({ args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
-  } catch {
-    return t.skip('No browser available');
-  }
+  const browser = await launchBrowser(t);
+  if (!browser) return;
   const server = http.createServer((q, r) => {
     const u = decodeURIComponent(q.url.split('?')[0]);
     if (u === '/t.html') {
@@ -91,8 +77,9 @@ test('the GPU noise reduction between textures matches the CPU port', async (t) 
     if (!res) return t.skip('No float render targets');
     // The filter changes the picture (so a copy would not pass), and the GPU result is the CPU result to within float rounding.
     assert.ok(res.filterChange > 0.0005, `the filter changed the picture by ${res.filterChange}`);
-    assert.ok(res.mean < 0.002, `mean difference ${res.mean}`);
-    assert.ok(res.max < 0.05, `largest difference ${res.max}`);
+    // Measured on SwiftShader: mean 5.3e-7, largest 4.4e-4 (limits leave headroom for other GPUs).
+    assert.ok(res.mean < 2e-6, `mean difference ${res.mean}`);
+    assert.ok(res.max < 2e-3, `largest difference ${res.max}`);
     t.diagnostic(`GPU against CPU: mean ${res.mean.toExponential(2)}, largest ${res.max.toExponential(2)}, the filter changes the picture by ${res.filterChange.toExponential(2)}`);
   } finally {
     await browser.close();
@@ -101,14 +88,8 @@ test('the GPU noise reduction between textures matches the CPU port', async (t) 
 });
 
 test('the whole GPU noise reduction chain gives the CPU path\'s picture', async (t) => {
-  const pw = await playwright();
-  if (!pw) return t.skip('Playwright is not installed');
-  let browser;
-  try {
-    browser = await pw.chromium.launch({ args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
-  } catch {
-    return t.skip('No browser available');
-  }
+  const browser = await launchBrowser(t);
+  if (!browser) return;
   const server = http.createServer((q, r) => {
     const u = decodeURIComponent(q.url.split('?')[0]);
     if (u === '/t.html') {
@@ -177,8 +158,9 @@ test('the whole GPU noise reduction chain gives the CPU path\'s picture', async 
     });
     if (!res) return t.skip('No float render targets');
     t.diagnostic(`GPU chain against the CPU path, in 8 bit levels: mean ${res.mean.toFixed(3)}, largest ${res.max}`);
-    assert.ok(res.mean < 0.6, `mean difference ${res.mean} levels`);
-    assert.ok(res.max <= 4, `largest difference ${res.max} levels`);
+    // Measured on SwiftShader: mean 0.000, largest 1 level.
+    assert.ok(res.mean < 0.05, `mean difference ${res.mean} levels`);
+    assert.ok(res.max <= 2, `largest difference ${res.max} levels`);
   } finally {
     await browser.close();
     server.close();

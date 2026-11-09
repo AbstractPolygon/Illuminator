@@ -6,28 +6,14 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { launchBrowser } from './helpers/playwright.mjs';
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'app');
 const types = { '.js': 'text/javascript', '.html': 'text/html' };
 
-async function playwright() {
-  for (const spec of ['playwright', '/opt/node-tools/node_modules/playwright/index.mjs']) {
-    try {
-      return await import(spec);
-    } catch {}
-  }
-  return null;
-}
-
 test('GPU noise reduction building blocks match the CPU port', async (t) => {
-  const pw = await playwright();
-  if (!pw) return t.skip('Playwright is not installed');
-  let browser;
-  try {
-    browser = await pw.chromium.launch({ args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
-  } catch {
-    return t.skip('No browser available');
-  }
+  const browser = await launchBrowser(t);
+  if (!browser) return;
   const server = http.createServer((q, r) => {
     const u = decodeURIComponent(q.url.split('?')[0]);
     if (u === '/t.html') {
@@ -98,7 +84,8 @@ test('GPU noise reduction building blocks match the CPU port', async (t) => {
     t.diagnostic(JSON.stringify({ worstLine: res.worstLine, bad: res.bad, n: res.lines.length, whole: res.whole, cpuChange: res.cpuChange }));
     assert.equal(res.error, 0);
     assert.ok(res.worstLine < 1e-3, `line filter differs: ${JSON.stringify(res.bad)}`);
-    for (const c of res.whole) assert.ok(c.worst < 0.05 && c.mean < 0.005, `whole filter differs: ${JSON.stringify(res.whole)}`);
+    for (const c of res.whole) // Measured on SwiftShader: worst 0.0134, mean 1.6e-5 (headroom for other GPUs about 2x).
+      assert.ok(c.worst < 0.03 && c.mean < 4e-5, `whole filter differs: ${JSON.stringify(res.whole)}`);
   } finally {
     await browser.close();
     server.close();

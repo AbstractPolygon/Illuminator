@@ -135,15 +135,19 @@ export function isDefect(raw, width, i) {
 // whose rays landed in a dotted pattern along the edge.
 export const DEPTH_STEP_TOLERANCE = 0.12;
 export function sampleDepth(img, w, h, x, y) {
-  const fx = Math.min(w - 1.001, Math.max(0, x));
-  const fy = Math.min(h - 1.001, Math.max(0, y));
+  // Max outside min: for a size of 1 the upper bound is negative, which would put x0 at -1 (a read outside the map).
+  const fx = Math.max(0, Math.min(w - 1.001, x));
+  const fy = Math.max(0, Math.min(h - 1.001, y));
   const x0 = Math.floor(fx);
   const y0 = Math.floor(fy);
+  // Neighbors clamp to the map: for w or h of 1 there is no texel beyond (the same texel is read, weight 0 in effect).
+  const dx = x0 + 1 < w ? 1 : 0;
+  const dy = y0 + 1 < h ? w : 0;
   const q = y0 * w + x0;
   const a = img[q];
-  const b = img[q + 1];
-  const c = img[q + w];
-  const d = img[q + w + 1];
+  const b = img[q + dx];
+  const c = img[q + dy];
+  const d = img[q + dy + dx];
   const lo = Math.min(a, b, c, d);
   const hi = Math.max(a, b, c, d);
   if (hi - lo > DEPTH_STEP_TOLERANCE) {
@@ -157,14 +161,16 @@ export function sampleDepth(img, w, h, x, y) {
 }
 
 function sampleBilinear(img, w, h, x, y) {
-  const fx = Math.min(w - 1.001, Math.max(0, x));
-  const fy = Math.min(h - 1.001, Math.max(0, y));
+  const fx = Math.max(0, Math.min(w - 1.001, x));
+  const fy = Math.max(0, Math.min(h - 1.001, y));
   const x0 = Math.floor(fx);
   const y0 = Math.floor(fy);
   const ax = fx - x0;
   const ay = fy - y0;
   const q = y0 * w + x0;
-  return (img[q] * (1 - ax) + img[q + 1] * ax) * (1 - ay) + (img[q + w] * (1 - ax) + img[q + w + 1] * ax) * ay;
+  const dx = x0 + 1 < w ? 1 : 0;
+  const dy = y0 + 1 < h ? w : 0;
+  return (img[q] * (1 - ax) + img[q + dx] * ax) * (1 - ay) + (img[q + dy] * (1 - ax) + img[q + dy + dx] * ax) * ay;
 }
 
 // options: { alpha, allInFocus, u0, v0, apertureSigma, scale, vignetting,

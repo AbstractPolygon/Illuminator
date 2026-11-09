@@ -64,3 +64,4 @@ const result = await p.evaluate(async () => {
 console.log(JSON.stringify(result));
 console.log(errors.length ? 'ERRORS:\n' + errors.join('\n') : 'no errors');
 await b.close(); srv.close();
+if (errors.length) process.exitCode = 1;

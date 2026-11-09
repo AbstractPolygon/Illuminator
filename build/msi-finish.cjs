@@ -30,25 +30,36 @@ function statements() {
 const EXISTS = `SELECT \`Control\` FROM \`Control\` WHERE \`Dialog_\`='${DIALOG}' AND \`Control\`='${CONTROL}'`;
 const HAS_VALUE = "SELECT `Value` FROM `CheckBox` WHERE `Property`='ADDTODESKTOP'";
 
+// A COM error (a failed INSERT) must stop the script with a non-zero exit code: by default PowerShell reports it and carries on, which printed the success
+// message and shipped an MSI without the checkbox. `param` has to come first in a script, so the preference is set on the next line.
 const PS = `
 param($msi, $json)
-$sql = Get-Content -Raw -LiteralPath $json | ConvertFrom-Json
-$wi = New-Object -ComObject WindowsInstaller.Installer
-$db = $wi.GetType().InvokeMember('OpenDatabase', 'InvokeMethod', $null, $wi, @($msi, 1))
-function Run($q) {
-  $v = $db.GetType().InvokeMember('OpenView', 'InvokeMethod', $null, $db, @($q))
-  $v.GetType().InvokeMember('Execute', 'InvokeMethod', $null, $v, $null) | Out-Null
-  $n = 0
-  if ($q -like 'SELECT*') { while ($v.GetType().InvokeMember('Fetch', 'InvokeMethod', $null, $v, $null)) { $n++ } }
-  $v.GetType().InvokeMember('Close', 'InvokeMethod', $null, $v, $null) | Out-Null
-  return $n
+$ErrorActionPreference = 'Stop'
+try {
+  $sql = Get-Content -Raw -LiteralPath $json | ConvertFrom-Json
+  $wi = New-Object -ComObject WindowsInstaller.Installer
+  $db = $wi.GetType().InvokeMember('OpenDatabase', 'InvokeMethod', $null, $wi, @($msi, 1))
+  function Run($q) {
+    $v = $db.GetType().InvokeMember('OpenView', 'InvokeMethod', $null, $db, @($q))
+    $v.GetType().InvokeMember('Execute', 'InvokeMethod', $null, $v, $null) | Out-Null
+    $n = 0
+    if ($q -like 'SELECT*') { while ($v.GetType().InvokeMember('Fetch', 'InvokeMethod', $null, $v, $null)) { $n++ } }
+    $v.GetType().InvokeMember('Close', 'InvokeMethod', $null, $v, $null) | Out-Null
+    return $n
+  }
+  if ((Run $sql.exists) -eq 0) {
+    Run $sql.statements[0] | Out-Null
+    if ((Run $sql.hasValue) -eq 0) { Run $sql.statements[1] | Out-Null }
+    $db.GetType().InvokeMember('Commit', 'InvokeMethod', $null, $db, $null) | Out-Null
+    if ((Run $sql.exists) -eq 0) { throw 'the desktop checkbox is not in the package after the commit' }
+    $message = 'added the desktop checkbox'
+  } else { $message = 'the desktop checkbox is already there' }
+  Write-Host $message
+  exit 0
+} catch {
+  [Console]::Error.WriteLine('msi-finish: ' + $_)
+  exit 1
 }
-if ((Run $sql.exists) -eq 0) {
-  Run $sql.statements[0] | Out-Null
-  if ((Run $sql.hasValue) -eq 0) { Run $sql.statements[1] | Out-Null }
-  $db.GetType().InvokeMember('Commit', 'InvokeMethod', $null, $db, $null) | Out-Null
-  Write-Host 'added the desktop checkbox'
-} else { Write-Host 'the desktop checkbox is already there' }
 `;
 
 function addCheckbox(msi) {
@@ -64,7 +75,8 @@ function addCheckbox(msi) {
   fs.writeFileSync(json, JSON.stringify({ exists: EXISTS, hasValue: HAS_VALUE, statements: [insertControl, insertValue] }));
   const r = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', ps1, msi, json], { encoding: 'utf8' });
   fs.rmSync(dir, { recursive: true, force: true });
-  if (r.status !== 0) throw new Error(`msi-finish: adding the checkbox to ${msi} failed: ${r.stderr || r.stdout}`);
+  // A failure to start PowerShell (r.error) or any non-zero exit fails the build: an MSI without the checkbox must not ship.
+  if (r.error || r.status !== 0) throw new Error(`msi-finish: adding the checkbox to ${msi} failed: ${r.error ? r.error.message : r.stderr || r.stdout}`);
   console.log(`msi-finish: ${r.stdout.trim()} (${msi})`);
   return true;
 }

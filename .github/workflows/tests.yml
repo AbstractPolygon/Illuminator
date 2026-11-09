@@ -1,0 +1,37 @@
+# Runs the whole test suite, including the browser (GPU) tests, on every push and pull request. The installer workflow (desktop.yml) runs only on tags and by hand,
+# and skips the browser tests on purpose, so without this workflow nothing would run them on a normal commit.
+# The browser tests render with Chromium's software WebGL (SwiftShader, flags set in test/helpers/playwright.mjs), so the runner needs no GPU.
+name: Tests
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  browser-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      - name: Install
+        run: npm ci --no-audit --no-fund
+
+      # The version comes from package-lock.json (playwright is pinned), so the browser revision matches the library.
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      # test/dmresampler.test.mjs compares against a Python port and skips without numpy.
+      - name: Install numpy
+        run: sudo apt-get install -y --no-install-recommends python3-numpy
+
+      # CI is set by GitHub: a missing browser fails the browser tests instead of skipping them.
+      - name: Test
+        run: npm test

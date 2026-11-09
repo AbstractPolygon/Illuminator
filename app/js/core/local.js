@@ -46,8 +46,25 @@ export function parseMasks(text) {
       const d = defaultMask(m.kind);
       // Masks saved before ids existed are named by their place.
       const id = typeof m.id === 'string' && m.id ? m.id : `m${i}`;
-      return { ...d, ...m, id, fx: { ...d.fx, ...(m.fx || {}) } };
+      const out = { ...d, ...m, id, kind: m.kind, fx: sanitizeFx(d.fx, m.fx) };
+      // A saved file can hold anything: a field of the wrong type (x: "a", on: "yes") falls back to the default instead of turning into NaN in the render.
+      for (const [k, def] of Object.entries(d)) {
+        if (k === 'id' || k === 'kind' || k === 'fx') continue;
+        if (typeof def === 'number' && !(typeof m[k] === 'number' && Number.isFinite(m[k]))) out[k] = def;
+        else if (typeof def === 'boolean' && typeof m[k] !== 'boolean') out[k] = def;
+      }
+      if ('followView' in out && typeof out.followView !== 'boolean') delete out.followView;
+      return out;
     });
+}
+
+function sanitizeFx(defaults, saved) {
+  const fx = { ...defaults };
+  if (!saved || typeof saved !== 'object') return fx;
+  for (const [k, v] of Object.entries(saved)) {
+    if (typeof v === 'number' && Number.isFinite(v)) fx[k] = v;
+  }
+  return fx;
 }
 
 // The masks as one picture uses them: `overrides[id]` ({ attr: value },
