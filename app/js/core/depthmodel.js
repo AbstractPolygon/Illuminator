@@ -32,6 +32,18 @@ async function session(model, readModel) {
   return sessions.get(model.id);
 }
 
+// Frees a model's session (weights or GPU buffers) and forgets it, so the next use creates it again. Errors are ignored: the session may still be loading or already gone.
+export async function releaseDepthSession(id) {
+  const pending = sessions.get(id);
+  sessions.delete(id);
+  try {
+    const entry = await pending;
+    if (typeof entry?.session?.release === 'function') await entry.session.release();
+  } catch {
+    // nothing to release
+  }
+}
+
 // The model's input: the picture (linear RGB, w x h) exposed so its 99.5th percentile of brightness is white, as sRGB, squashed to S x S and normalised (planar RGB).
 export function modelInput(model, rgb, w, h) {
   const n = w * h;

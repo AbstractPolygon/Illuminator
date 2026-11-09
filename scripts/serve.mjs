@@ -8,6 +8,8 @@ import { fileURLToPath } from 'node:url';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'app');
 const portArg = process.argv.indexOf('--port');
 const port = portArg > 0 ? +process.argv[portArg + 1] : +(process.env.PORT || 8080);
+// Local only by default; HOST=0.0.0.0 opts in to reaching it from another device.
+const host = process.env.HOST || '127.0.0.1';
 const types = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
@@ -20,8 +22,20 @@ const types = {
 };
 
 http.createServer((req, res) => {
-  const url = new URL(req.url, 'http://localhost');
-  const file = path.join(root, decodeURIComponent(url.pathname === '/' ? '/index.html' : url.pathname));
+  // One malformed request must not throw out of the handler and end the server.
+  let file;
+  try {
+    const url = new URL(req.url, 'http://localhost');
+    const rel = decodeURIComponent(url.pathname === '/' ? '/index.html' : url.pathname);
+    if (rel.includes('\0')) {
+      res.writeHead(400).end('Bad request');
+      return;
+    }
+    file = path.join(root, rel);
+  } catch {
+    res.writeHead(400).end('Bad request');
+    return;
+  }
   if (!file.startsWith(root + path.sep)) {
     res.writeHead(403).end();
     return;
@@ -34,4 +48,4 @@ http.createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': types[path.extname(file)] || 'application/octet-stream', 'Cache-Control': 'no-cache' });
     res.end(data);
   });
-}).listen(port, () => console.log(`Illuminator: http://localhost:${port}/`));
+}).listen(port, host, () => console.log(`Illuminator: http://${host === '0.0.0.0' ? 'localhost' : host}:${port}/`));

@@ -3307,6 +3307,8 @@ async function refreshDepthModels() {
             await downloadDepthModel(m, (p) => { status.textContent = `Downloading… ${Math.round(p * 100)}%`; });
           } else {
             await removeDepthModel(m);
+            // The worker keeps the model's session (tens of megabytes) until told to let it go.
+            await engine.request('releaseDepthModel', { model: m.id }).catch(() => {});
           }
           status.textContent = '';
         } catch (err) {

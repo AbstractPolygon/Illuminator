@@ -67,6 +67,24 @@ async function modelBytes(name, onProgress) {
 }
 
 // The model sessions; loaded once. `onProgress(stage, 0..1)`.
+// Frees a session's (GPU) memory; a session that is already gone or cannot release is ignored.
+async function releaseSession(s) {
+  try {
+    if (typeof s?.release === 'function') await s.release();
+  } catch {
+    // nothing to release
+  }
+}
+
+// Frees a tensor's memory (a GPU buffer for the encoder's output); CPU tensors have nothing to free.
+function disposeTensor(t) {
+  try {
+    if (typeof t?.dispose === 'function') t.dispose();
+  } catch {
+    // already disposed
+  }
+}
+
 export function loadSegModel(onProgress = () => {}) {
   loading ??= (async () => {
     const ort = await import('../../vendor/ort/ort.webgpu.min.mjs');
@@ -88,6 +106,8 @@ export function loadSegModel(onProgress = () => {}) {
         encoder = await ort.InferenceSession.create(enc, { executionProviders: ['webgpu'], preferredOutputLocation: { image_embeddings: 'gpu-buffer' } });
         device = 'gpu';
       } catch {
+        // The decoder session may exist when the encoder failed: release it, or its GPU buffers stay until the page closes.
+        await releaseSession(decoder);
         encoder = null;
         decoder = null;
       }
@@ -151,45 +171,52 @@ export async function findObjectMasks(model, rgb, w, h, { cols = 9, rows = 6, sc
   const { input, nw, nh, scale } = (prep && prep(rgb, w, h)) || segmentInput(rgb, w, h);
   onProgress('Finding objects', 0);
   let embeddings = (await encoder.run({ input_image: new ort.Tensor('float32', input, [nh, nw, 3]) })).image_embeddings;
-  let decode = decoder;
-  const mw = Math.max(8, Math.round(w * outScale));
-  const mh = Math.max(8, Math.round(h * outScale));
-  const masks = [];
-  const total = cols * rows;
-  for (let j = 0; j < rows; j++) {
-    for (let i = 0; i < cols; i++) {
-      const feeds = (emb) => ({
-        image_embeddings: emb,
-        point_coords: new ort.Tensor('float32', new Float32Array([(((i + 0.5) / cols) * w) * scale, (((j + 0.5) / rows) * h) * scale]), [1, 1, 2]),
-        point_labels: new ort.Tensor('float32', new Float32Array([1]), [1, 1]),
-        mask_input: new ort.Tensor('float32', new Float32Array(256 * 256), [1, 1, 256, 256]),
-        has_mask_input: new ort.Tensor('float32', new Float32Array([0]), [1]),
-        orig_im_size: new ort.Tensor('float32', new Float32Array([mh, mw]), [2]),
-      });
-      let out;
-      try {
-        out = await decode.run(feeds(embeddings));
-      } catch (e) {
-        // the decoder could not run on the card: fetch the embeddings once and finish on the CPU
-        if (model.device !== 'gpu' || decode !== decoder) throw e;
-        const data = await embeddings.getData();
-        embeddings = new ort.Tensor('float32', data, embeddings.dims);
-        model.cpuDecoder ??= await ort.InferenceSession.create(model.decoderBytes, { executionProviders: ['wasm'] });
-        decode = model.cpuDecoder;
-        out = await decode.run(feeds(embeddings));
-      }
-      const m = out.masks.data;
-      const bin = new Uint8Array(mw * mh);
-      let area = 0;
-      for (let k = 0; k < mw * mh; k++) {
-        if (m[k] > 0) {
-          bin[k] = 1;
-          area++;
+  try {
+    let decode = decoder;
+    const mw = Math.max(8, Math.round(w * outScale));
+    const mh = Math.max(8, Math.round(h * outScale));
+    const masks = [];
+    const total = cols * rows;
+    for (let j = 0; j < rows; j++) {
+      for (let i = 0; i < cols; i++) {
+        const feeds = (emb) => ({
+          image_embeddings: emb,
+          point_coords: new ort.Tensor('float32', new Float32Array([(((i + 0.5) / cols) * w) * scale, (((j + 0.5) / rows) * h) * scale]), [1, 1, 2]),
+          point_labels: new ort.Tensor('float32', new Float32Array([1]), [1, 1]),
+          mask_input: new ort.Tensor('float32', new Float32Array(256 * 256), [1, 1, 256, 256]),
+          has_mask_input: new ort.Tensor('float32', new Float32Array([0]), [1]),
+          orig_im_size: new ort.Tensor('float32', new Float32Array([mh, mw]), [2]),
+        });
+        let out;
+        try {
+          out = await decode.run(feeds(embeddings));
+        } catch (e) {
+          // the decoder could not run on the card: fetch the embeddings once and finish on the CPU
+          if (model.device !== 'gpu' || decode !== decoder) throw e;
+          const data = await embeddings.getData();
+          const gpuEmbeddings = embeddings;
+          embeddings = new ort.Tensor('float32', data, embeddings.dims);
+          disposeTensor(gpuEmbeddings);
+          model.cpuDecoder ??= await ort.InferenceSession.create(model.decoderBytes, { executionProviders: ['wasm'] });
+          decode = model.cpuDecoder;
+          out = await decode.run(feeds(embeddings));
         }
+        const m = out.masks.data;
+        const bin = new Uint8Array(mw * mh);
+        let area = 0;
+        for (let k = 0; k < mw * mh; k++) {
+          if (m[k] > 0) {
+            bin[k] = 1;
+            area++;
+          }
+        }
+        masks.push({ bin, area, quality: out.iou_predictions.data[0] });
+        onProgress('Finding objects', (j * cols + i + 1) / total);
       }
-      masks.push({ bin, area, quality: out.iou_predictions.data[0] });
-      onProgress('Finding objects', (j * cols + i + 1) / total);
     }
+    return { w: mw, h: mh, masks };
+  } finally {
+    // each call makes ~4 MB of GPU embeddings; they are not garbage collected
+    disposeTensor(embeddings);
   }
-  return { w: mw, h: mh, masks };
 }

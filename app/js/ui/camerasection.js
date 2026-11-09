@@ -84,8 +84,10 @@ export function initCameraSection({ state, cameraThumbs, renderLibrary, $, showG
       else {
         cameraThumb(cam, f).then((t) => {
           if (!t || state.cameraSection.cam !== cam) return;
-          const url = URL.createObjectURL(new Blob([t.bytes], { type: t.mime }));
-          cameraThumbs.set(key, url);
+          // The grid can be rendered again while thumbnails load: reuse the
+          // URL an earlier call made for this key instead of leaking a second.
+          if (!cameraThumbs.has(key)) cameraThumbs.set(key, URL.createObjectURL(new Blob([t.bytes], { type: t.mime })));
+          const url = cameraThumbs.get(key);
           frame.append(Object.assign(document.createElement('img'), { src: url, alt: '' }));
         }).catch(() => {});
       }

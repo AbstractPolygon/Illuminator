@@ -31,6 +31,9 @@ const MAGIC = 0xaf0990fa;
 // The field curvature of the rays as a change of the depth map (see focusAt).
 export const FOCUS_FIELD = { on: false, gain: 1, across: 24, down: 16, own: true };
 
+const MAX_AXIS = 256;
+const MAX_CELLS = 8e6; // 16 bytes a cell in the dense grid; real tables have about 30 thousand
+
 export function parseRayWarp(bytes, width, height, { tilt = true, chief = false } = {}) {
   if (!bytes || bytes.length < 104) return null;
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
@@ -58,6 +61,10 @@ export function parseRayWarp(bytes, width, height, { tilt = true, chief = false 
   const maskB = bytes.subarray(104 + 17 * nodes, 104 + 18 * nodes);
   const table = { na, nb, nc, A, B, maskA, maskB, stepA, stepB, stepC };
   const n = [0, 1, 2, 3].map((k) => Math.trunc(1 + (1 / step[k]) * ext[k] + 2 * border));
+  // The grid sizes come from header floats; a corrupt or hostile file must not ask for gigabytes (the node count above only checks the
+  // table's size). Real files have a few dozen steps per axis.
+  const cells = n[0] * n[1] * n[2] * n[3];
+  if (!n.every((v) => Number.isFinite(v) && v >= 2 && v <= MAX_AXIS) || !(cells <= MAX_CELLS)) return null;
   const dense = buildDense(table, { mins, step, n, border }, width, height);
   return makeEvaluator(dense, n, mins, step, border, tilt, chief);
 }

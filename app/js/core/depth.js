@@ -188,9 +188,12 @@ function angularVarianceGroups(lums, views, w, h, alpha, floor, level, keeps) {
     const ax = sx - ix;
     const ay = sy - iy;
     const x0 = Math.max(0, -ix);
-    const x1 = Math.min(w, w - ix - 1);
+    const x1 = Math.min(w, ax > 0 ? w - ix - 1 : w - ix);
     const y0 = Math.max(0, -iy);
-    const y1 = Math.min(h, h - iy - 1);
+    const y1 = Math.min(h, ay > 0 ? h - iy - 1 : h - iy);
+    // The second tap only exists (and only has weight) when there is a fraction; at the last column or row it would read past the image.
+    const ox = ax > 0 ? 1 : 0;
+    const oy = ay > 0 ? w : 0;
     const S = members.map((j) => sums[j]);
     const Q = members.map((j) => sqs[j]);
     const C = members.map((j) => cnts[j]);
@@ -198,7 +201,7 @@ function angularVarianceGroups(lums, views, w, h, alpha, floor, level, keeps) {
       const src = (y + iy) * w + ix;
       for (let x = x0; x < x1; x++) {
         const s = src + x;
-        const v = (lum[s] * (1 - ax) + lum[s + 1] * ax) * (1 - ay) + (lum[s + w] * (1 - ax) + lum[s + w + 1] * ax) * ay;
+        const v = (lum[s] * (1 - ax) + lum[s + ox] * ax) * (1 - ay) + (lum[s + oy] * (1 - ax) + lum[s + oy + ox] * ax) * ay;
         const vv = v * v;
         const d = y * w + x;
         for (let j = 0; j < m; j++) {
@@ -209,14 +212,20 @@ function angularVarianceGroups(lums, views, w, h, alpha, floor, level, keeps) {
       }
     }
   });
-  return keeps.map((_, j) => varianceOf(sums[j], sqs[j], cnts[j], level, floor));
+  // The first group is the whole aperture (an empty one stays 0 as before). A half with fewer than two views at a pixel has no spread to measure, and 0 would pass
+  // for a perfect match and win the best-half test, so it is Infinity there (the caller takes the minimum with the whole aperture, which is finite).
+  return keeps.map((_, j) => varianceOf(sums[j], sqs[j], cnts[j], level, floor, j === 0 ? 0 : 2));
 }
 
 // The variance per pixel from the sums, relative to the local brightness so dark and bright regions are judged alike, but not below `floor`: in dark areas that
-// amplifies noise.
-function varianceOf(sum, sq, cnt, level, floor) {
+// amplifies noise. Where fewer than `minViews` views landed the variance is Infinity (unmeasured, never a match).
+function varianceOf(sum, sq, cnt, level, floor, minViews = 0) {
   const out = new Float32Array(sum.length);
   for (let i = 0; i < out.length; i++) {
+    if (cnt[i] < minViews) {
+      out[i] = Infinity;
+      continue;
+    }
     const n = cnt[i] || 1;
     const m = sum[i] / n;
     out[i] = Math.max(0, sq[i] / n - m * m) / (level[i] * level[i] + floor);
@@ -238,14 +247,17 @@ function angularVarianceOf(lums, views, w, h, alpha, floor, level, keep) {
     const ax = sx - ix;
     const ay = sy - iy;
     const x0 = Math.max(0, -ix);
-    const x1 = Math.min(w, w - ix - 1);
+    const x1 = Math.min(w, ax > 0 ? w - ix - 1 : w - ix);
     const y0 = Math.max(0, -iy);
-    const y1 = Math.min(h, h - iy - 1);
+    const y1 = Math.min(h, ay > 0 ? h - iy - 1 : h - iy);
+    // The second tap only exists (and only has weight) when there is a fraction; at the last column or row it would read past the image.
+    const ox = ax > 0 ? 1 : 0;
+    const oy = ay > 0 ? w : 0;
     for (let y = y0; y < y1; y++) {
       const src = (y + iy) * w + ix;
       for (let x = x0; x < x1; x++) {
         const s = src + x;
-        const v = (lum[s] * (1 - ax) + lum[s + 1] * ax) * (1 - ay) + (lum[s + w] * (1 - ax) + lum[s + w + 1] * ax) * ay;
+        const v = (lum[s] * (1 - ax) + lum[s + ox] * ax) * (1 - ay) + (lum[s + oy] * (1 - ax) + lum[s + oy + ox] * ax) * ay;
         const d = y * w + x;
         sum[d] += v;
         sq[d] += v * v;
@@ -522,16 +534,19 @@ function maskedVariance(lums, views, masks, w, h, alpha, floor, level) {
     const ax = sx - ix;
     const ay = sy - iy;
     const x0 = Math.max(0, -ix);
-    const x1 = Math.min(w, w - ix - 1);
+    const x1 = Math.min(w, ax > 0 ? w - ix - 1 : w - ix);
     const y0 = Math.max(0, -iy);
-    const y1 = Math.min(h, h - iy - 1);
+    const y1 = Math.min(h, ay > 0 ? h - iy - 1 : h - iy);
+    // The second tap only exists (and only has weight) when there is a fraction; at the last column or row it would read past the image.
+    const ox = ax > 0 ? 1 : 0;
+    const oy = ay > 0 ? w : 0;
     for (let y = y0; y < y1; y++) {
       const src = (y + iy) * w + ix;
       for (let x = x0; x < x1; x++) {
         const d = y * w + x;
         if (mask && !mask[d]) continue;
         const s = src + x;
-        const v = (lum[s] * (1 - ax) + lum[s + 1] * ax) * (1 - ay) + (lum[s + w] * (1 - ax) + lum[s + w + 1] * ax) * ay;
+        const v = (lum[s] * (1 - ax) + lum[s + ox] * ax) * (1 - ay) + (lum[s + oy] * (1 - ax) + lum[s + oy + ox] * ax) * ay;
         sum[d] += v;
         sq[d] += v * v;
         cnt[d]++;
@@ -776,9 +791,12 @@ export function lytroCost(prep, views, width, height, alpha, { tc, tg, weight },
     const ax = sx - ix;
     const ay = sy - iy;
     const x0 = Math.max(0, -ix);
-    const x1 = Math.min(width, width - ix - 1);
+    const x1 = Math.min(width, ax > 0 ? width - ix - 1 : width - ix);
     const y0 = Math.max(0, -iy);
-    const y1 = Math.min(height, height - iy - 1);
+    const y1 = Math.min(height, ay > 0 ? height - iy - 1 : height - iy);
+    // Taps with no weight are not read: at the last column or row they would be outside the image.
+    const tx = ax > 0 ? 3 : 0;
+    const ty = ay > 0 ? 3 * width : 0;
     const w00 = (1 - ax) * (1 - ay);
     const w10 = ax * (1 - ay);
     const w01 = (1 - ax) * ay;
@@ -789,9 +807,9 @@ export function lytroCost(prep, views, width, height, alpha, { tc, tg, weight },
       for (let x = x0; x < x1; x++, s++, d++) {
         if (mask && !mask[d]) continue;
         const a = 3 * s;
-        const b = a + 3;
-        const c = a + 3 * width;
-        const e = c + 3;
+        const b = a + tx;
+        const c = a + ty;
+        const e = c + tx;
         const dr = Math.abs(col[a] * w00 + col[b] * w10 + col[c] * w01 + col[e] * w11 - rc[3 * d]);
         const dg = Math.abs(col[a + 1] * w00 + col[b + 1] * w10 + col[c + 1] * w01 + col[e + 1] * w11 - rc[3 * d + 1]);
         const db = Math.abs(col[a + 2] * w00 + col[b + 2] * w10 + col[c + 2] * w01 + col[e + 2] * w11 - rc[3 * d + 2]);
@@ -1098,7 +1116,7 @@ export function searchPlanner(steps, n, { stride = DEPTH_FAST_SEARCH.stride, tai
       const count = new Float64Array(steps);
       let total = 0;
       for (let i = 0; i < n; i++) {
-        const c = Math.min(1, ((gain[i] / (mean[i] + floor)) ** 2) * DEPTH_FILL.trust);
+        const c = Math.min(1, ((gain[i] / (mean[i] + floor + 1e-12)) ** 2) * DEPTH_FILL.trust);
         count[bestAt[i]] += c;
         total += c;
       }
@@ -1397,6 +1415,8 @@ export function finishDepth({ alpha, cost, meanCost }, width, height, guide, { r
   const step = (p) => onProgress && onProgress(p);
   const fillOf = fill && color ? (v, c, g, w, h, sigmaS, sigmaR, it, col) => fill(v, c, col, w, h, sigmaS, sigmaR, it) : edgeAwareFill;
   const n = width * height;
+  // Work on a copy: the fill below writes into the depth, and the caller's measured depth must stay as measured.
+  alpha = Float32Array.from(alpha);
   const confidence = Float32Array.from(cost);
   if (DEPTH_DIRECT.on) {
     // 1e-12 keeps a flat input (all costs 0) from giving 0/0.
@@ -1521,7 +1541,7 @@ export const DEPTH_STEP = 0.04;
 // the smoothing reaches (repeated 5 x 5 passes). Returns a new array.
 export function smoothDepth(alpha, width, height, guide, { amount = 0.3, confidence = null, step = 0 } = {}) {
   const passes = Math.round(amount * 8);
-  if (passes <= 0) return alpha;
+  if (passes <= 0) return Float32Array.from(alpha);
   const n = width * height;
   // Guide brightness in a square-root space, so dark and bright areas
   // separate edges alike.
@@ -1574,9 +1594,12 @@ export function smoothDepth(alpha, width, height, guide, { amount = 0.3, confide
 // The match style's depth labels: whole steps of one lambda unit
 // (LAMBDA_ALPHA alpha each) from -35 up to `top` lambda.
 export const DEPTH_MATCH = { subLabel: false, first: -35, top: 8, lambda: 0.0814, adapt: { on: true, fine: 48, lowQ: 0.005, highQ: 0.995, pad: 1 } };
-const SEARCH_CLASSIC = { ...DEPTH_SEARCH };
-const STYLE_CLASSIC = { lcost: { on: false }, cbca: { on: false }, trws: { on: false }, direct: { on: false }, coarse: null };
+// Every tuning object setDepthStyle touches, as it is at load: each style switch puts all their fields back first, so the values the match style writes (and any other
+// change) cannot carry over to the next photo or into the classic chain.
+const STYLE_OBJECTS = { search: DEPTH_SEARCH, lcost: DEPTH_LCOST, cbca: DEPTH_CBCA, trws: DEPTH_TRWS, edge: DEPTH_EDGE, direct: DEPTH_DIRECT, coarse: DEPTH_COARSE };
+const STYLE_CLASSIC = Object.fromEntries(Object.entries(STYLE_OBJECTS).map(([k, o]) => [k, { ...o }]));
 export function setDepthStyle(style) {
+  for (const k in STYLE_OBJECTS) Object.assign(STYLE_OBJECTS[k], STYLE_CLASSIC[k]);
   if (style === 'match') {
     Object.assign(DEPTH_LCOST, { on: true, weight: 1, tc: 0.2, discrete: !DEPTH_MATCH.subLabel });
     Object.assign(DEPTH_CBCA, { on: true, arm: 34, long: 17, tau: 0.04, tau2: 0.025, iterations: 4 });
@@ -1586,14 +1609,6 @@ export function setDepthStyle(style) {
     DEPTH_COARSE.on = false;
     const { first, top, lambda } = DEPTH_MATCH;
     Object.assign(DEPTH_SEARCH, { min: first * lambda, max: top * lambda, steps: top - first + 1 });
-  } else {
-    Object.assign(DEPTH_SEARCH, SEARCH_CLASSIC);
-    Object.assign(DEPTH_LCOST, STYLE_CLASSIC.lcost, { discrete: false });
-    Object.assign(DEPTH_CBCA, STYLE_CLASSIC.cbca);
-    Object.assign(DEPTH_TRWS, STYLE_CLASSIC.trws);
-    DEPTH_EDGE.on = false;
-    Object.assign(DEPTH_DIRECT, STYLE_CLASSIC.direct);
-    DEPTH_COARSE.on = true;
   }
 }
 

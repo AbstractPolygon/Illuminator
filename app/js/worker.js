@@ -24,7 +24,7 @@ import { CACHE_REV } from './core/cacherev.js';
 import { removePeriodicPatternRepeatedly, removeLatticeByTiles } from './core/notch.js';
 import { snapDepthEdges, snapToObjects, softenObjectEdges, EDGE_SNAP_DEPTH } from './core/segments.js';
 import { methodDepthModel, readDepthModel } from './core/depthmodels.js';
-import { runDepthModel, fitModelDepth, shapeModelDepth, fuseModelDepth } from './core/depthmodel.js';
+import { releaseDepthSession, runDepthModel, fitModelDepth, shapeModelDepth, fuseModelDepth } from './core/depthmodel.js';
 import { shapeDepthContrast, setDepthStyle, estimateDepth, estimateDepthPooled, poolable, DEPTH_FAST_SEARCH, focusAtPoint, smoothDepth, finishDepth, depthGuide, depthColorGuide, luminance, brightnessFloor, DEPTH_SEARCH, DEPTH_LCOST, DEPTH_CBCA, DEPTH_TRWS, DEPTH_COARSE, DEPTH_STEP, DEPTH_REGIONS, combineCoarse } from './core/depth.js';
 import { applyDepthOfField } from './core/dof.js';
 import { defringe, autoDefringe } from './core/defringe.js';
@@ -930,7 +930,13 @@ async function open({ id, bytes, synthetic, userDepth = null, depthCache = null,
     state.modulation = undefined;
     state.photoWhite = undefined;
     state.lensShiftFor = null;
-    state.rayWarp = state.lf.rayWarpBytes ? parseRayWarp(state.lf.rayWarpBytes, state.lf.cam.width, state.lf.cam.height) : null;
+    state.rayWarp = null;
+    try {
+      // A corrupt ray table must not stop the photo opening: it goes without one.
+      if (state.lf.rayWarpBytes) state.rayWarp = parseRayWarp(state.lf.rayWarpBytes, state.lf.cam.width, state.lf.cam.height);
+    } catch {
+      state.rayWarp = null;
+    }
     // The photo's own distortion, from its ray table, rather than the one fitted for its zoom.
     state.lf.cam.distortionFit = state.rayWarp && !hook('noTableLens') ? fitDistortion(state.rayWarp.distortionProfile(state.lf.cam.width, state.lf.cam.height)) : null;
     if (state.gpu === null && state.settings.gpu !== false) {
@@ -3605,7 +3611,7 @@ async function loseGpu() {
   return { lost: !!ext };
 }
 
-const handlers = { release, loseGpu, stillStore, stillData, memoryLimits: (limits) => { setMemoryLimits(limits); return {}; }, setLut, setCalibrations, measureWhite: measureWhiteImage, open, frames, refocusFrames, superRes, lytroEdof, superResPreview, view, focusAt, depthMap, spreadMask, depthHistogram, speedFacts, whiteBalanceAt, prepare, settings, setGrid, rawCrop, outputToSensor, readSection,
+const handlers = { release, releaseDepthModel: async ({ model }) => { await releaseDepthSession(model); return {}; }, loseGpu, stillStore, stillData, memoryLimits: (limits) => { setMemoryLimits(limits); return {}; }, setLut, setCalibrations, measureWhite: measureWhiteImage, open, frames, refocusFrames, superRes, lytroEdof, superResPreview, view, focusAt, depthMap, spreadMask, depthHistogram, speedFacts, whiteBalanceAt, prepare, settings, setGrid, rawCrop, outputToSensor, readSection,
   cancel: async ({ kind }) => { state.jobs[kind] = null; } };
 
 self.onmessage = async (event) => {

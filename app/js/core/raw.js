@@ -121,7 +121,10 @@ export function blendedCcm(perCcm, cct, fallback) {
     if (e.cct <= cct && cct - e.cct < cct - below.cct) below = e;
     if (e.cct >= cct && e.cct - cct < above.cct - cct) above = e;
   }
-  const t = (cct - below.cct) / (above.cct - below.cct);
+  // An entry exactly at `cct` is both `below` and `above` (0/0 below): that entry's matrix is the answer.
+  const span = above.cct - below.cct;
+  if (!(span > 0)) return below.ccm.slice();
+  const t = (cct - below.cct) / span;
   return below.ccm.map((v, i) => v * (1 - t) + above.ccm[i] * t);
 }
 

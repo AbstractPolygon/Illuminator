@@ -3538,7 +3538,7 @@ export class GpuRenderer {
   // `guide`: linear RGB (w x h); returns a new Float32Array.
   smoothDepth(alpha, w, h, guide, { amount = 0.3, confidence = null, step = 0 } = {}) {
     const passes = Math.round(amount * 8);
-    if (passes <= 0) return alpha;
+    if (passes <= 0) return Float32Array.from(alpha);
     const gl = this.gl;
     const g = new Float32Array(w * h * 2);
     let mean = 0;

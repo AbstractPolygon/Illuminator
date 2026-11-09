@@ -1,6 +1,24 @@
 // curves view: moved out of main.js. initCurvesView() runs where the section used to, with what it uses from the rest of the page.
 import { isSettingTrack, isMaskTrack, valueAt, segmentBezier } from '../core/keyframes.js';
 
+// Registers a drag on the window and ends it on pointerup, pointercancel (a
+// touch the browser takes over) or blur, so a cancelled drag cannot leave its
+// move handler editing on hover. `up(ev)` gets the ending event; only a real
+// pointerup has the final position.
+function trackDrag(move, up) {
+  const end = (ev) => {
+    window.removeEventListener('pointermove', move);
+    window.removeEventListener('pointerup', end);
+    window.removeEventListener('pointercancel', end);
+    window.removeEventListener('blur', end);
+    up(ev);
+  };
+  window.addEventListener('pointermove', move);
+  window.addEventListener('pointerup', end);
+  window.addEventListener('pointercancel', end);
+  window.addEventListener('blur', end);
+}
+
 export function initCurvesView({ trackGroups, shownTracks, trackName, $, state, settingControl, MASK_LIMITS, parseMaskTrack, F_STOPS, groupHeading, groupCollapsed, tlCurves, viewWindow, tickStep, selectedKey, groupHidden, animLength, tlSel, playheadTime, renderTimeline, saveAnimation, tracks, layoutCanvas, seekTimeline, selectedKeys, selectKey, moveKeys, timeAt, showValue, clearSelection, seekTo, scheduleSave }) {
   // The keyframe editor's Curves view (like Blender's Graph Editor): each
   // setting as a curve over time, each part of a viewpoint
@@ -354,13 +372,10 @@ export function initCurvesView({ trackGroups, shownTracks, trackName, $, state, 
       renderTimeline();
     };
     const up = () => {
-      window.removeEventListener('pointermove', move);
-      window.removeEventListener('pointerup', up);
       tlCurves.drag = null;
       saveAnimation();
     };
-    window.addEventListener('pointermove', move);
-    window.addEventListener('pointerup', up);
+    trackDrag(move, up);
   }
 
   function setCurvesView(on) {
@@ -415,11 +430,8 @@ export function initCurvesView({ trackGroups, shownTracks, trackName, $, state, 
     };
     const up = () => {
       handle.classList.remove('dragging');
-      window.removeEventListener('pointermove', move);
-      window.removeEventListener('pointerup', up);
     };
-    window.addEventListener('pointermove', move);
-    window.addEventListener('pointerup', up);
+    trackDrag(move, up);
   });
   $('tl-resize').ondblclick = () => setTimelineHeight(null);
 
@@ -453,11 +465,8 @@ export function initCurvesView({ trackGroups, shownTracks, trackName, $, state, 
     };
     const up = () => {
       handle.classList.remove('dragging');
-      window.removeEventListener('pointermove', move);
-      window.removeEventListener('pointerup', up);
     };
-    window.addEventListener('pointermove', move);
-    window.addEventListener('pointerup', up);
+    trackDrag(move, up);
   });
   $('controls-resize').ondblclick = () => setSidebarWidth(null);
   try {
@@ -542,8 +551,6 @@ export function initCurvesView({ trackGroups, shownTracks, trackName, $, state, 
       renderTimeline();
     };
     const up = () => {
-      window.removeEventListener('pointermove', move);
-      window.removeEventListener('pointerup', up);
       tlCurves.drag = null;
       if (moved) {
         saveAnimation();
@@ -554,8 +561,7 @@ export function initCurvesView({ trackGroups, shownTracks, trackName, $, state, 
       }
       renderTimeline();
     };
-    window.addEventListener('pointermove', move);
-    window.addEventListener('pointerup', up);
+    trackDrag(move, up);
     renderTimeline();
   });
   window.addEventListener('resize', () => {
@@ -588,19 +594,16 @@ export function initCurvesView({ trackGroups, shownTracks, trackName, $, state, 
       drawCurves();
     };
     const up = (ev) => {
-      window.removeEventListener('pointermove', move);
-      window.removeEventListener('pointerup', up);
       if (tlCurves.box) {
         tlCurves.box = null;
         renderTimeline();
       } else {
         if (!e.shiftKey) clearSelection();
-        seekTo(timeAt(ev, r));
+        if (ev.type === 'pointerup') seekTo(timeAt(ev, r));
         if (!state.frames.length) scheduleSave();
       }
     };
-    window.addEventListener('pointermove', move);
-    window.addEventListener('pointerup', up);
+    trackDrag(move, up);
   }
   return { plotBox, drawCurves };
 }
