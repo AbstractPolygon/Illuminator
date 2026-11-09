@@ -721,19 +721,29 @@ async function openItem(photo) {
   if (state.grid) showGrid(false);
   renderLibrary();
   const bytes = await file.arrayBuffer();
-  const userDepth = await readUserDepth(photo);
-  // Desktop app: the processed version kept next to the photo, so the depth is not measured again (core/processed-cache.js).
-  const depthCache = native ? decodeProcessed(await state.lib.processed(photo).catch(() => null)) : null;
-  const transfer = [bytes];
-  if (userDepth) transfer.push(userDepth.data.buffer);
-  if (depthCache) transfer.push(depthCache.alpha.buffer, ...depthCache.extra.flatMap((e) => [e.alpha.buffer, e.confidence.buffer]));
+  const { userDepth, depthCache, transfer } = await depthInputs(photo, [bytes]);
   await openWith({ bytes, userDepth, depthCache }, transfer);
   if (state.info && state.current && state.current.photo === photo) state.lib.setPhotoId(photo, state.info.photoId).catch(() => {});
+}
+
+// What a library photo brings to opening besides its file: the depth map made in Lytro Desktop, and (desktop app) the processed version kept next to the photo, so the depth is not
+// measured again (core/processed-cache.js). `transfer` starts with the buffers already going to the worker and gets theirs added.
+async function depthInputs(photo, transfer = []) {
+  const userDepth = await readUserDepth(photo);
+  const depthCache = native ? decodeProcessed(await state.lib.processed(photo).catch(() => null)) : null;
+  if (userDepth) transfer.push(userDepth.data.buffer);
+  if (depthCache) transfer.push(depthCache.alpha.buffer, ...depthCache.extra.flatMap((e) => [e.alpha.buffer, e.confidence.buffer]));
+  return { userDepth, depthCache, transfer };
 }
 
 // The worker measured something worth keeping (the depth, the focus offset): saved next to the photo, a moment after the last change.
 let processedTimer = null;
 engine.onCache = (msg) => {
+  // The Render Queue's hidden copy has no library: the page that runs the queue takes this and keeps it (api.processed).
+  if (QUEUE_RUNNER) {
+    state.lastProcessed = { photoId: msg.photoId, cache: msg.cache };
+    return;
+  }
   if (!native || !state.current || !state.info || state.info.photoId !== msg.photoId) return;
   const photo = state.current.photo;
   clearTimeout(processedTimer);
@@ -3871,15 +3881,21 @@ $('png-btn').onclick = savePng;
   $,
   engine,
   version: VERSION,
-  openBytes: async (name, bytes, sidecar = null) => {
+  openBytes: async (name, bytes, sidecar = null, { userDepth = null, depthCache = null } = {}) => {
     const copy = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+    state.lastProcessed = null;
     state.scripted = true; // its settings are not read from, or saved to, the app's store
     state.current = { photo: null, name, file: new File([copy], name), sidecar };
     state.wantThumb = false;
     timings.clear();
     renderLibrary();
-    await openWith({ bytes: copy }, [copy]);
+    const transfer = [copy];
+    if (userDepth) transfer.push(userDepth.data.buffer);
+    if (depthCache) transfer.push(depthCache.alpha.buffer, ...depthCache.extra.flatMap((e) => [e.alpha.buffer, e.confidence.buffer]));
+    await openWith({ bytes: copy, userDepth, depthCache }, transfer);
   },
+  // What opening and rendering the photo measured, as the file kept next to a library photo (the Render Queue saves it for the photo), or null.
+  processedBytes: () => (state.lastProcessed && state.info && state.lastProcessed.photoId === state.info.photoId ? encodeProcessed(state.lastProcessed.cache) : null),
   applyEdits: (info, edits) => applyEdits(info, edits),
   currentEdits: () => currentEdits(),
   setCamera: async ({ fNumber, focus, u, v }) => {
@@ -3936,7 +3952,7 @@ $('png-btn').onclick = savePng;
 }));
 
 // The render queue (ui/queue.js): not inside the hidden copy that does its renders.
-if (!QUEUE_RUNNER) queueUi = initQueue({ $, state, native, currentEdits: () => currentEdits(), showNotice: (...a) => showNotice(...a), showError: (...a) => showError(...a), thumbFor: (photo) => thumbFor(photo), openPhoto: (photo) => openItem(photo), renderLibrary: () => renderLibrary() });
+if (!QUEUE_RUNNER) queueUi = initQueue({ $, state, native, currentEdits: () => currentEdits(), showNotice: (...a) => showNotice(...a), showError: (...a) => showError(...a), thumbFor: (photo) => thumbFor(photo), openPhoto: (photo) => openItem(photo), renderLibrary: () => renderLibrary(), depthInputs: (photo) => depthInputs(photo) });
 
 $('webm-btn').onclick = exportVideo;
 

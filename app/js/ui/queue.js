@@ -10,7 +10,7 @@ import { applyLookToEdits } from '../core/looks.js';
 // The most photos one Add puts in the list.
 const MAX_AT_ONCE = 512;
 
-export function initQueue({ $, state, native, currentEdits, showNotice, showError, thumbFor, openPhoto, renderLibrary }) {
+export function initQueue({ $, state, native, currentEdits, showNotice, showError, thumbFor, openPhoto, renderLibrary, depthInputs }) {
   const used = new Set();
   let frame = null;
   let current = null; // { job, abort }
@@ -183,7 +183,9 @@ export function initQueue({ $, state, native, currentEdits, showNotice, showErro
     });
     try {
       step(0);
-      await api.open(photo.name, bytes, { edits: job.spec.edits, sidecar });
+      // With the photo's Lytro Desktop depth map and, in the desktop app, the depth kept beside it: the picture is the one the app draws, and the depth is not measured again.
+      const inputs = depthInputs ? await depthInputs(photo).catch(() => null) : null;
+      await api.open(photo.name, bytes, { edits: job.spec.edits, sidecar, userDepth: inputs && inputs.userDepth, depthCache: inputs && inputs.depthCache });
       // The look goes on top of the photo's settings (or, for a photo never edited here, of the ones Lytro Desktop made).
       if (job.spec.videoSettings) {
         const cur = api.getEdits();
@@ -198,6 +200,11 @@ export function initQueue({ $, state, native, currentEdits, showNotice, showErro
       }
       step(phases.length - 1);
       const out = job.spec.kind === 'video' ? await api.exportVideo() : await api.export(job.spec.export);
+      // What the job measured (its depth) is kept with the photo, for the next job and for opening it in the app.
+      if (native) {
+        const processed = api.processed();
+        if (processed) await lib.saveProcessed(photo, processed).catch((err) => console.warn('Could not save the processed version', err));
+      }
       return await save(out);
     } finally {
       off();
