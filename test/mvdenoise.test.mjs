@@ -60,3 +60,14 @@ test('views are aligned by depth', () => {
   const out = mergeViews(views, w, w, depth, views[1].rgb, { sigma: mergeSigma(0.3), blend: 1 });
   assert.ok(out[3 * (4 * w + 8)] > 0.99 && out[3 * (4 * w + 6)] < 0.11, 'line stays sharp');
 });
+
+test('a NaN depth leaves the pixel finite', () => {
+  const w = 8;
+  const n = w * w;
+  const rgb = new Float32Array(n * 3).fill(0.5);
+  const depth = new Float32Array(n).fill(0.5);
+  depth[3 * w + 3] = NaN;
+  const views = [{ u: 1, v: 0, rgb, gain: 1 }, { u: -1, v: 0, rgb, gain: 1 }];
+  const out = mergeViews(views, w, w, depth, rgb, { sigma: 0.1 });
+  assert.ok(out.every(Number.isFinite));
+});

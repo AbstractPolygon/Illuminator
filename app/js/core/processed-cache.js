@@ -46,6 +46,17 @@ export function encodeProcessed({ key, w, h, alpha, focusOffset, open, extra = [
   return out;
 }
 
+// A key is JSON text of an object (core/cacherev.js keys): anything else is damage.
+function validKey(key) {
+  if (typeof key !== 'string') return false;
+  try {
+    const k = JSON.parse(key);
+    return !!k && typeof k === 'object';
+  } catch {
+    return false;
+  }
+}
+
 // ArrayBuffer -> { key, w, h, alpha, focusOffset, open, extra } or null when it is not a usable cache.
 export function decodeProcessed(buffer) {
   try {
@@ -55,8 +66,14 @@ export function decodeProcessed(buffer) {
     const length = view.getUint32(8, true);
     const header = JSON.parse(new TextDecoder().decode(new Uint8Array(buffer, 12, length)));
     let at = 12 + Math.ceil(length / 4) * 4;
+    if (!header || typeof header !== 'object' || typeof header.key !== 'string') return null;
     const n = header.w * header.h;
     const listed = Array.isArray(header.extra) ? header.extra : [];
+    // A damaged header must not reach the worker: its entries' keys are parsed there as JSON objects, and the sizes decide how much is read.
+    if (!Number.isInteger(header.w) || !Number.isInteger(header.h)) return null;
+    if (!listed.every((e) => e && typeof e === 'object' && validKey(e.key) && Number.isInteger(e.w) && Number.isInteger(e.h))) return null;
+    const hl = header.lens;
+    if (hl != null && !(typeof hl === 'object' && typeof hl.key === 'string' && [hl.r0, hl.c0, hl.rows, hl.cols].every(Number.isFinite))) return null;
     if (!(n >= 0) || (n === 0 && !header.open && !listed.length && !header.lens) || buffer.byteLength < at + n * 4) return null;
     const alpha = new Float32Array(buffer.slice(at, at + n * 4));
     at += n * 4;

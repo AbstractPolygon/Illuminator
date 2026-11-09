@@ -217,26 +217,43 @@ let ctx;
 
 function compile(gl, src) {
   const p = gl.createProgram();
+  const shaders = [];
   for (const [type, code] of [[gl.VERTEX_SHADER, VERTEX], [gl.FRAGMENT_SHADER, src]]) {
     const s = gl.createShader(type);
     gl.shaderSource(s, code);
     gl.compileShader(s);
     if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s));
     gl.attachShader(p, s);
+    shaders.push(s);
   }
   gl.bindAttribLocation(p, 0, 'aPos');
   gl.linkProgram(p);
-  if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p));
+  const linked = gl.getProgramParameter(p, gl.LINK_STATUS);
+  const log = linked ? '' : gl.getProgramInfoLog(p);
+  // The linked program does not need its shader objects.
+  for (const s of shaders) {
+    gl.detachShader(p, s);
+    gl.deleteShader(s);
+  }
+  if (!linked) {
+    gl.deleteProgram(p);
+    throw new Error(log);
+  }
   return p;
 }
 
 function setup() {
+  // A lost context never comes back by itself: build a new one (or take the CPU path if that fails).
+  if (ctx && ctx.gl.isContextLost()) ctx = undefined;
   if (ctx !== undefined) return ctx;
   ctx = null;
   try {
     const canvas = document.createElement('canvas');
     const gl = canvas.getContext('webgl2', { preserveDrawingBuffer: true, premultipliedAlpha: false, antialias: false });
     if (!gl) return null;
+    canvas.addEventListener('webglcontextlost', () => {
+      if (ctx && ctx.canvas === canvas) ctx = undefined;
+    });
     const float = !!gl.getExtension('EXT_color_buffer_float');
     const buf = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, buf);
@@ -312,6 +329,7 @@ export function upscaleImage(source, W, H, { method = 'lanczos', sharpen = 0, lo
     pass(gl, c.easu, src, big, W, H, { uScale: ['uniform2f', [w / W, h / H]] });
     if (big) pass(gl, c.rcas, big, null, W, H, { uSharp: ['uniform1f', sharp] });
     for (const t of [src, big]) if (t) gl.deleteTexture(t);
+    if (gl.isContextLost()) return upscaleOnCpu(source, W, H, { method, sharpen, lobes });
     return c.canvas;
   }
   if (method === 'fsr') method = 'lanczos';
@@ -326,6 +344,7 @@ export function upscaleImage(source, W, H, { method = 'lanczos', sharpen = 0, lo
     pass(gl, c.sharpen, both, null, W, H, { uRadius: ['uniform1i', radius], uAmount: ['uniform1f', sharpen * 1.5] });
   }
   for (const t of [src, rows, both]) if (t) gl.deleteTexture(t);
+  if (gl.isContextLost()) return upscaleOnCpu(source, W, H, { method, sharpen, lobes });
   return c.canvas;
 }
 
@@ -428,7 +447,8 @@ export function upscaleBits16(rgb, w, h, W, H, { method = 'lanczos', sharpen = 0
       gl.bindFramebuffer(gl.FRAMEBUFFER, null);
       gl.deleteFramebuffer(fb);
     }
-    if (gl.getError() !== gl.NO_ERROR) return null;
+    // A context lost mid-run reads back zeros: use the CPU path instead.
+    if (gl.isContextLost() || gl.getError() !== gl.NO_ERROR) return null;
     return out;
   } finally {
     for (const t of owned) gl.deleteTexture(t);

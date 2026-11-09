@@ -23,6 +23,13 @@ export function updateCheckOn() {
   }
 }
 
+// Release files are served from this address; a link from the API response that points anywhere else is not shown as a download.
+export const RELEASE_DOWNLOAD_PREFIX = 'https://github.com/AbstractPolygon/Illuminator/releases/download/';
+export const RELEASES_PAGE = 'https://github.com/AbstractPolygon/Illuminator/releases';
+export function downloadHref(url) {
+  return typeof url === 'string' && url.startsWith(RELEASE_DOWNLOAD_PREFIX) ? url : RELEASES_PAGE;
+}
+
 export function initUpdates({ showNotice, $ }) {
   // Desktop app: on startup, the newest release on GitHub is compared with
   // this version; when it is newer, a popup lists that release's files with
@@ -103,7 +110,7 @@ export function initUpdates({ showNotice, $ }) {
       const detail = Object.assign(document.createElement('span'), { className: 'size', textContent: `${b.arch} · ${b.detail}` });
       const spacer = Object.assign(document.createElement('span'), { className: 'spacer' });
       li.append(name, detail);
-      const button = Object.assign(document.createElement('a'), { className: 'download-btn', href: a.browser_download_url, target: '_blank', rel: 'noopener', textContent: `Download (${Math.round(a.size / 1e6)} MB)` });
+      const button = Object.assign(document.createElement('a'), { className: 'download-btn', href: downloadHref(a.browser_download_url), target: '_blank', rel: 'noopener', textContent: `Download (${Math.round(a.size / 1e6)} MB)` });
       li.append(spacer, button);
       return li;
     }));

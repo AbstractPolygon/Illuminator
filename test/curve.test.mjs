@@ -28,3 +28,8 @@ test('an unchanged curve is no table; a changed one is looked up', () => {
   assert.ok(curveAt(lifted, 0.125) > 0.125 + 0.05);
   assert.ok(Math.abs(curveAt(lifted, 0.8) - 0.8) < 1e-6);
 });
+
+test('parsePoints does not turn an empty field into a zero', () => {
+  assert.deepEqual(parsePoints('0.5,'), [[0, 0], [1, 1]]);
+  assert.deepEqual(parsePoints(',0.5'), [[0, 0], [1, 1]]);
+});

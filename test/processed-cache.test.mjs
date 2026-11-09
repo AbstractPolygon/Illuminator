@@ -78,3 +78,14 @@ test('the lens centers measured for a photo are kept with it and read back, with
   // a cache without them has none
   assert.equal(decodeProcessed(encodeProcessed({ key: 'a', w: 1, h: 1, alpha: Float32Array.from([1]) }).buffer).lens, undefined);
 });
+
+test('a header with a damaged extra key or lens is rejected, not half used', () => {
+  const extra = (key) => [{ key, w: 1, h: 1, alpha: Float32Array.of(1), confidence: Float32Array.of(1) }];
+  const make = (key) => buf(encodeProcessed({ key: 'k', w: 1, h: 1, alpha: Float32Array.of(1), extra: extra(key) }));
+  assert.ok(decodeProcessed(make('{"style":"classic"}')));
+  for (const bad of ['{broken', 'null', '7', '']) assert.equal(decodeProcessed(make(bad)), null, `key ${bad}`);
+  const lens = (l) => buf(encodeProcessed({ key: 'k', w: 1, h: 1, alpha: Float32Array.of(1), lens: l }));
+  assert.equal(decodeProcessed(lens({ key: 5, r0: 0, c0: 0, rows: 1, cols: 1, dx: Float32Array.of(0), dy: Float32Array.of(0) })), null);
+  assert.equal(decodeProcessed(lens({ key: 'a', r0: 'x', c0: 0, rows: 1, cols: 1, dx: Float32Array.of(0), dy: Float32Array.of(0) })), null);
+  assert.ok(decodeProcessed(lens({ key: 'a', r0: 0, c0: 0, rows: 1, cols: 1, dx: Float32Array.of(0), dy: Float32Array.of(0) })).lens);
+});

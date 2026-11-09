@@ -224,3 +224,19 @@ test('the ILLUM is tried on its vendor interface first, the first generation on 
   const adb = describeInterfaces({ interfaces: [iface(0, 8, 6, 0x50), iface(2, 0xff, 0x42, 1)] });
   assert.deepEqual(candidateInterfaces(adb, 0x00b1).map((i) => i.number), [0]);
 });
+
+test('a serial number from a device cannot name a folder outside the destination', async () => {
+  const fs = await import('node:fs/promises');
+  const os = await import('node:os');
+  const path = await import('node:path');
+  const { safeSerial, cameraFolder, pullUsbCalibration } = require('../electron/camera.cjs');
+  assert.equal(safeSerial('A5120012'), 'A5120012');
+  assert.equal(safeSerial('..'), 'camera');
+  assert.ok(!/[./\\]/.test(safeSerial('../../evil')));
+  assert.equal(safeSerial('x'.repeat(500)).length, 64);
+  const out = await fs.mkdtemp(path.join(os.tmpdir(), 'lytro-ser-'));
+  assert.ok(cameraFolder(out, '..\\..\\x/../..').startsWith(path.resolve(out) + path.sep));
+  const camera = new LytroCamera(fakeCamera({ 'C:\\T1CALIB\\MOD_0000': Buffer.from('c') }, []));
+  const dest = await pullUsbCalibration({ camera, info: { serial: '../../escape' } }, out);
+  assert.ok(dest.startsWith(path.resolve(out) + path.sep));
+});

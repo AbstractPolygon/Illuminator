@@ -110,3 +110,12 @@ test('white image offsets fill a photo\'s lens table and drop the shift all lens
   assert.ok(Math.abs(table.dx[ti + 1]) < 0.02);
   assert.ok(Math.abs(table.dy[ti]) < 0.02);
 });
+
+test('safeName never yields a dot-only or dot-leading folder name', async () => {
+  const { safeName } = await import('../app/js/core/calibration.js');
+  for (const s of ['..', '.', '.hidden', '../x', 'a/../b']) {
+    const n = safeName(s);
+    assert.ok(!n.startsWith('.') && !n.includes('/'), `${s} -> ${n}`);
+  }
+  assert.equal(safeName('B5100'), 'B5100');
+});

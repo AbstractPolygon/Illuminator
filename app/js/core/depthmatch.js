@@ -351,8 +351,10 @@ export function measureMatch(views, w, h, { onProgress } = {}) {
   // The label list is padded to a multiple of four with further labels (FUN_1809b0060).
   const count = Math.ceil((Math.floor((P.top - P.first) / P.step) + 1) / 4) * 4;
   const alphas = Array.from({ length: count }, (_, i) => (P.first + i * P.step) * P.lambda);
-  const refs = P.refs ?? views.map((_, k) => k);
+  // A copy: pushing onto P.refs would change the module's setting for every later photo.
+  const refs = [...(P.refs ?? views.map((_, k) => k))];
   if (!refs.includes(c)) refs.push(c);
+  P.stats.length = 0; // per call, so it does not grow with every photo
   // Pass 1: every view as the reference.
   const depths = new Array(views.length).fill(null);
   refs.forEach((r, i) => {

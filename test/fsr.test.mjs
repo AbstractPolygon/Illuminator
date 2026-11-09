@@ -109,3 +109,8 @@ test('easu enlarges in place: no shift and no zoom at 1.5x, 2x and 3x', () => {
     assert.ok(best.e < 2, `error at ${k}x: ${best.e}`);
   }
 });
+
+test('rcas does not round twice: a value of 0.5 level stays at the clamped array rounding', () => {
+  const src = new Float32Array(4 * 4 * 4).fill(100.4 / 255);
+  assert.equal(rcas(src, 4, 4, 0)[0], 100);
+});

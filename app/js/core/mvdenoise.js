@@ -42,10 +42,12 @@ export function mergeViews(views, w, h, depth, ref, { u0 = 0, v0 = 0, detail = 1
       const r2 = ref[3 * i + 2];
       const refS = Math.sqrt(Math.max(0, LUMA[0] * r0 + LUMA[1] * r1 + LUMA[2] * r2));
       // Depth where the centered views see this point.
-      const a0 = depth[i];
+      // A non-finite depth means no shift (it would otherwise turn the pixel into NaN).
+      const a0 = Number.isFinite(depth[i]) ? depth[i] : 0;
       const cx = Math.min(wMax, Math.max(0, Math.round(x - a0 * u0 * detail)));
       const cy = Math.min(hMax, Math.max(0, Math.round(y - a0 * v0 * detail)));
-      const a = depth[cy * w + cx];
+      const aRaw = depth[cy * w + cx];
+      const a = Number.isFinite(aRaw) ? aRaw : 0;
       let sr = r0;
       let sg = r1;
       let sb = r2;

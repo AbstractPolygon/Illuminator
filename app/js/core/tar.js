@@ -6,6 +6,9 @@
 // File, or the desktop app's NativeFile).
 
 const decoder = new TextDecoder();
+const MAX_ENTRIES = 1000000;
+const MAX_META = 65536; // GNU long names and POSIX extended headers are read whole
+const type0 = (header) => String.fromCharCode(header[156] || 48);
 
 function text(bytes, from, to) {
   const s = decoder.decode(bytes.subarray(from, to));
@@ -20,6 +23,7 @@ function number(bytes, from, to) {
     for (let i = from + 1; i < to; i++) v = v * 256 + bytes[i];
     return v;
   }
+  // A negative size would move the scan backwards and loop forever, so it is an error.
   return parseInt(text(bytes, from, to).trim() || '0', 8);
 }
 
@@ -30,9 +34,12 @@ export async function scanTar(file) {
   let offset = 0;
   let longName = null;
   while (offset + 512 <= file.size) {
+    if (entries.length >= MAX_ENTRIES) throw new Error('The archive has too many entries.');
     const header = new Uint8Array(await file.slice(offset, offset + 512).arrayBuffer());
     if (header.every((b) => b === 0)) break;
     const size = number(header, 124, 136);
+    if (!Number.isFinite(size) || size < 0) throw new Error('The archive has an invalid entry size.');
+    if ((type0(header) === 'L' || type0(header) === 'x') && size > MAX_META) throw new Error('The archive has an oversized extended header.');
     const type = String.fromCharCode(header[156] || 48);
     const prefix = text(header, 345, 500);
     let name = (prefix ? `${prefix}/` : '') + text(header, 0, 100);
@@ -51,7 +58,9 @@ export async function scanTar(file) {
       }
       if (type === '0' || type === '7') entries.push({ name: name.replace(/^\.\//, ''), size, offset: data });
     }
-    offset = data + Math.ceil(size / 512) * 512;
+    const next = data + Math.ceil(size / 512) * 512;
+    if (next <= offset) throw new Error('The archive is damaged.');
+    offset = next;
   }
   return entries;
 }

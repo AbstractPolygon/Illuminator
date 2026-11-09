@@ -139,6 +139,8 @@ export function combineDepth(classic, match, w, h, P = DEPTH_COMBINE, amount = 0
   const [t0, t1] = percentiles(valid, P.near, P.far);
   const weight = new Float32Array(n);
   for (let i = 0; i < n; i++) {
+    // A NaN here would be spread over the whole blur window, so an unmeasured pixel weighs nothing.
+    if (!Number.isFinite(match[i])) continue;
     const t = Math.min(1, Math.max(0, (match[i] - t0) / (t1 - t0 || 1)));
     weight[i] = t * t * (3 - 2 * t);
   }

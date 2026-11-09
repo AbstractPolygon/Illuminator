@@ -3,7 +3,7 @@ import { methodModel, readModel } from '../core/upscalemodels.js';
 import { upscaleImage, upscaleBits16 } from '../gpu/upscale.js';
 import { invert, isIdentity, geometry } from '../core/geometry.js';
 import { download } from '../platform.js';
-import { fitsMemory, exportRam, memoryProblem } from '../core/memorybudget.js';
+import { fitsMemory, exportRam, memoryProblem, superResVram } from '../core/memorybudget.js';
 import { aiUpscale, denoiseRgb16 } from '../core/aiupscale.js';
 import { encodePng16 } from '../core/png16.js';
 import { convertRgba8, convertRgb16, tagPng, tagJpeg } from '../core/colorspace.js';
@@ -108,6 +108,16 @@ export function initExport({ state, $, canvas, ctx, layoutCanvas, showsCamera, s
   // fine tonal steps the 8-bit canvas drops, and of an enlargement by an upscaling model, which takes the full precision in. Enlarged by the Photo Size at 16 bits too
   // (the model, then the graphics card's Lanczos to the exact size; or the Upscaling method). Without the graphics card, or for a view that is not the picture (stereo, depth,
   // lenslets), the usual 8-bit picture is saved and a notice says so.
+  // The size of a full sensor render at `scale`: from the worker's list, or worked out from the view's size when the list has no entry for it.
+  function stillSizeFor(scale) {
+    const info = state.info;
+    if (!info) return null;
+    const listed = info.stillSizes && info.stillSizes[scale];
+    if (listed) return listed;
+    const detail = (info.settings && info.settings.detail) || 1;
+    return info.width && info.height ? [Math.floor((info.width / detail) * scale), Math.floor((info.height / detail) * scale)] : null;
+  }
+
   async function savePhotoRendered(name, model, k) {
     const format = $('photo-format').value;
     const eightBit = (why) => {
@@ -117,6 +127,18 @@ export function initExport({ state, $, canvas, ctx, layoutCanvas, showsCamera, s
     try {
       const passes = +$('still-passes').value;
       let msg;
+      // The memory limits (Settings > Memory), checked before the render is started: the card's share of it, and the 16-bit picture with its enlargement.
+      if ((state.fullRes && state.still) || (passes > 0 && state.info.hasRaw)) {
+        const size = stillSizeFor(state.fullRes && state.still ? +$('still-scale').value : +$('detail').value);
+        if (size && !fitsMemory('vram', superResVram(size[0], size[1]))) {
+          showNotice('Not saved', memoryProblem('vram', superResVram(size[0], size[1]), `A ${size[0]}×${size[1]} full sensor render`, 'Lower the Scale (Render Settings > Quality) or raise the limit.'));
+          return;
+        }
+        if (size && !fitsMemory('ram', exportRam(size[0], size[1], k))) {
+          showNotice('Not saved', memoryProblem('ram', exportRam(size[0], size[1], k), `Saving ${Math.round(size[0] * k)}×${Math.round(size[1] * k)} at 16 bits`, 'Lower the Photo Size or raise the limit.'));
+          return;
+        }
+      }
       if (state.fullRes && state.still) {
         const { promise } = engine.job('superRes', 'superres', { ...(state.stillFrame || cameraParams()), scale: +$('still-scale').value, passes, bits16: true }, { onProgress: showProgress });
         msg = await promise;
@@ -361,6 +383,10 @@ export function initExport({ state, $, canvas, ctx, layoutCanvas, showsCamera, s
     const scale = +$('still-scale').value;
     const passes = +$('still-passes').value;
     const count = Math.min(n, list.length);
+    const size = stillSizeFor(scale);
+    if (size && !fitsMemory('vram', superResVram(size[0], size[1]))) {
+      throw new Error(memoryProblem('vram', superResVram(size[0], size[1]), `A ${size[0]}×${size[1]} full sensor render`, 'Lower the Scale (Render Settings > Quality) or raise the limit.'));
+    }
     const render = (i) => engine.job('superRes', 'superres', { ...list[i], scale, passes }, {
       onProgress: (_, p) => showProgress(`Rendering frame ${i + 1} of ${n} from the full sensor`, (i + (p || 0)) / n),
     }).promise;

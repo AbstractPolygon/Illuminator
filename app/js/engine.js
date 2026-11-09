@@ -2,14 +2,34 @@
 
 export class Engine {
   constructor() {
-    // Test hook: ?cpu on the page renders without the GPU.
-    const cpu = typeof location !== 'undefined' && new URLSearchParams(location.search).has('cpu');
-    this.worker = new Worker(new URL(`./worker.js${cpu ? '?cpu' : ''}`, import.meta.url), { type: 'module' });
     this.nextId = 1;
     this.nextJob = 1;
     this.pending = new Map();
-    this.worker.onmessage = (event) => this.dispatch(event.data);
-    this.worker.onerror = (event) => console.error('Worker error', event.message || event);
+    this.worker = null;
+    this.start();
+  }
+
+  // Test hook: ?cpu on the page renders without the GPU.
+  start() {
+    const cpu = typeof location !== 'undefined' && new URLSearchParams(location.search).has('cpu');
+    const worker = new Worker(new URL(`./worker.js${cpu ? '?cpu' : ''}`, import.meta.url), { type: 'module' });
+    this.worker = worker;
+    worker.onmessage = (event) => { if (worker === this.worker) this.dispatch(event.data); };
+    worker.onerror = (event) => this.fail(worker, event.message || 'The rendering worker stopped', event);
+    worker.onmessageerror = (event) => this.fail(worker, 'The rendering worker sent a message that could not be read', event);
+  }
+
+  // The worker died or broke: every request waiting for it fails now (nothing else would answer it), and the next request starts a fresh worker. The photo that was open
+  // lived in the old worker, so the page is told (`onWorkerLost`) and shows that it must be opened again.
+  fail(worker, message, event) {
+    if (worker !== this.worker) return;
+    console.error('Worker error', message, event);
+    this.worker = null;
+    try { worker.terminate(); } catch { /* already gone */ }
+    const waiting = [...this.pending.values()];
+    this.pending.clear();
+    for (const p of waiting) p.reject(new Error(message));
+    if (this.onWorkerLost) this.onWorkerLost(message);
   }
 
   dispatch(msg) {
@@ -58,8 +78,17 @@ export class Engine {
   request(type, args = {}, { onProgress, onFrame, transfer } = {}) {
     const id = this.nextId++;
     return new Promise((resolve, reject) => {
+      if (!this.worker) {
+        this.start();
+        if (this.onRecreate) this.onRecreate();
+      }
       this.pending.set(id, { resolve, reject, onProgress, onFrame, type });
-      this.worker.postMessage({ id, type, ...args }, transfer || []);
+      try {
+        this.worker.postMessage({ id, type, ...args }, transfer || []);
+      } catch (err) {
+        this.pending.delete(id);
+        reject(err);
+      }
     });
   }
 

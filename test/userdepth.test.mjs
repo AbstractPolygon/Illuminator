@@ -74,3 +74,15 @@ test('a Lytro picture folder brings its edited depth map', () => {
   assert.equal(s.file.name, 'stack.lfp');
   assert.equal(s.stack, null);
 });
+
+test('dilateNearest grows a near texel horizontally and vertically in the square case', async () => {
+  const { dilateNearest } = await import('../app/js/core/userdepth.js');
+  const data = new Float32Array(81).fill(1);
+  data[4 * 9 + 4] = 0;
+  const out = dilateNearest({ data, width: 9, height: 9 }, 2, false).data;
+  for (let d = -2; d <= 2; d++) {
+    assert.equal(out[(4 + d) * 9 + 4], 0);
+    assert.equal(out[4 * 9 + 4 + d], 0);
+  }
+  assert.equal(out[4 * 9 + 7], 1);
+});

@@ -20,7 +20,8 @@ export function hashKey(text) {
     b = Math.imul(b ^ c, 0x85ebca6b) >>> 0;
     b ^= b >>> 13;
   }
-  return a.toString(16).padStart(8, '0') + b.toString(16).padStart(8, '0');
+  // b is a signed int32 after the xor-shift; >>> 0 keeps a minus sign out of the 16 hex digits.
+  return a.toString(16).padStart(8, '0') + (b >>> 0).toString(16).padStart(8, '0');
 }
 
 // The index after `hash` was rendered: it moves to the end; { index, dropped } where `dropped` are hashes whose files can go.

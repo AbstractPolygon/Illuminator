@@ -988,17 +988,20 @@ class Scope {
     gl.enable(gl.BLEND);
     gl.blendEquation(min ? gl.MIN : gl.FUNC_ADD);
     gl.blendFunc(gl.ONE, gl.ONE);
-    gl.useProgram(prog.p);
-    const U = prog.u;
-    this.gpu.bindTex(15, groupTex);
-    gl.uniform1i(U.uGroup, 15);
-    gl.uniform1i(U.uW, w);
-    gl.uniform1i(U.uGroups, groups);
-    setup(U);
-    gl.bindVertexArray(this.gpu.emptyVao);
-    gl.drawArrays(gl.POINTS, 0, w * h);
-    gl.disable(gl.BLEND);
-    gl.blendEquation(gl.FUNC_ADD);
+    try {
+      gl.useProgram(prog.p);
+      const U = prog.u;
+      this.gpu.bindTex(15, groupTex);
+      gl.uniform1i(U.uGroup, 15);
+      gl.uniform1i(U.uW, w);
+      gl.uniform1i(U.uGroups, groups);
+      setup(U);
+      gl.bindVertexArray(this.gpu.emptyVao);
+      gl.drawArrays(gl.POINTS, 0, w * h);
+    } finally {
+      gl.disable(gl.BLEND);
+      gl.blendEquation(gl.FUNC_ADD);
+    }
     return out;
   }
 
@@ -1466,6 +1469,9 @@ export function regionsGpu(gpu, fellBack = () => {}) {
       fellBack(stage, e);
       return null;
     } finally {
+      // A throw mid-scatter must not leave additive blending on for later passes.
+      gl.disable(gl.BLEND);
+      gl.blendEquation(gl.FUNC_ADD);
       sc.free();
     }
   };

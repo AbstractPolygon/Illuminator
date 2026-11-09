@@ -26,6 +26,8 @@ export function memoryProblem(kind, bytes, what, hint) {
 // Rough sizes of the steps that matter (bytes).
 // a full sensor render: about six float RGBA pictures of its size on the card, and the raw data and views already there
 export const superResVram = (w, h) => w * h * 16 * 6 + 0.5 * GB;
+// a full sensor render made on the processor (no graphics card, or the engine's all in focus picture): the float RGB picture, the ray accumulator, the filled copy and the color pass
+export const superResRam = (w, h) => w * h * 44 + 0.25 * GB;
 // a 16-bit picture saved: the 16-bit RGB values, the enlarged copy, and the PNG's raw rows
 export const exportRam = (w, h, k = 1) => w * h * 6 + w * k * h * k * (6 + 6) + 64 * 1024 ** 2;
 // the graphics card's part of enlarging a 16-bit picture to W x H: the passes' float pictures (32-bit floats, or 16-bit where that does not fit) and the 8-bit target

@@ -35,6 +35,13 @@ export function slic(lab, w, h, count = 2500, compactness = 8, iterations = 6) {
       centers.push([x, y, lab[i], lab[i + 1], lab[i + 2]]);
     }
   }
+  if (!centers.length && w > 0 && h > 0) {
+    // A map one pixel wide or high has no grid seed; label 0 must still name a region.
+    const mx = Math.floor(w / 2);
+    const my = Math.floor(h / 2);
+    const i = (my * w + mx) * 3;
+    centers.push([mx, my, lab[i], lab[i + 1], lab[i + 2]]);
+  }
   const k = centers.length;
   const label = new Int32Array(w * h).fill(-1);
   const dist = new Float32Array(w * h);

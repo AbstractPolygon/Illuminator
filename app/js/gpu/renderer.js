@@ -26,6 +26,8 @@ import { LAMBDA_TO_ALPHA } from '../core/recipe.js';
 
 // Texture unit used only for making and uploading textures.
 const SPARE_UNIT = 15;
+// Soft cap on pooled scratch textures (LRU-trimmed between passes).
+const POOL_BUDGET_BYTES = 1536 * 1024 * 1024;
 const VERTEX = `#version 300 es
 in vec2 aPos;
 void main() { gl_Position = vec4(aPos, 0.0, 1.0); }`;
@@ -2468,6 +2470,11 @@ export function program(gl, fragment, vertex = VERTEX) {
       }
       throw new Error(`Shader link failed: ${gl.getProgramInfoLog(p)}`);
     }
+    // Linked: the shader objects are no longer needed.
+    for (const sh of [vs, fs]) {
+      gl.detachShader(p, sh);
+      gl.deleteShader(sh);
+    }
     uniforms = {};
     const n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS);
     for (let i = 0; i < n; i++) {
@@ -2575,6 +2582,9 @@ export class GpuRenderer {
     this.emptyVao = gl.createVertexArray();
     this.canvas = gl.canvas;
     this.pool = new Map();
+    // Bytes and last use per pool entry, for trimPool().
+    this.poolInfo = new Map();
+    this.poolTick = 0;
     const buf = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, buf);
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
@@ -2637,14 +2647,44 @@ export class GpuRenderer {
   // Uploads the raw sensor image (once per photo).
   setRaw(raw, cam, dev) {
     const gl = this.gl;
+    // GpuRenderer.create() checked only the first photo's sensor; the renderer is reused for later (larger) ones.
+    const max = gl.getParameter(gl.MAX_TEXTURE_SIZE);
+    if (cam.width > max || cam.height > max) throw new Error('sensor exceeds GPU texture size');
     if (this.rawTex) gl.deleteTexture(this.rawTex);
-    this.rawTex = gl.createTexture();
-    gl.bindTexture(gl.TEXTURE_2D, this.rawTex);
+    this.rawTex = null;
+    // The previous photo's depth, parallax, ray tables and sharpening map
+    // may be another size; a render before setDepth() then sees "no depth".
+    // (The veil is left: the worker sets it before setRaw.)
+    for (const t of [this.depthTex, this.parallaxTex]) if (t) gl.deleteTexture(t);
+    if (this.rayTex) {
+      gl.deleteTexture(this.rayTex.grid);
+      gl.deleteTexture(this.rayTex.cover);
+    }
+    if (this.usmTex) gl.deleteTexture(this.usmTex.tex);
+    this.depthTex = this.parallaxTex = this.rayTex = this.usmTex = null;
+    this.depthSize = this.parallaxSize = this.depthRange = null;
+    this.dropOtherSizes();
+    // The spare unit, so a texture bound for drawing is not replaced.
+    gl.activeTexture(gl.TEXTURE0 + SPARE_UNIT);
+    const tex = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    const align = gl.getParameter(gl.UNPACK_ALIGNMENT);
     gl.pixelStorei(gl.UNPACK_ALIGNMENT, 2);
-    gl.texStorage2D(gl.TEXTURE_2D, 1, gl.R16UI, cam.width, cam.height);
-    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, cam.width, cam.height, gl.RED_INTEGER, gl.UNSIGNED_SHORT, raw);
+    try {
+      gl.getError();
+      gl.texStorage2D(gl.TEXTURE_2D, 1, gl.R16UI, cam.width, cam.height);
+      gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, cam.width, cam.height, gl.RED_INTEGER, gl.UNSIGNED_SHORT, raw);
+      const err = gl.getError();
+      if (err !== gl.NO_ERROR) throw new Error(`raw upload failed (GL error ${err})`);
+    } catch (e) {
+      gl.deleteTexture(tex);
+      throw e;
+    } finally {
+      gl.pixelStorei(gl.UNPACK_ALIGNMENT, align);
+    }
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    this.rawTex = tex;
     this.cam = cam;
     this.dev = dev;
   }
@@ -2655,6 +2695,7 @@ export class GpuRenderer {
     const gl = this.gl;
     for (const t of [this.lensTex, this.sumTex, this.tmpTex, this.brightTex, this.outTex]) if (t) gl.deleteTexture(t);
     this.deleteViews();
+    this.dropOtherSizes(sampler.outW, sampler.outH);
     this.sampler = sampler;
     this.gainAt = gainAt;
     const { lenses, outW, outH } = sampler;
@@ -2943,10 +2984,10 @@ export class GpuRenderer {
   keep(src, w, h, slot = '') {
     const gl = this.gl;
     const key = `${w}x${h}:kept${slot ? `:${slot}` : ''}`;
-    let t = this.pool.get(key);
+    let t = this.poolGet(key);
     if (!t) {
       t = this.texture(w, h);
-      this.pool.set(key, t);
+      this.poolPut(key, t, w * h * 16);
     }
     const P = this.programs.copy;
     this.target(t, w, h);
@@ -2960,12 +3001,12 @@ export class GpuRenderer {
   // Scratch textures by size, reused between frames.
   scratch(w, h, name, internal = this.gl.RGBA16F) {
     const key = `${w}x${h}:${name}${internal === this.gl.RGBA16F ? '' : ':f32'}`;
-    let t = this.pool.get(key);
+    let t = this.poolGet(key);
     if (!t) {
       // Half floats: plenty for display, and half the memory at full
       // resolution (32-bit floats where the picture is saved at 16 bits).
       t = this.texture(w, h, internal);
-      this.pool.set(key, t);
+      this.poolPut(key, t, w * h * (internal === this.gl.RGBA16F ? 8 : 16));
     }
     return t;
   }
@@ -2973,7 +3014,7 @@ export class GpuRenderer {
   // Scratch texture with a full mip chain (for blurs that read averages).
   mipmapped(w, h, name) {
     const key = `${w}x${h}:${name}:mip`;
-    let t = this.pool.get(key);
+    let t = this.poolGet(key);
     if (!t) {
       const gl = this.gl;
       t = gl.createTexture();
@@ -2983,13 +3024,14 @@ export class GpuRenderer {
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-      this.pool.set(key, t);
+      this.poolPut(key, t, Math.ceil(w * h * 8 * 1.34));
     }
     return t;
   }
 
   // Linear RGB from the CPU (e.g. a full resolution render) as a texture.
-  uploadRGB(rgb, w, h) {
+  // `full`: through a 32-bit float texture, for pictures saved at 16 bits (half floats keep about 11 bits).
+  uploadRGB(rgb, w, h, { full = false } = {}) {
     const gl = this.gl;
     const rgba = new Float32Array(w * h * 4);
     for (let i = 0, j = 0; i < rgb.length; i += 3, j += 4) {
@@ -2998,7 +3040,8 @@ export class GpuRenderer {
       rgba[j + 2] = rgb[i + 2];
       rgba[j + 3] = 1;
     }
-    const t = this.scratch(w, h, 'upload');
+    const t = full ? this.scratch(w, h, 'upload', gl.RGBA32F) : this.scratch(w, h, 'upload');
+    gl.activeTexture(gl.TEXTURE0 + SPARE_UNIT);
     gl.bindTexture(gl.TEXTURE_2D, t);
     gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, w, h, gl.RGBA, gl.FLOAT, rgba);
     return t;
@@ -3082,7 +3125,7 @@ export class GpuRenderer {
   // Float texture array (one channel) for depth work, reused by size.
   layers(w, h, n, name) {
     const key = `${w}x${h}x${n}:${name}:layers`;
-    let t = this.pool.get(key);
+    let t = this.poolGet(key);
     if (!t) {
       const gl = this.gl;
       gl.activeTexture(gl.TEXTURE0 + SPARE_UNIT);
@@ -3091,7 +3134,7 @@ export class GpuRenderer {
       gl.texStorage3D(gl.TEXTURE_2D_ARRAY, 1, gl.R32F, w, h, n);
       gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
       gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
-      this.pool.set(key, t);
+      this.poolPut(key, t, w * h * n * 4);
     }
     return t;
   }
@@ -3099,12 +3142,60 @@ export class GpuRenderer {
   // Full float scratch texture (depth work needs the precision).
   scratch32(w, h, name) {
     const key = `${w}x${h}:${name}:32`;
-    let t = this.pool.get(key);
+    let t = this.poolGet(key);
     if (!t) {
       t = this.texture(w, h);
-      this.pool.set(key, t);
+      this.poolPut(key, t, w * h * 16);
     }
     return t;
+  }
+
+  poolGet(key) {
+    const t = this.pool.get(key);
+    if (t) this.poolInfo.get(key).used = this.poolTick;
+    return t;
+  }
+
+  poolPut(key, t, bytes) {
+    this.pool.set(key, t);
+    this.poolInfo.set(key, { bytes, used: this.poolTick });
+  }
+
+  poolDrop(key) {
+    const t = this.pool.get(key);
+    if (t) this.gl.deleteTexture(t);
+    this.pool.delete(key);
+    this.poolInfo.delete(key);
+  }
+
+  // Evicts least recently used pool entries over `budget` bytes. Call only
+  // between passes (at the start of a top-level render or export): a
+  // texture the running pass is drawing from must stay. Entries touched in
+  // the last two calls stay too, as another job may be waiting on one, and
+  // kept pictures stay (the worker holds their handles).
+  trimPool(budget = POOL_BUDGET_BYTES) {
+    this.poolTick++;
+    let total = 0;
+    for (const { bytes } of this.poolInfo.values()) total += bytes;
+    if (total <= budget) return;
+    const order = [...this.poolInfo].filter(([key, info]) => !key.includes(':kept') && info.used < this.poolTick - 2).sort((a, b) => a[1].used - b[1].used);
+    for (const [key, { bytes }] of order) {
+      if (total <= budget) break;
+      this.poolDrop(key);
+      total -= bytes;
+    }
+  }
+
+  // Drops scratch textures that are not the size of the photo's preview
+  // (`w` x `h`); kept pictures stay while valid. With no size, drops all
+  // scratch (a new photo).
+  dropOtherSizes(w, h) {
+    const prefix = w === undefined ? null : `${w}x${h}`;
+    for (const key of [...this.pool.keys()]) {
+      if (key.includes(':kept')) continue;
+      const size = key.split(':')[0];
+      if (prefix === null || (size !== prefix && !size.startsWith(`${prefix}x`))) this.poolDrop(key);
+    }
   }
 
   // Frees the full sensor still kept before its color pass (see worker.js stillKey).
@@ -3113,6 +3204,7 @@ export class GpuRenderer {
       if (key.includes(':kept:still')) {
         this.gl.deleteTexture(t);
         this.pool.delete(key);
+        this.poolInfo.delete(key);
       }
     }
   }
@@ -3124,6 +3216,7 @@ export class GpuRenderer {
       if (key.includes(':depth')) {
         this.gl.deleteTexture(t);
         this.pool.delete(key);
+        this.poolInfo.delete(key);
       }
     }
   }
@@ -3186,6 +3279,7 @@ export class GpuRenderer {
   // `blur`: box radius applied to each view first (the coarse match of
   // core/depth.js DEPTH_COARSE).
   measureDepth({ min, max, steps, window, detail: detailRadius = 4, occlusion, guided, floor, guide, blur = 0, onProgress = null }) {
+    this.trimPool();
     const gl = this.gl;
     const P = this.programs;
     const { outW: w, outH: h } = this.sampler;
@@ -3545,7 +3639,7 @@ export class GpuRenderer {
     this.bindTex(1, src);
     gl.uniform1i(P.u.uDepth, 3);
     this.bindTex(3, this.depthTex);
-    gl.uniform2f(P.u.uDepthScale, this.depthSize[0] / w, this.depthSize[1] / h);
+    gl.uniform2f(P.u.uDepthScale, (this.depthSize ? this.depthSize[0] : w) / w, (this.depthSize ? this.depthSize[1] : h) / h);
     gl.uniform1f(P.u.uFocus, focus);
     gl.uniform2f(P.u.uTilt, tilt[0], tilt[1]);
     gl.uniform2f(P.u.uPoint, point[0], point[1]);
@@ -3580,7 +3674,7 @@ export class GpuRenderer {
     gl.bindTexture(gl.TEXTURE_2D, prep);
     gl.generateMipmap(gl.TEXTURE_2D);
 
-    const [lo, hi] = this.depthRange;
+    const [lo, hi] = this.depthRange || [0, 0];
     const reach = Math.abs(tilt[0]) + Math.abs(tilt[1]);
     const maxR = Math.min(64, strength * Math.max(0, Math.max(Math.abs(hi - focus), Math.abs(lo - focus)) + reach - spread));
     const taps = Math.max(32, Math.min(draft ? 160 : MAX_TAPS, Math.round(maxR * maxR * 1.2)));
@@ -3782,8 +3876,11 @@ export class GpuRenderer {
     gl.clear(gl.COLOR_BUFFER_BIT);
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.ONE, gl.ONE);
-    this.splatPoints(this.programs.splat, p, { base, vig, estimate, lens, depthTex });
-    gl.disable(gl.BLEND);
+    try {
+      this.splatPoints(this.programs.splat, p, { base, vig, estimate, lens, depthTex });
+    } finally {
+      gl.disable(gl.BLEND);
+    }
     return acc;
   }
 
@@ -3813,27 +3910,30 @@ export class GpuRenderer {
     const P = this.programs.lensProbe;
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.ONE, gl.ONE);
-    for (let start = 0; start < cand.length; start += 4) {
-      this.target(out, table.cols, table.rows);
-      gl.clearColor(0, 0, 0, 0);
-      gl.clear(gl.COLOR_BUFFER_BIT);
-      gl.useProgram(P.p);
-      gl.uniform1i(P.u.uProbe, 1);
-      gl.uniform4i(P.u.uLensTable, table.r0, table.c0, table.rows, table.cols);
-      gl.uniform1i(P.u.uEst, 5);
-      this.bindTex(5, est);
-      gl.uniform1i(P.u.uCandStart, start);
-      gl.uniform1f(P.u.uStep, LENS_CAL.step);
-      gl.uniform1i(P.u.uReachCand, LENS_CAL.reach);
-      this.splatPoints(P, p, { ...inputs, lens: null, probe: table });
-      const buf = new Float32Array(table.rows * table.cols * 4);
-      this.target(out, table.cols, table.rows);
-      gl.readPixels(0, 0, table.cols, table.rows, gl.RGBA, gl.FLOAT, buf);
-      for (let i = 0; i < table.dx.length; i++) {
-        for (let j = 0; j < 4 && start + j < cand.length; j++) err[i * cand.length + start + j] = buf[4 * i + j];
+    try {
+      for (let start = 0; start < cand.length; start += 4) {
+        this.target(out, table.cols, table.rows);
+        gl.clearColor(0, 0, 0, 0);
+        gl.clear(gl.COLOR_BUFFER_BIT);
+        gl.useProgram(P.p);
+        gl.uniform1i(P.u.uProbe, 1);
+        gl.uniform4i(P.u.uLensTable, table.r0, table.c0, table.rows, table.cols);
+        gl.uniform1i(P.u.uEst, 5);
+        this.bindTex(5, est);
+        gl.uniform1i(P.u.uCandStart, start);
+        gl.uniform1f(P.u.uStep, LENS_CAL.step);
+        gl.uniform1i(P.u.uReachCand, LENS_CAL.reach);
+        this.splatPoints(P, p, { ...inputs, lens: null, probe: table });
+        const buf = new Float32Array(table.rows * table.cols * 4);
+        this.target(out, table.cols, table.rows);
+        gl.readPixels(0, 0, table.cols, table.rows, gl.RGBA, gl.FLOAT, buf);
+        for (let i = 0; i < table.dx.length; i++) {
+          for (let j = 0; j < 4 && start + j < cand.length; j++) err[i * cand.length + start + j] = buf[4 * i + j];
+        }
       }
+    } finally {
+      gl.disable(gl.BLEND);
     }
-    gl.disable(gl.BLEND);
     gl.deleteTexture(out);
     return chooseLensOffsets(table, cand, err);
   }
@@ -4019,6 +4119,7 @@ export class GpuRenderer {
   // W x H texture, or null without it.
   superRes(p) {
     if (!this.floatBlend) return null;
+    this.trimPool();
     const gl = this.gl;
     const P = this.programs;
     const { W, H } = p;
@@ -4119,12 +4220,15 @@ export class GpuRenderer {
       gl.bindVertexArray(this.emptyVao);
       gl.enable(gl.BLEND);
       gl.blendFunc(gl.ONE, gl.ONE);
-      this.target(tex, w, h);
-      gl.clearColor(0, 0, 0, 0);
-      gl.clear(gl.COLOR_BUFFER_BIT);
-      gl.uniform1i(Q.u.uPass, pass);
-      gl.drawArrays(gl.POINTS, 0, W * H);
-      gl.disable(gl.BLEND);
+      try {
+        this.target(tex, w, h);
+        gl.clearColor(0, 0, 0, 0);
+        gl.clear(gl.COLOR_BUFFER_BIT);
+        gl.uniform1i(Q.u.uPass, pass);
+        gl.drawArrays(gl.POINTS, 0, W * H);
+      } finally {
+        gl.disable(gl.BLEND);
+      }
     };
     // Lattice pattern (core/superres.js removeLatticePattern): measured per
     // tile and divided out of the splatted brightness.
@@ -4336,6 +4440,7 @@ export class GpuRenderer {
 
   // `toTexture`: only the colour matrix, lens and flare, as linear colour into that RGBA32F texture (for the noise reduction, which runs between this and the finishing present).
   present(src, w, h, { matrix, exposure, fringe, look = null, veilAmount = 0, lens = null, local = null, lutAmount = 0, lytro = false, sharpen = 0, usm = null, toTexture = null, into = null, bytePass = 0, fine = false }) {
+    this.trimPool();
     const gl = this.gl;
     const P = this.programs.present;
     // Resizing reallocates the canvas: only when the size changes.

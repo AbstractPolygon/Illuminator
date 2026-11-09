@@ -168,7 +168,7 @@ export function rcas(src, W, H, sharpness) {
       const e = at(x, y);
       const o = e;
       if (!sharpness) {
-        for (let ch = 0; ch < 3; ch++) out[o + ch] = src[e + ch] * 255 + 0.5;
+        for (let ch = 0; ch < 3; ch++) out[o + ch] = src[e + ch] * 255;
         out[o + 3] = 255;
         continue;
       }
@@ -189,7 +189,7 @@ export function rcas(src, W, H, sharpness) {
       const rcp = 1 / (4 * lobe + 1);
       for (let ch = 0; ch < 3; ch++) {
         const v = (lobe * (src[b + ch] + src[d + ch] + src[f + ch] + src[hh + ch]) + src[e + ch]) * rcp;
-        out[o + ch] = v * 255 + 0.5;
+        out[o + ch] = v * 255; // the clamped array rounds by itself
       }
       out[o + 3] = 255;
     }

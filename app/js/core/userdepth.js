@@ -37,9 +37,28 @@ export function parseDepthRange(text) {
   }
 }
 
-async function inflate(bytes) {
-  const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate'));
-  return new Uint8Array(await new Response(stream).arrayBuffer());
+// `limit` stops a decompression bomb: the stream is cancelled once it yields more than the image can hold.
+async function inflate(bytes, limit = Infinity) {
+  const reader = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate')).getReader();
+  const parts = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.length;
+    if (total > limit) {
+      await reader.cancel();
+      return null;
+    }
+    parts.push(value);
+  }
+  const out = new Uint8Array(total);
+  let at = 0;
+  for (const p of parts) {
+    out.set(p, at);
+    at += p.length;
+  }
+  return out;
 }
 
 // Decodes a non-interlaced PNG to one channel (gray, or the first of RGB)
@@ -68,13 +87,17 @@ export async function decodePngGray(bytes) {
   }
   const channels = { 0: 1, 2: 3, 4: 2, 6: 4 }[type];
   if (!channels || interlace || (depth !== 8 && depth !== 16) || !width || !height) return null;
+  if (width > 16384 || height > 16384) return null;
+  const expected = height * (width * channels * (depth / 8) + 1);
+  if (expected > 1.2e9) return null;
   const joined = new Uint8Array(idat.reduce((n, d) => n + d.length, 0));
   let o = 0;
   for (const d of idat) {
     joined.set(d, o);
     o += d.length;
   }
-  const raw = await inflate(joined);
+  const raw = await inflate(joined, expected);
+  if (!raw) return null;
   const bpp = channels * (depth / 8);
   const stride = width * bpp;
   if (raw.length < height * (stride + 1)) return null;
@@ -275,8 +298,8 @@ export function dilateNearest(map, r, round = false) {
   // A round neighbourhood (a disc) gives a depth step the same shape the contour has; the square one stairs along a diagonal.
   const half = (dy) => (round ? Math.floor(Math.sqrt(r * r + r - dy * dy + 0.25)) : r);
   const rows = [];
-  for (let k = 0; k <= r; k++) {
-    // horizontal minimum of half width k
+  for (let k = round ? 0 : r; k <= r; k++) {
+    // horizontal minimum of half width k (the square case needs only the full half width r)
     const t = new Float32Array(data.length);
     for (let y = 0; y < h; y++) {
       for (let x = 0; x < w; x++) {

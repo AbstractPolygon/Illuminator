@@ -5,8 +5,16 @@
 
 import { nthSmallest } from './typed.js';
 
-const MODEL_BASE = 'https://huggingface.co/Acly/MobileSAM/resolve/main/';
+import { sha256Hex } from './upscalemodels.js';
+
+// Pinned to one commit (not the mutable main branch) and checked against the SHA-256 and size of each file, as core/depthmodels.js does.
+export const MODEL_REVISION = '0d3b403339b4674a82493d5e97964dd78089ddc8';
+const MODEL_BASE = `https://huggingface.co/Acly/MobileSAM/resolve/${MODEL_REVISION}/`;
 export const SEG_FILES = { encoder: 'mobile_sam_image_encoder.onnx', decoder: 'sam_mask_decoder_single.onnx' };
+export const SEG_HASHES = {
+  'mobile_sam_image_encoder.onnx': { size: 28157093, sha256: '580f5fb648ea1062c0aabc26217aed56921985f03f0cbbd852bba81d760cc749' },
+  'sam_mask_decoder_single.onnx': { size: 16501323, sha256: '93915fc7c993ab9d59ab8c9ccd3bce37f7509c81ab4150a74abd4d2abbd8570d' },
+};
 const CACHE = 'illuminator-models-v1';
 
 let loading = null;
@@ -48,6 +56,8 @@ async function modelBytes(name, onProgress) {
     bytes.set(p, at);
     at += p.length;
   }
+  const expect = SEG_HASHES[name];
+  if (expect && (bytes.length !== expect.size || (await sha256Hex(bytes)) !== expect.sha256)) throw new Error(`${name} did not download correctly. Try again.`);
   try {
     if (cache) await cache.put(url, new Response(bytes, { headers: { 'content-type': 'application/octet-stream' } }));
   } catch {
