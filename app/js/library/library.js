@@ -41,6 +41,9 @@ function folderName(label) {
   return clean || 'photo';
 }
 
+// How many photos an import adds between writes of the index.
+const INDEX_SAVE_EVERY = 25;
+
 export class Library {
   // store: storage.js backend. readSummary(file) -> { photoId, thumbnail }
   // reads a photo's id and embedded thumbnail ({ mime, bytes } or null).
@@ -151,6 +154,24 @@ export class Library {
   // each entry, in order.
   async add(entries, { onProgress = () => {}, replace = false } = {}) {
     const out = [];
+    // The index is written every so many photos and at the end, not after each one: writing it whole each time made a big import cost more with every photo it added.
+    let unsaved = 0;
+    const changed = async () => {
+      if (++unsaved >= INDEX_SAVE_EVERY) {
+        unsaved = 0;
+        await this.save();
+      }
+    };
+    try {
+      await this.addEach(entries, { onProgress, replace, out, changed });
+    } finally {
+      await this.save();
+    }
+    onProgress(null, entries.length, entries.length);
+    return out;
+  }
+
+  async addEach(entries, { onProgress, replace, out, changed }) {
     for (let i = 0; i < entries.length; i++) {
       const e = entries[i];
       onProgress(e, i, entries.length);
@@ -166,7 +187,7 @@ export class Library {
         await this.store.remove(`${PHOTOS}/${old.id}`);
         Object.assign(old, await this.copyFiles(e, old.id, summary), { name: e.name, size: e.file.size, photoId: summary.photoId, added: new Date().toISOString() });
         out.push(old);
-        await this.save();
+        await changed();
         continue;
       }
       const existing = summary.photoId && this.photos.find((p) => p.photoId === summary.photoId);
@@ -179,7 +200,7 @@ export class Library {
           const dir = `${PHOTOS}/${existing.id}`;
           if (e.depthMap && e.depthRange && !existing.depthMap) Object.assign(existing, await this.copyDepth(e, dir));
           if (e.stack && !existing.stack) existing.stack = await this.copyStack(e, dir);
-          await this.save();
+          await changed();
         }
         out.push(existing);
         continue;
@@ -188,10 +209,8 @@ export class Library {
       const photo = { id, name: e.name, ...(await this.copyFiles(e, id, summary)), size: e.file.size, photoId: summary.photoId, added: new Date().toISOString() };
       this.photos.push(photo);
       out.push(photo);
-      await this.save();
+      await changed();
     }
-    onProgress(null, entries.length, entries.length);
-    return out;
   }
 
   // Copies an entry's photo, edits and thumbnail into the folder `id`.

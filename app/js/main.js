@@ -160,15 +160,38 @@ async function asBlob(f) {
   return new Blob([await f.arrayBuffer()], { type: /\.png$/i.test(f.name) ? 'image/png' : 'image/jpeg' });
 }
 
+// The library's pictures load a few at a time, and the list is drawn again once for a batch of them, not once for each: with hundreds of photos, drawing the whole list after every
+// picture made opening a big library cost the square of its size.
+const THUMB_LOADS_AT_ONCE = 6;
+let thumbWaiting = [];
+let thumbLoading = 0;
+let thumbRedraw = null;
+function loadNextThumbs() {
+  while (thumbLoading < THUMB_LOADS_AT_ONCE && thumbWaiting.length) {
+    const photo = thumbWaiting.shift();
+    thumbLoading++;
+    state.lib.thumbnail(photo).then(asBlob).then((blob) => {
+      if (!blob || thumbs.get(photo.id) !== null) return;
+      thumbs.set(photo.id, URL.createObjectURL(blob));
+      if (!thumbRedraw) {
+        thumbRedraw = setTimeout(() => {
+          thumbRedraw = null;
+          renderLibrary();
+        }, 150);
+      }
+    }).catch(() => {}).finally(() => {
+      thumbLoading--;
+      loadNextThumbs();
+    });
+  }
+}
+
 function thumbFor(photo) {
   if (thumbs.has(photo.id)) return thumbs.get(photo.id);
   thumbs.set(photo.id, null);
   if (photo.thumb) {
-    state.lib.thumbnail(photo).then(asBlob).then((blob) => {
-      if (!blob || thumbs.get(photo.id) !== null) return;
-      thumbs.set(photo.id, URL.createObjectURL(blob));
-      renderLibrary();
-    }).catch(() => {});
+    thumbWaiting.push(photo);
+    loadNextThumbs();
   }
   return null;
 }
