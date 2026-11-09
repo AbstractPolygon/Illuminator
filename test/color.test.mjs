@@ -65,3 +65,8 @@ test('temperature and tint move the gains the way Lytro Desktop does', () => {
   const same = whiteBalanceGains(4200, 4200, 0);
   assert.ok(same.every((v) => Math.abs(v - 1) < 1e-9));
 });
+
+test('auto white balance stays finite for a channel with no light', async () => {
+  const { autoWhiteBalance } = await import('../app/js/core/color.js');
+  assert.ok(autoWhiteBalance([0, 0.5, 0.2], null).auto.every(Number.isFinite));
+});

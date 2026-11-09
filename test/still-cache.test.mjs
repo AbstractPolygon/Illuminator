@@ -43,3 +43,7 @@ test('only the newest renders are kept, and a repeated one moves to the end', ()
   assert.deepEqual(touchIndex(index, 'c').dropped, []);
   assert.deepEqual(touchIndex('junk', 'x'), { index: ['x'], dropped: [] });
 });
+
+test('hashKey is always 16 hex digits, whatever the text', () => {
+  for (let i = 0; i < 2000; i++) assert.match(hashKey(`key ${i}`), /^[0-9a-f]{16}$/);
+});

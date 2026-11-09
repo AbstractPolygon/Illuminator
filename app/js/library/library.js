@@ -29,6 +29,8 @@ export const LIBRARY_FORMAT = 'illuminator-library';
 export const LIBRARY_VERSION = 1;
 export const EDITS_FILE = 'edits.illuminator.json';
 const INDEX = 'library.json';
+// A replacement photo is copied here first and moved into Photos/ only when every file arrived, so a failed copy leaves the old photo whole.
+const STAGING = 'Staging';
 const PHOTOS = 'Photos';
 const LOOKS = 'Looks';
 import { PROCESSED_FILE } from '../core/processed-cache.js';
@@ -43,6 +45,8 @@ function folderName(label) {
 
 // How many photos an import adds between writes of the index.
 const INDEX_SAVE_EVERY = 25;
+// And at the latest this long after a change, so a crash in a long import loses seconds of work, not a batch.
+const INDEX_SAVE_WITHIN_MS = 5000;
 
 export class Library {
   // store: storage.js backend. readSummary(file) -> { photoId, thumbnail }
@@ -54,6 +58,36 @@ export class Library {
     this.albums = [];
     this.looks = [];
     this.saving = Promise.resolve();
+    this.saveTimer = null;
+    // Per-path queues (see serial): read-modify-write of an index file must not interleave.
+    this.locks = new Map();
+    // Set when library.json could not be read at all and so could not be backed up: it is not overwritten.
+    this.indexProtected = false;
+  }
+
+  // Runs fn after earlier calls with the same key have finished.
+  serial(key, fn) {
+    const prev = this.locks.get(key) || Promise.resolve();
+    const run = prev.then(fn, fn);
+    const tail = run.catch(() => {});
+    this.locks.set(key, tail);
+    tail.then(() => {
+      if (this.locks.get(key) === tail) this.locks.delete(key);
+    });
+    return run;
+  }
+
+  // Writes to the folder of a photo that was removed would recreate it.
+  isListed(photo) {
+    return !!photo && this.photos.some((p) => p.id === photo.id);
+  }
+
+  // Keeps what library.json held before it is replaced by a rebuilt or older-format index; an existing backup is never overwritten.
+  async backUpIndex(text) {
+    let name = `${INDEX}.bak`;
+    if (await this.store.readText(name).catch(() => null) != null) name = `${INDEX}.${Date.now()}.bak`;
+    await this.store.writeText(name, text);
+    return name;
   }
 
   get persistent() {
@@ -62,13 +96,38 @@ export class Library {
 
   async load() {
     let index = null;
+    let text = null;
+    let problem = null;
     try {
-      const text = await this.store.readText(INDEX);
-      index = text ? JSON.parse(text) : null;
+      text = await this.store.readText(INDEX);
     } catch (err) {
-      console.warn('library.json is unreadable; rebuilding it from the photo folders', err);
+      // Could not even read it: nothing to back up, so the file stays as it is.
+      console.warn('library.json could not be read; it is left untouched', err);
+      this.indexProtected = true;
+    }
+    if (text) {
+      try {
+        index = JSON.parse(text);
+      } catch (err) {
+        problem = 'unreadable';
+        console.warn('library.json is unreadable; rebuilding it from the photo folders (a copy is kept as library.json.bak)', err);
+      }
     }
     if (index && index.format && index.format !== LIBRARY_FORMAT) index = null;
+    if (index && Number(index.version) > LIBRARY_VERSION) {
+      problem = 'newer';
+      console.warn(`library.json was written by a newer version of Illuminator (format ${index.version}); a copy is kept as library.json.bak`);
+    }
+    if (problem && text) {
+      try {
+        this.backup = await this.backUpIndex(text);
+      } catch (err) {
+        console.warn('Could not back up library.json; it is left untouched', err);
+        this.indexProtected = true;
+      }
+    }
+    // Stale staging from a replacement that was interrupted.
+    await this.store.remove(STAGING).catch(() => {});
     this.photos = (index && Array.isArray(index.photos) ? index.photos : []).filter((p) => p && p.id && p.file);
     this.albums = (index && Array.isArray(index.albums) ? index.albums : []).filter((a) => a && a.id);
     this.looks = (index && Array.isArray(index.looks) ? index.looks : []).filter((l) => l && l.id);
@@ -95,11 +154,21 @@ export class Library {
       const found = groupPhotos(files.filter((f) => !f.dir).map((f) => ({ path: f.name, file: { name: f.name, size: f.size } })))[0];
       if (!found) continue;
       const thumb = files.find((f) => /^thumb\.(jpe?g|png)$/i.test(f.name));
+      // The photo's own id, so that importing it again is still recognized as the same photo (cheap: only the header is read).
+      let photoId = null;
+      if (/\.(lfr|lfp)$/i.test(found.file.name)) {
+        try {
+          const f = await this.store.file(`${PHOTOS}/${dir}/${found.file.name}`);
+          if (f) photoId = (await this.readSummary(f)).photoId || null;
+        } catch {
+          // Unreadable: no id, as before.
+        }
+      }
       this.photos.push({
         id: dir, name: found.name === 'raw' ? dir : found.name, file: found.file.name, sidecar: found.sidecar ? found.sidecar.name : null,
         depthMap: found.depthMap ? found.depthMap.name : null, depthRange: found.depthRange ? found.depthRange.name : null,
         stack: found.stack ? found.stack.name : null,
-        thumb: thumb ? thumb.name : null, size: found.file.size, photoId: null, added: new Date().toISOString(),
+        thumb: thumb ? thumb.name : null, size: found.file.size, photoId, added: new Date().toISOString(),
       });
       changed = true;
     }
@@ -134,7 +203,22 @@ export class Library {
     return id;
   }
 
+  // Writes the index within a few seconds unless something saves it sooner.
+  scheduleSave() {
+    if (this.saveTimer) return;
+    this.saveTimer = setTimeout(() => {
+      this.saveTimer = null;
+      this.save().catch((err) => console.warn('Could not save the library index', err));
+    }, INDEX_SAVE_WITHIN_MS);
+    if (this.saveTimer.unref) this.saveTimer.unref();
+  }
+
   save() {
+    if (this.saveTimer) {
+      clearTimeout(this.saveTimer);
+      this.saveTimer = null;
+    }
+    if (this.indexProtected) return this.saving;
     const doc = { format: LIBRARY_FORMAT, version: LIBRARY_VERSION, photos: this.photos, albums: this.albums, looks: this.looks };
     const text = JSON.stringify(doc, null, 2);
     // One write at a time, in order.
@@ -156,7 +240,13 @@ export class Library {
     const out = [];
     // The index is written every so many photos and at the end, not after each one: writing it whole each time made a big import cost more with every photo it added.
     let added = 0;
-    const changed = () => (++added % INDEX_SAVE_EVERY ? null : this.save());
+    const changed = () => {
+      if (++added % INDEX_SAVE_EVERY) {
+        this.scheduleSave();
+        return null;
+      }
+      return this.save();
+    };
     try {
       for (let i = 0; i < entries.length; i++) {
         const e = entries[i];
@@ -170,8 +260,19 @@ export class Library {
         const sameName = (p) => p.name.toLowerCase() === String(e.name).toLowerCase();
         const old = replace && (this.photos.find(sameName) || (summary.photoId && this.photos.find((p) => p.photoId === summary.photoId)));
         if (old) {
+          // New files first, into staging; the old folder goes only once they are all there.
+          const staging = `${STAGING}/${old.id}`;
+          let copied;
+          try {
+            await this.store.remove(staging);
+            copied = await this.copyFiles(e, old.id, summary, staging);
+          } catch (err) {
+            await this.store.remove(staging).catch(() => {});
+            throw err;
+          }
           await this.store.remove(`${PHOTOS}/${old.id}`);
-          Object.assign(old, await this.copyFiles(e, old.id, summary), { name: e.name, size: e.file.size, photoId: summary.photoId, added: new Date().toISOString() });
+          await this.store.move(staging, `${PHOTOS}/${old.id}`);
+          Object.assign(old, copied, { name: e.name, size: e.file.size, photoId: summary.photoId, added: new Date().toISOString() });
           out.push(old);
           await changed();
           continue;
@@ -192,6 +293,8 @@ export class Library {
           continue;
         }
         const id = this.uniqueId(e.label || stem(e.name));
+        // A folder of that name the index does not list is left over from a removed photo: its edits and caches must not pass to this one.
+        await this.store.remove(`${PHOTOS}/${id}`).catch(() => {});
         const photo = { id, name: e.name, ...(await this.copyFiles(e, id, summary)), size: e.file.size, photoId: summary.photoId, added: new Date().toISOString() };
         this.photos.push(photo);
         out.push(photo);
@@ -205,8 +308,7 @@ export class Library {
   }
 
   // Copies an entry's photo, edits and thumbnail into the folder `id`.
-  async copyFiles(e, id, summary) {
-    const dir = `${PHOTOS}/${id}`;
+  async copyFiles(e, id, summary, dir = `${PHOTOS}/${id}`) {
     const file = e.file.name || e.name;
     await this.store.copyIn(e.file, `${dir}/${file}`);
     let sidecar = null;
@@ -278,7 +380,8 @@ export class Library {
     return f ? f.arrayBuffer() : null;
   }
 
-  saveProcessed(photo, bytes) {
+  async saveProcessed(photo, bytes) {
+    if (!this.isListed(photo)) return;
     return this.store.writeBlob(`${PHOTOS}/${photo.id}/${PROCESSED_FILE}`, new Blob([bytes]));
   }
 
@@ -288,8 +391,13 @@ export class Library {
   }
 
   // Keeps a render; the oldest beyond the few kept are removed.
-  async saveStill(photo, hash, blob) {
+  saveStill(photo, hash, blob) {
     const dir = `${PHOTOS}/${photo.id}`;
+    return this.serial(`${dir}/${STILL_INDEX_FILE}`, () => this.writeStill(photo, dir, hash, blob));
+  }
+
+  async writeStill(photo, dir, hash, blob) {
+    if (!this.isListed(photo)) return;
     let index = [];
     try {
       index = JSON.parse((await this.store.readText(`${dir}/${STILL_INDEX_FILE}`)) || '[]');
@@ -309,8 +417,13 @@ export class Library {
   }
 
   // Keeps one; the oldest beyond the last few are removed.
-  async saveKeptPicture(photo, hash, bytes) {
+  saveKeptPicture(photo, hash, bytes) {
     const dir = `${PHOTOS}/${photo.id}`;
+    return this.serial(`${dir}/${KEPT_INDEX_FILE}`, () => this.writeKept(photo, dir, hash, bytes));
+  }
+
+  async writeKept(photo, dir, hash, bytes) {
+    if (!this.isListed(photo)) return;
     let index = [];
     try {
       index = JSON.parse((await this.store.readText(`${dir}/${KEPT_INDEX_FILE}`)) || '[]');
@@ -367,7 +480,8 @@ export class Library {
     }
   }
 
-  saveEdits(photo, edits) {
+  async saveEdits(photo, edits) {
+    if (!this.isListed(photo)) return;
     return this.store.writeText(`${PHOTOS}/${photo.id}/${EDITS_FILE}`, JSON.stringify(edits, null, 2));
   }
 

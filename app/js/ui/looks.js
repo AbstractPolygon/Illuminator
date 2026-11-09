@@ -31,9 +31,16 @@ export function initLooks({ $, state, showMenu, editName, confirmInMenu, current
         showNotice('Open a photo first', 'A look is put on the photo that is open.');
         return;
       }
+      const photoBefore = state.current;
       const look = await state.lib.loadLook(id);
       if (!look) throw new Error('This look could not be read');
-      flushSave();
+      // The photo may have been closed, or another opened, while the look loaded.
+      if (!hasPhoto() || state.current !== photoBefore) {
+        showNotice('The photo changed', 'Choose the look again to put it on the photo that is open.');
+        return;
+      }
+      await flushSave();
+      if (!hasPhoto() || state.current !== photoBefore) return;
       await applyEdits(state.info, applyLookToEdits(currentEdits(), look));
       scheduleSave();
     } catch (err) {

@@ -935,58 +935,61 @@ export function lytroSplatGpu(gpu, P, onProgress = null) {
     gpu.target(acc, W, HA);
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.ONE, gl.ONE);
-    const U = prog.splat.u;
-    common(U, t0);
-    bind(0, dmB, U.uT);
-    bind(1, low, U.uLow);
-    bind(2, planeTex, U.uPlane);
-    bind(3, depthTex, U.uDepth);
-    bind(4, loTex, U.uDepthLo);
-    bind(5, hiTex, U.uDepthHi);
-    bind(6, zTex, U.uZ);
-    gpu.setRayWarp(U, P.rayWarp);
-    gl.uniform4f(U.uGrid, g.pitch, g.rowStep, cos, sin);
-    gl.uniform2f(U.uOrigin, g.ox, g.oy);
-    gl.uniform2f(U.uMin, P.sampler.xMin, P.sampler.yMin);
-    gl.uniform1f(U.uUnit, P.unit);
-    gl.uniform4f(U.uHex, P.apothem, P.rise, P.planeRadius, 0);
-    gl.uniform1i(U.uY0, y0);
-    gl.uniform1i(U.uRows, y1 - y0);
-    gl.uniform1f(U.uScaleOut, P.scale);
-    gl.uniform2i(U.uOutSize, W, HA);
-    gl.uniform1i(U.uViewN, nV);
-    gl.uniform1f(U.uViewH, H);
-    if (nV) gl.uniform3fv(U.uViewC, Float32Array.from(P.views.flatMap((v) => [v.u, v.v, v.r2])));
-    gl.uniform2f(U.uSharpen, sharp.amount, sharp.clampPre || 0);
-    bisgUniforms(U);
-    bind(7 + 3, rawTex, U.uRaw);
-    gl.uniform1f(U.uModPow, P.opts.modPow || 0);
-    gl.uniform1f(U.uTolerance, P.opts.tolerance);
-    gl.uniform2f(U.uMarch, P.opts.tolA, P.opts.tolB);
-    gl.uniform2f(U.uRayShift, P.rayShift ? P.rayShift[0] : 0, P.rayShift ? P.rayShift[1] : 0);
-    gl.uniform2f(U.uCam, cam.width, cam.height);
-    gl.uniform1f(U.uFactor, d5 ? d5.factor : 1);
-    gl.uniform1i(U.uExact, ex ? 1 : 0);
-    gl.uniform1i(U.uGct, 9);
-    gpu.bindTex(9, gctTex);
-    gl.uniform1i(U.uLensShift, 11);
-    gpu.bindTex(11, shiftTex);
-    gl.uniform1i(U.uHasShift, shift ? 1 : 0);
-    gl.uniform4i(U.uLensRC, shift ? shift.r0 : 0, shift ? shift.c0 : 0, shift ? shift.rows : 0, shift ? shift.cols : 0);
-    if (ex) {
-      const sg = P.sampleGrid;
-      const pitchY = g.rowStep / 0.8660254037844386;
-      gl.uniform4f(U.uExactA, pitchY, cos * g.pitch - sin * pitchY, cos * pitchY + sin * g.pitch, LAMBDA_TO_ALPHA * (P.opts.dispScale || 1));
-      gl.uniform4f(U.uExactB, sg.ox, sg.oy, Math.cos(sg.rotation), Math.sin(sg.rotation));
+    try {
+      const U = prog.splat.u;
+      common(U, t0);
+      bind(0, dmB, U.uT);
+      bind(1, low, U.uLow);
+      bind(2, planeTex, U.uPlane);
+      bind(3, depthTex, U.uDepth);
+      bind(4, loTex, U.uDepthLo);
+      bind(5, hiTex, U.uDepthHi);
+      bind(6, zTex, U.uZ);
+      gpu.setRayWarp(U, P.rayWarp);
+      gl.uniform4f(U.uGrid, g.pitch, g.rowStep, cos, sin);
+      gl.uniform2f(U.uOrigin, g.ox, g.oy);
+      gl.uniform2f(U.uMin, P.sampler.xMin, P.sampler.yMin);
+      gl.uniform1f(U.uUnit, P.unit);
+      gl.uniform4f(U.uHex, P.apothem, P.rise, P.planeRadius, 0);
+      gl.uniform1i(U.uY0, y0);
+      gl.uniform1i(U.uRows, y1 - y0);
+      gl.uniform1f(U.uScaleOut, P.scale);
+      gl.uniform2i(U.uOutSize, W, HA);
+      gl.uniform1i(U.uViewN, nV);
+      gl.uniform1f(U.uViewH, H);
+      if (nV) gl.uniform3fv(U.uViewC, Float32Array.from(P.views.flatMap((v) => [v.u, v.v, v.r2])));
+      gl.uniform2f(U.uSharpen, sharp.amount, sharp.clampPre || 0);
+      bisgUniforms(U);
+      bind(7 + 3, rawTex, U.uRaw);
+      gl.uniform1f(U.uModPow, P.opts.modPow || 0);
+      gl.uniform1f(U.uTolerance, P.opts.tolerance);
+      gl.uniform2f(U.uMarch, P.opts.tolA, P.opts.tolB);
+      gl.uniform2f(U.uRayShift, P.rayShift ? P.rayShift[0] : 0, P.rayShift ? P.rayShift[1] : 0);
+      gl.uniform2f(U.uCam, cam.width, cam.height);
+      gl.uniform1f(U.uFactor, d5 ? d5.factor : 1);
+      gl.uniform1i(U.uExact, ex ? 1 : 0);
+      gl.uniform1i(U.uGct, 9);
+      gpu.bindTex(9, gctTex);
+      gl.uniform1i(U.uLensShift, 11);
+      gpu.bindTex(11, shiftTex);
+      gl.uniform1i(U.uHasShift, shift ? 1 : 0);
+      gl.uniform4i(U.uLensRC, shift ? shift.r0 : 0, shift ? shift.c0 : 0, shift ? shift.rows : 0, shift ? shift.cols : 0);
+      if (ex) {
+        const sg = P.sampleGrid;
+        const pitchY = g.rowStep / 0.8660254037844386;
+        gl.uniform4f(U.uExactA, pitchY, cos * g.pitch - sin * pitchY, cos * pitchY + sin * g.pitch, LAMBDA_TO_ALPHA * (P.opts.dispScale || 1));
+        gl.uniform4f(U.uExactB, sg.ox, sg.oy, Math.cos(sg.rotation), Math.sin(sg.rotation));
+      }
+      gl.bindVertexArray(gpu.emptyVao);
+      const total = (y1 - y0) * cam.width;
+      const chunk = 1 << 22;
+      for (let start = 0; start < total; start += chunk) {
+        gl.uniform1i(U.uStart, start);
+        gl.drawArrays(gl.POINTS, 0, Math.min(chunk, total - start));
+      }
+    } finally {
+      gl.disable(gl.BLEND);
     }
-    gl.bindVertexArray(gpu.emptyVao);
-    const total = (y1 - y0) * cam.width;
-    const chunk = 1 << 22;
-    for (let start = 0; start < total; start += chunk) {
-      gl.uniform1i(U.uStart, start);
-      gl.drawArrays(gl.POINTS, 0, Math.min(chunk, total - start));
-    }
-    gl.disable(gl.BLEND);
   }
 
   // the blur the engine applies to each view after the splat (P.viewBlur = { kx, ky }), before the read-back

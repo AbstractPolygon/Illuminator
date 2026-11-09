@@ -1399,8 +1399,9 @@ export function finishDepth({ alpha, cost, meanCost }, width, height, guide, { r
   const n = width * height;
   const confidence = Float32Array.from(cost);
   if (DEPTH_DIRECT.on) {
+    // 1e-12 keeps a flat input (all costs 0) from giving 0/0.
     const floor0 = nthSmallest(meanCost, n >> 1);
-    for (let i = 0; i < n; i++) confidence[i] = (Math.max(0, meanCost[i] - confidence[i]) / (meanCost[i] + floor0)) ** 2;
+    for (let i = 0; i < n; i++) confidence[i] = (Math.max(0, meanCost[i] - confidence[i]) / (meanCost[i] + floor0 + 1e-12)) ** 2;
     return { alpha: DEPTH_DIRECT.median ? median3(alpha, width, height) : Float32Array.from(alpha), confidence, range: [min, max], flat: false };
   }
   // A pronounced minimum is trustworthy; in blank regions every depth looks
@@ -1409,7 +1410,7 @@ export function finishDepth({ alpha, cost, meanCost }, width, height, guide, { r
   const floor = nthSmallest(meanCost, n >> 1);
   for (let i = 0; i < n; i++) {
     const gain = Math.max(0, meanCost[i] - confidence[i]);
-    confidence[i] = (gain / (meanCost[i] + floor)) ** 2;
+    confidence[i] = (gain / (meanCost[i] + floor + 1e-12)) ** 2;
   }
   // Keep confident estimates; fill the rest from confident parts of the
   // same surface (as far as it reaches, but not across the photo's edges).

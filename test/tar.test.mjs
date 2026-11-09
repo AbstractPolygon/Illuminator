@@ -14,3 +14,9 @@ test('a tar is read entry by entry without loading its data', async () => {
   assert.equal(new TextDecoder().decode(await readTarEntry(file, entries[0])), '{"calibrationFiles":[]}');
   assert.ok((await readTarEntry(file, entries[1])).every((b) => b === 7));
 });
+
+test('a negative entry size is an error instead of an endless scan', async () => {
+  const bytes = makeTar({ a: new Uint8Array(10) });
+  bytes.set(new TextEncoder().encode('-0000001000\0'), 124);
+  await assert.rejects(scanTar(blobOf(bytes)));
+});

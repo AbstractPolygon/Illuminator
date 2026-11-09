@@ -10,7 +10,7 @@ export const IDENTITY_POINTS = [[0, 0], [1, 1]];
 export function parsePoints(text) {
   const pts = String(text || '')
     .split(';')
-    .map((p) => p.split(',').map(Number))
+    .map((p) => p.split(',').filter((f) => f.trim() !== '').map(Number))
     .filter((p) => p.length === 2 && p.every(Number.isFinite))
     .map(([x, y]) => [Math.min(1, Math.max(0, x)), Math.min(1, Math.max(0, y))])
     .sort((a, b) => a[0] - b[0]);

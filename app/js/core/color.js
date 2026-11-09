@@ -70,7 +70,7 @@ const AUTO_FLAT = [1, 1, 1];
 export function autoWhiteBalance(means, cam) {
   const wb = cam && cam.wb;
   if (wb && wb.some((g) => Math.abs(g - 1) > 1e-4)) return { auto: AUTO_FLAT, manual: AUTO_FLAT };
-  return { auto: means.map((m) => means[1] / m), manual: AUTO_FLAT };
+  return { auto: means.map((m) => (m > 1e-6 ? means[1] / m : 1)), manual: AUTO_FLAT };
 }
 
 // The per-pixel adjustments, or null when they are all at zero.

@@ -73,7 +73,7 @@ export function parseAnimation(text) {
   for (const k of names) {
     const list = a.tracks && Array.isArray(a.tracks[k]) ? a.tracks[k] : [];
     out.tracks[k] = list
-      .filter((key) => key && Number.isFinite(key.t) && (isVec(k) ? Array.isArray(key.v) && key.v.length === 2 : Number.isFinite(key.v)))
+      .filter((key) => key && Number.isFinite(key.t) && (isVec(k) ? Array.isArray(key.v) && key.v.length === 2 : Number.isFinite(key.v) && (!isLog(k) || key.v > 0)))
       .map((key) => ({ t: Math.max(0, key.t), v: key.v, ease: normalizeEase(key.ease) }))
       .sort((x, y) => x.t - y.t);
   }
@@ -120,7 +120,9 @@ export function easeFunction(ease) {
 // Aperture moves in f-stops and zoom in doublings (log scales), so each
 // step of either takes the same time; views and pans per component.
 const isLog = (k) => k === 'aperture' || k === 'zoom';
-const toLinear = (k, v) => (isLog(k) ? [Math.log(v)] : isVec(k) ? v : [v]);
+// Log tracks are positive; the floor keeps a value that was not parsed (zero or negative) from giving NaN.
+const logOf = (v) => Math.log(Math.max(1e-9, v));
+const toLinear = (k, v) => (isLog(k) ? [logOf(v)] : isVec(k) ? v : [v]);
 const fromLinear = (k, c) => (isLog(k) ? Math.exp(c[0]) : isVec(k) ? c : c[0]);
 
 // Tangent (value per second) at keys[i], per component, for auto curves.
@@ -179,7 +181,7 @@ export function segmentBezier(anim, k, i, c = 0) {
 }
 
 function mix(k, a, b, e) {
-  if (isLog(k)) return Math.exp(Math.log(a) + (Math.log(b) - Math.log(a)) * e);
+  if (isLog(k)) return Math.exp(logOf(a) + (logOf(b) - logOf(a)) * e);
   if (isVec(k)) return [a[0] + (b[0] - a[0]) * e, a[1] + (b[1] - a[1]) * e];
   return a + (b - a) * e;
 }

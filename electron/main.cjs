@@ -292,6 +292,12 @@ function summary() {
   return cameras.map((c) => ({ id: c.id, kind: c.kind, label: c.label, files: c.files.map(({ id, name, size, folder }) => ({ id, name, size, folder })) }));
 }
 
+// A temporary file name beside `target`, different for every call.
+let tempCounter = 0;
+function tempName(target) {
+  return `${target}.${process.pid}-${++tempCounter}-${Math.random().toString(36).slice(2, 8)}.part`;
+}
+
 function findCamera(id) {
   const c = cameras.find((x) => x.id === id);
   if (!c) throw new Error('That camera is no longer connected.');
@@ -447,17 +453,29 @@ function registerIpc() {
   ipcMain.handle('lib-write', async (_e, rel, data) => {
     const p = inLibrary(rel);
     await fsp.mkdir(path.dirname(p), { recursive: true });
-    const tmp = `${p}.part`;
-    await fsp.writeFile(tmp, typeof data === 'string' ? data : Buffer.from(data));
-    await fsp.rename(tmp, p);
+    // A name of its own per write: two writes to one path at once must not share a temporary file.
+    const tmp = tempName(p);
+    try {
+      await fsp.writeFile(tmp, typeof data === 'string' ? data : Buffer.from(data));
+      await fsp.rename(tmp, p);
+    } catch (err) {
+      await fsp.rm(tmp, { force: true }).catch(() => {});
+      throw err;
+    }
   });
 
   ipcMain.handle('lib-copy-in', async (_e, src, rel) => {
     const from = checkAllowed(src);
     const p = inLibrary(rel);
     await fsp.mkdir(path.dirname(p), { recursive: true });
-    await fsp.copyFile(from, `${p}.part`);
-    await fsp.rename(`${p}.part`, p);
+    const tmp = tempName(p);
+    try {
+      await fsp.copyFile(from, tmp);
+      await fsp.rename(tmp, p);
+    } catch (err) {
+      await fsp.rm(tmp, { force: true }).catch(() => {});
+      throw err;
+    }
   });
 
   ipcMain.handle('lib-stat', async (_e, rel) => {
@@ -597,6 +615,13 @@ async function offerLinuxMenuEntry() {
   }
 }
 
+// Deny by default what the page may ask the system for. The app needs only fullscreen, copying text to the clipboard and (for cameras) WebUSB, which the device handler above narrows to Lytro cameras. Camera, microphone, location, notifications, MIDI, HID, serial and the rest are refused.
+const ALLOWED_PERMISSIONS = new Set(['fullscreen', 'clipboard-sanitized-write', 'usb']);
+function installPermissions(ses) {
+  ses.setPermissionRequestHandler((_wc, permission, callback) => callback(ALLOWED_PERMISSIONS.has(permission)));
+  ses.setPermissionCheckHandler((_wc, permission) => ALLOWED_PERMISSIONS.has(permission));
+}
+
 // `Illuminator --cli ...`: no window to show, the command is run and the app exits (electron/cli.cjs).
 const CLI_AT = process.argv.indexOf('--cli');
 
@@ -611,6 +636,7 @@ app.whenReady().then(async () => {
   // USB plug-in events reach the page (WebUSB) for Lytro cameras only,
   // without asking: the page only watches them come and go.
   if (CAMERA_IMPORT) session.defaultSession.setDevicePermissionHandler((details) => details.deviceType === 'usb' && camera.isLytroUsb(details.device));
+  installPermissions(session.defaultSession);
   registerIpc();
   if (CLI_AT >= 0) {
     const { runCli } = require('./cli.cjs');

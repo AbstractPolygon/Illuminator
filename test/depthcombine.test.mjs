@@ -57,3 +57,16 @@ test('the blend amount runs from the classic depth alone to the Lytro-style dept
   assert.ok(dOwn / (W * H) < 0.02, `classic end ${dOwn / (W * H)}`);
   assert.equal(same, 0, '0.5 is the default mix');
 });
+
+test('a NaN in the match depth does not spread NaN to other pixels', () => {
+  const n = 64 * 64;
+  const classic = new Float32Array(n);
+  const match = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    classic[i] = (i % 64) / 64;
+    match[i] = classic[i] * 2 + 1;
+  }
+  match[32 * 64 + 32] = NaN;
+  const out = combineDepth(classic, match, 64, 64);
+  out.forEach((v, i) => assert.ok(Number.isFinite(v) || i === 32 * 64 + 32, `NaN at ${i}`));
+});

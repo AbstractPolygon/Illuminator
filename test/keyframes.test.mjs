@@ -87,3 +87,9 @@ test('an old pan track becomes Pan X and Pan Y', () => {
   assert.deepEqual(a.tracks.panY.map((k) => k.v), [-0.25, 1]);
   near(valueAt(a, 'panY', 1), 1);
 });
+
+test('aperture and zoom keys that are not positive are dropped, so values stay finite', () => {
+  const anim = parseAnimation(JSON.stringify({ length: 2, tracks: { aperture: [{ t: 0, v: 0 }, { t: 1, v: 4 }] } }));
+  assert.equal(anim.tracks.aperture.length, 1);
+  assert.ok(Number.isFinite(valueAt(anim, 'aperture', 0.5)));
+});

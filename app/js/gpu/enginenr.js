@@ -522,6 +522,8 @@ export function nrFilterGpu(gpu, planes, w, h, tables, onProgress) {
     for (const g of groups.values()) {
       const tw = g.pl + g.cw + g.pr;
       const th = g.pt + g.ch + g.pb;
+      // A tile wider than the GPU's textures would make perBatch 0 (then 1) with an impossible atlas; the caller falls back.
+      if (tw > maxTex || th > maxTex) throw new Error('noise reduction tile exceeds GPU texture size');
       const perBatch = Math.max(1, Math.min(48, Math.floor(maxTex / tw) * Math.floor(maxTex / th)));
       for (let b0 = 0; b0 < g.tiles.length; b0 += perBatch) {
         const batch = g.tiles.slice(b0, b0 + perBatch);
@@ -630,7 +632,7 @@ void main() {
 // caller deletes. Pictures under 40 pixels are returned as they are (a copy). `space`: core/enginenr.js NR_SPACE.
 export function nrFilterTex(gpu, srcTex, w, h, tables, space, onProgress) {
   const gl = gpu.gl;
-  const outTex = gpu.texture(w, h, gl.RGBA32F);
+  let outTex = null;
   const programs = (gpu.nrTexPrograms ||= { pack: program(gl, PACK), unpack: program(gl, UNPACK) });
   const xs = CPU.tileLayout(w);
   const ys = CPU.tileLayout(h);
@@ -653,10 +655,14 @@ export function nrFilterTex(gpu, srcTex, w, h, tables, space, onProgress) {
   const total = xs.length * ys.length;
   let done = 0;
   const mat = (P, name, rows) => rows.forEach((r, i) => gl.uniform3f(P.u[`${name}${i}`], r[0], r[1], r[2]));
+  let ok = false;
   try {
+    outTex = gpu.texture(w, h, gl.RGBA32F);
     for (const g of groups.values()) {
       const tw = g.pl + g.cw + g.pr;
       const th = g.pt + g.ch + g.pb;
+      // A tile wider than the GPU's textures would make perBatch 0 (then 1) with an impossible atlas; the caller falls back.
+      if (tw > maxTex || th > maxTex) throw new Error('noise reduction tile exceeds GPU texture size');
       const perBatch = Math.max(1, Math.min(48, Math.floor(maxTex / tw) * Math.floor(maxTex / th)));
       for (let b0 = 0; b0 < g.tiles.length; b0 += perBatch) {
         const batch = g.tiles.slice(b0, b0 + perBatch);
@@ -723,9 +729,12 @@ export function nrFilterTex(gpu, srcTex, w, h, tables, space, onProgress) {
         if (onProgress) onProgress(done / total);
       }
     }
+    ok = true;
   } finally {
     gl.deleteTexture(lutTex);
     nr.dispose();
+    // The result is the caller's only on success; a throw must not leak it.
+    if (!ok && outTex) gl.deleteTexture(outTex);
   }
   return outTex;
 }
@@ -734,8 +743,11 @@ export class NrGpu {
   constructor(gpu) {
     this.gpu = gpu;
     this.gl = gpu.gl;
-    this.programs = { line: program(this.gl, LINE), down2: program(this.gl, DOWN2), up2: program(this.gl, UP2), crop: program(this.gl, CROP), pick: program(this.gl, PICK), lut: program(this.gl, LUT) };
-    this.ewPrograms = new Map();
+    // Compiled once per GPU context and kept (a run per picture would otherwise compile them all again).
+    const gl = this.gl;
+    const cache = (gpu.nrPrograms ||= { fixed: { line: program(gl, LINE), down2: program(gl, DOWN2), up2: program(gl, UP2), crop: program(gl, CROP), pick: program(gl, PICK), lut: program(gl, LUT) }, ew: new Map() });
+    this.programs = cache.fixed;
+    this.ewPrograms = cache.ew;
     this.free = new Map();
     this.lines = new Map();
     this.owned = [];
@@ -743,8 +755,12 @@ export class NrGpu {
 
   // An atlas of cols x rows tiles of w x h (one float per pixel).
   atlas(cols, rows, w, h) {
-    const tex = this.gpu.texture(cols * w, rows * h, this.gl.R32F);
+    const gl = this.gl;
+    gl.getError();
+    const tex = this.gpu.texture(cols * w, rows * h, gl.R32F);
     this.owned.push(tex);
+    const err = gl.getError();
+    if (err !== gl.NO_ERROR) throw new Error(`noise reduction atlas allocation failed (GL error ${err})`);
     return { tex, cols, rows, w, h, width: cols * w, height: rows * h };
   }
 

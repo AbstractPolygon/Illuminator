@@ -117,12 +117,26 @@ async function driveInfo(root) {
   };
 }
 
+// A serial number comes from the device, so it is not trusted as a folder name: only letters, digits, underscore and hyphen are kept, a name of dots only is not allowed, and the length is bounded.
+function safeSerial(serial, fallback = 'camera') {
+  const clean = String(serial == null ? '' : serial).replace(/[^A-Za-z0-9_-]+/g, '_').slice(0, 64);
+  return /[A-Za-z0-9]/.test(clean) ? clean : fallback;
+}
+
+// <destDir>/cameras/<serial>, checked to lie inside destDir.
+function cameraFolder(destDir, serial, ...rest) {
+  const base = path.resolve(destDir);
+  const dest = path.resolve(base, 'cameras', safeSerial(serial), ...rest);
+  if (dest !== base && !dest.startsWith(base + path.sep)) throw new Error('That camera name is not a valid folder name.');
+  return dest;
+}
+
 // Copies the calibration folder of a camera drive to <destDir>/cameras/<serial>.
 async function pullDriveCalibration(root, destDir) {
   const source = path.join(root, CALIBRATION_FOLDER);
   if (!(await isDir(source))) throw new Error('This camera drive has no unitdata folder.');
   const { serial } = await driveInfo(root);
-  const dest = path.join(destDir, 'cameras', serial || path.basename(root.replace(/[\\/]+$/, '')) || 'camera');
+  const dest = cameraFolder(destDir, serial || path.basename(root.replace(/[\\/]+$/, '')) || 'camera');
   await fsp.cp(source, dest, { recursive: true });
   return dest;
 }
@@ -186,7 +200,7 @@ async function pullAdbCalibration(serial, destDir) {
   } catch {
     // No readable unit info: file the data under the adb serial.
   }
-  const dest = path.join(destDir, 'cameras', camera);
+  const dest = cameraFolder(destDir, camera, '');
   await fsp.mkdir(dest, { recursive: true });
   await new Promise((resolve, reject) => {
     const p = spawn(adbCommand(), ['-s', serial, 'pull', 'unitdata', dest]);
@@ -276,9 +290,9 @@ function usbDiagnostics() {
 async function pullUsbCalibration(entry, destDir, onFile = () => {}) {
   const files = await entry.camera.calibrationFiles(onFile);
   if (!files.length) throw new Error('The camera has no calibration files to read.');
-  const dest = path.join(destDir, 'cameras', (entry.info && entry.info.serial) || 'camera', 'T1CALIB');
+  const dest = cameraFolder(destDir, entry.info && entry.info.serial, 'T1CALIB');
   await fsp.mkdir(dest, { recursive: true });
-  for (const f of files) await fsp.writeFile(path.join(dest, f.name), f.data);
+  for (const f of files) await fsp.writeFile(path.join(dest, path.basename(String(f.name))), f.data);
   return dest;
 }
 
@@ -651,4 +665,4 @@ async function fileReader(file) {
   };
 }
 
-module.exports = { lytroThumbnail, thumbnailPicture, decodeRawThumbnail, pullUsbCalibration, pullDriveCalibration, driveInfo, pullAdbCalibration, usbProblems, usbDiagnostics, assembleLfp, LYTRO_USB_VENDOR, isLytroUsb, listCameras, importFiles, scanVolume, volumeRoots, parseLsLong, fileReader, LIGHT_FIELD };
+module.exports = { safeSerial, cameraFolder, lytroThumbnail, thumbnailPicture, decodeRawThumbnail, pullUsbCalibration, pullDriveCalibration, driveInfo, pullAdbCalibration, usbProblems, usbDiagnostics, assembleLfp, LYTRO_USB_VENDOR, isLytroUsb, listCameras, importFiles, scanVolume, volumeRoots, parseLsLong, fileReader, LIGHT_FIELD };

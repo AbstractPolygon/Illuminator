@@ -205,6 +205,8 @@ export function initQueue({ $, state, native, currentEdits, showNotice, showErro
         const processed = api.processed();
         if (processed) await lib.saveProcessed(photo, processed).catch((err) => console.warn('Could not save the processed version', err));
       }
+      // Cancel stops the job at once, but this function runs on until it ends: a cancelled job saves nothing.
+      if (job.status !== 'running') throw new Error('Cancelled');
       return await save(out);
     } finally {
       off();

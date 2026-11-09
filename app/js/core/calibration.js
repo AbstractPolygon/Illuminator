@@ -182,7 +182,8 @@ export async function findSerial(entries) {
   }
 }
 
-const safeName = (s) => s.replace(/[^A-Za-z0-9._-]/g, '_');
+// A leading dot is replaced too, so '.' and '..' can never name the parent or the Calibration folder itself.
+export const safeName = (s) => String(s).replace(/[^A-Za-z0-9._-]/g, '_').replace(/^\.+/, (d) => '_'.repeat(d.length));
 
 // Keeps the small files of a calibration source under Calibration/<serial>/.
 // Returns { serial, saved, left, hotPixels }.

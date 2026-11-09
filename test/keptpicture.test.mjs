@@ -51,15 +51,11 @@ test('fingerprints follow contents, not identity', () => {
 });
 
 test('a picture\'s name is always 16 characters, and a kept picture comes back under it', () => {
-  let negative = 0;
   for (let i = 0; i < 400; i++) {
     const text = `key ${i} ${'x'.repeat(i % 7)}`;
     const hash = keptHash(text);
     assert.equal(hash.length, 16, hash);
-    assert.match(hash, /^[0-9a-fn]{16}$/);
-    if (hash.includes('n')) negative++;
+    assert.match(hash, /^[0-9a-f]{16}$/);
     assert.equal(decodeKept(encodeKept({ key: hash, w: 1, h: 1, rgb: new Float32Array(3) })).key, hash);
   }
-  // (some of the keys did give the minus sign, so the case is tested)
-  assert.ok(negative > 0);
 });
