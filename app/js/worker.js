@@ -20,6 +20,7 @@ import { DEPTH_PASSES, measureMatch, viewColors } from './core/depthmatch.js';
 import { measureMatchGpu, engineSolveGpu } from './gpu/depthmatch.js';
 import { combineDepth } from './core/depthcombine.js';
 import { VERSION } from './version.js';
+import { CACHE_REV } from './core/cacherev.js';
 import { removePeriodicPatternRepeatedly, removeLatticeByTiles } from './core/notch.js';
 import { snapDepthEdges, snapToObjects, softenObjectEdges, EDGE_SNAP_DEPTH } from './core/segments.js';
 import { methodDepthModel, readDepthModel } from './core/depthmodels.js';
@@ -786,7 +787,7 @@ async function open({ id, bytes, synthetic, userDepth = null, depthCache = null 
   // The depth of each depth method measured so far, by what it was measured with (depthMethodKey): switching back to a method does not measure again. The Illuminator
   // method's depths kept with the photo are the first entries.
   state.depthMethods = new Map();
-  for (const e of (depthCache && depthCache.extra) || []) if (JSON.parse(e.key).app === VERSION) state.depthMethods.set(e.key, { raw: { alpha: e.alpha, confidence: e.confidence, range: e.range, flat: e.flat }, parts: null, w: e.w, h: e.h });
+  for (const e of (depthCache && depthCache.extra) || []) if (JSON.parse(e.key).rev === CACHE_REV) state.depthMethods.set(e.key, { raw: { alpha: e.alpha, confidence: e.confidence, range: e.range, flat: e.flat }, parts: null, w: e.w, h: e.h });
   // A Lytro Desktop depth map kept with the photo replaces the measured one.
   state.userDepth = userDepth;
   state.gen++;
@@ -1822,10 +1823,10 @@ async function lensShiftForPhoto(id) {
 
 // Lens centers for the open photo from the white image of its camera's
 // calibration (matched by the geometry file's SHA-1), or null.
-// What the lens centers measured for this photo depend on: the app's version (the measurement can change), the photo and its lens grid.
+// What the lens centers measured for this photo depend on: the cache revision (core/cacherev.js: the measurement can change), the photo and its lens grid.
 function lensKey() {
   const { lf } = state;
-  return JSON.stringify({ app: VERSION, photo: lf && lf.photoId, grid: lf && lf.grid });
+  return JSON.stringify({ rev: CACHE_REV, photo: lf && lf.photoId, grid: lf && lf.grid });
 }
 
 // The lens centers kept with the photo by an earlier session (desktop app), when they fit this photo's lens table: rendering then starts from the calibrated centers and
@@ -2632,17 +2633,18 @@ function engineViewMatrix() {
 
 // The Lytro-style depth (core/depthmatch.js): on the GPU when there is one,
 // and on the CPU if the GPU cannot do it. Returns the finished, unsmoothed depth.
-// The processed version of the photo (core/processed-cache.js): what the depth the engine's way was measured with. A cache with another key is not used.
+// The processed version of the photo (core/processed-cache.js): what the depth the engine's way was measured with. A cache with another key is not used. The key holds the cache
+// revision (core/cacherev.js), not the app's version, so a new release keeps the caches of the last.
 const DEPTH_CACHE_FORMAT = 1;
 function depthCacheKey() {
   const s = state.settings;
-  return JSON.stringify({ app: VERSION, format: DEPTH_CACHE_FORMAT, photo: state.lf && state.lf.photoId, detail: s.detail, hot: s.hotPixels !== false });
+  return JSON.stringify({ rev: CACHE_REV, format: DEPTH_CACHE_FORMAT, photo: state.lf && state.lf.photoId, detail: s.detail, hot: s.hotPixels !== false });
 }
 // What a measured depth depends on: the photo, the depth method and the settings that change the measurement (not the smoothing, contrast, blend or the model, which are
 // applied to a measured depth).
 function depthMethodKey(style) {
   const s = state.settings;
-  return JSON.stringify({ app: VERSION, photo: state.lf && state.lf.photoId, detail: s.detail, hot: s.hotPixels !== false, style, quality: s.depthQuality ?? 'normal', objects: !!s.depthObjects, lytro: !!(state.userDepth && s.lytroDepth !== false), guided: s.depthStyle === 'guided' });
+  return JSON.stringify({ rev: CACHE_REV, photo: state.lf && state.lf.photoId, detail: s.detail, hot: s.hotPixels !== false, style, quality: s.depthQuality ?? 'normal', objects: !!s.depthObjects, lytro: !!(state.userDepth && s.lytroDepth !== false), guided: s.depthStyle === 'guided' });
 }
 
 function depthCacheFor(raster) {
@@ -2654,7 +2656,7 @@ function depthCacheFor(raster) {
 const OPEN_CACHE_FORMAT = 1;
 function openCacheKey() {
   const s = state.settings;
-  return JSON.stringify({ app: VERSION, format: OPEN_CACHE_FORMAT, photo: state.lf && state.lf.photoId, hot: s.hotPixels !== false, wb: s.engineWb !== false, mod: s.engineModulation !== false });
+  return JSON.stringify({ rev: CACHE_REV, format: OPEN_CACHE_FORMAT, photo: state.lf && state.lf.photoId, hot: s.hotPixels !== false, wb: s.engineWb !== false, mod: s.engineModulation !== false });
 }
 const finite3 = (a) => Array.isArray(a) && a.length === 3 && a.every(Number.isFinite);
 function usableOpenCache(o) {
