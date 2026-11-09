@@ -847,6 +847,7 @@ function resetView() {
   lensView.x = lensView.y = null;
   state.camera = { u: 0, v: 0 };
   state.focusPoint = { x: 0.5, y: 0.5 };
+  lastClick = null; // (a click on the photo before is not applied again to the depth of this one)
   showFocusPoint();
   $('spread-overlay').hidden = true;
   setFullRes(false, { restore: false });
@@ -2723,15 +2724,18 @@ engine.onDepthReady = (msg) => {
 // Only a short click on the picture sets the focus: not one that follows a
 // drag (turning the viewpoint, panning) or a press held down for a while.
 const CLICK_MAX_MS = 400;
-const CLICK_MAX_MOVE = 4;
+// How far a press may move and still count as a click, by input: a finger or a trackpad tap moves several pixels on its own, so with the mouse's few pixels a tap
+// became a drag of the viewpoint and set no focus. (The viewpoint drag starts past the same distance, minus one.)
+const CLICK_MAX_MOVE = { mouse: 4, pen: 7, touch: 11 };
+const clickSlop = (type) => CLICK_MAX_MOVE[type] || CLICK_MAX_MOVE.mouse;
 let pressed = null;
 canvas.addEventListener('pointerdown', (event) => {
   if (event.button !== 0) return;
   suppressClick = false;
-  pressed = { x: event.clientX, y: event.clientY, t: performance.now(), moved: false };
+  pressed = { x: event.clientX, y: event.clientY, t: performance.now(), moved: false, slop: clickSlop(event.pointerType) };
 }, true);
 window.addEventListener('pointermove', (event) => {
-  if (pressed && Math.hypot(event.clientX - pressed.x, event.clientY - pressed.y) > CLICK_MAX_MOVE) pressed.moved = true;
+  if (pressed && Math.hypot(event.clientX - pressed.x, event.clientY - pressed.y) > pressed.slop) pressed.moved = true;
 }, true);
 window.addEventListener('pointercancel', () => {
   pressed = null;
@@ -2784,10 +2788,11 @@ canvas.addEventListener('pointerdown', (event) => {
   const r = state.info.radius;
   const start = { x: event.clientX, y: event.clientY, u: state.camera.u, v: state.camera.v };
   let moved = false;
+  const dragFrom = clickSlop(event.pointerType) - 1;
   canvas.onpointermove = (e) => {
     const dx = e.clientX - start.x;
     const dy = e.clientY - start.y;
-    if (!moved && Math.hypot(dx, dy) < 3) return;
+    if (!moved && Math.hypot(dx, dy) < dragFrom) return;
     if (!moved) {
       moved = true;
       setFullRes(false, { restore: false });
