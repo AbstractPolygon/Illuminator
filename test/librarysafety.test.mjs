@@ -69,7 +69,12 @@ test('nothing is written for a photo that was removed, and a new photo does not 
   await lib.saveProcessed(p, new Uint8Array([1]));
   await lib.saveStill(p, 'h1', new Blob(['x']));
   await lib.saveKeptPicture(p, 'h2', new Uint8Array([1]));
+  await lib.saveThumbnail(p, new Blob(['t'], { type: 'image/png' }));
+  await lib.setMarks(p, { rating: 3, flag: '', keywords: ['a'] });
+  await lib.setPhotoId(p, 'sha1-new');
   assert.deepEqual(await store.list(`Photos/${p.id}`), []);
+  assert.equal(p.rating, undefined);
+  assert.ok(!p.thumb);
   // A stale folder with the id of a new photo is cleared before the copy.
   await store.writeText('Photos/img_0002/edits.illuminator.json', '{"stale":1}');
   const [q] = await lib.add([entry('IMG_0002.lfp', 'two')]);

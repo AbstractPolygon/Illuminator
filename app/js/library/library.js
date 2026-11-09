@@ -446,6 +446,7 @@ export class Library {
   }
 
   async saveThumbnail(photo, blob) {
+    if (!this.isListed(photo)) return;
     const name = blob.type === 'image/png' ? 'thumb.png' : 'thumb.jpg';
     await this.store.writeBlob(`${PHOTOS}/${photo.id}/${name}`, blob);
     photo.thumb = name;
@@ -453,13 +454,14 @@ export class Library {
   }
 
   async setPhotoId(photo, photoId) {
-    if (!photoId || photo.photoId === photoId) return;
+    if (!photoId || photo.photoId === photoId || !this.isListed(photo)) return;
     photo.photoId = photoId;
     await this.save();
   }
 
   // Ratings, flags and keywords (core/marks.js): kept on the photo's record and in an XMP sidecar next to the photo, which other programs read. Nothing set removes the sidecar.
   async setMarks(photo, marks) {
+    if (!this.isListed(photo)) return;
     const m = normalizeMarks(marks);
     for (const key of ['rating', 'flag', 'keywords']) delete photo[key];
     if (m.rating) photo.rating = m.rating;
