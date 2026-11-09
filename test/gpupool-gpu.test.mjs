@@ -67,6 +67,13 @@ test('the pool is trimmed, setRaw guards and resets, uploadRGB can be full float
       gpu.setRaw(new Uint16Array(16), { width: 4, height: 4 }, {});
       out.depthReset = gpu.depthTex === null && gpu.depthSize === null;
       out.align = gl.getParameter(gl.UNPACK_ALIGNMENT);
+      // releaseRaw: the sensor texture goes (a processed light field has none), and it can be called twice
+      out.hadRaw = !!gpu.rawTex;
+      gpu.releaseRaw();
+      gpu.releaseRaw();
+      out.rawGone = gpu.rawTex === null;
+      gpu.setRaw(new Uint16Array(16), { width: 4, height: 4 }, {});
+      out.rawBack = !!gpu.rawTex;
       out.error = gl.getError();
       // a 16-bit export keeps more than half float precision
       const t32 = gpu.uploadRGB(new Float32Array([1 / 3, 1 / 3, 1 / 3]), 1, 1, { full: true });
@@ -82,6 +89,7 @@ test('the pool is trimmed, setRaw guards and resets, uploadRGB can be full float
     assert.equal(res.big, 'sensor exceeds GPU texture size');
     assert.ok(res.depthReset);
     assert.equal(res.align, 4);
+    assert.ok(res.hadRaw && res.rawGone && res.rawBack);
     assert.equal(res.error, 0);
     assert.equal(res.full, Math.fround(1 / 3));
   } finally {

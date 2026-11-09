@@ -817,7 +817,7 @@ function releasePhoto({ all = false } = {}) {
   for (const k of Object.keys(state.jobs)) state.jobs[k] = null;
   dropKeptStills();
   if (state.gpu) {
-    for (const call of ['deleteViews', 'releaseDepthWork']) {
+    for (const call of ['deleteViews', 'releaseDepthWork', 'releaseRaw']) {
       try {
         if (state.gpu[call]) state.gpu[call]();
       } catch (e) {
