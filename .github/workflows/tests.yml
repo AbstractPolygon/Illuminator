@@ -13,7 +13,8 @@ permissions:
 
 jobs:
   browser-tests:
-    runs-on: ubuntu-latest
+    # Pinned: ubuntu-latest moved to 26.04, which this Playwright version cannot install a browser for.
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
 
