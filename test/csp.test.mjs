@@ -5,6 +5,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { createRequire } from 'node:module';
+import { fileURLToPath } from 'node:url';
 
 const require = createRequire(import.meta.url);
 const csp = require('../electron/csp.cjs');
@@ -73,7 +74,7 @@ test('connect-src covers every host the code fetches from', () => {
 test('no code in app/js needs inline styles or string evaluation', () => {
   const walk = (d) => fs.readdirSync(d, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(`${d}/${e.name}`) : e.name.endsWith('.js') ? [`${d}/${e.name}`] : []));
   const bad = [];
-  for (const f of walk(new URL('../app/js', import.meta.url).pathname)) {
+  for (const f of walk(fileURLToPath(new URL('../app/js', import.meta.url)))) {
     const text = fs.readFileSync(f, 'utf8');
     if (/\bstyle=["'\\]|setAttribute\(\s*['"]style['"]|\beval\(|new Function\(|<style/.test(text)) bad.push(f);
   }
