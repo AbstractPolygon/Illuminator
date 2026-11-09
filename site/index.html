@@ -587,6 +587,17 @@ footer { border-top: 1px solid var(--line); padding-block: 32px 48px; color: var
     <p class="eyebrow">Latest updates</p>
     <h2 style="font-size:clamp(30px,4vw,46px);font-weight:800;margin-top:10px">What's new.</h2>
     <div class="updates" id="updates-list">
+      <article class="upd" data-version="0.5.94">
+        <header><h3>0.5.94</h3><time datetime="2026-11-09">Nov 9, 2026</time></header>
+        <ul>
+        <li><strong>Click to focus is now fully sharp.</strong> Whatever you click now comes out as sharp as with no blur at all; before, the blur softened the whole picture, so nothing ever reached full focus.</li>
+        <li><strong>Depth map contrast can change the perspective shift too.</strong> A checkbox under it makes near and far objects slide against each other more when you move the viewpoint.</li>
+        <li><strong>Measured depth is kept across updates.</strong> Photos you already measured do not need to be measured again after a new version.</li>
+        <li><strong>The Render Queue matches the picture in the app.</strong> Queued pictures use the depth map edited in Lytro Desktop, and a batch reuses depth that is already measured.</li>
+        <li><strong>The depth sliders respond sooner.</strong> Depth map contrast, smoothing and the other depth settings take less time to show.</li>
+        <li><strong>Big libraries load faster.</strong> Importing hundreds of photos and showing their thumbnails costs less, and the web app now remembers measured depth after a reload.</li>
+        </ul>
+      </article>
       <article class="upd" data-version="0.5.93">
         <header><h3>0.5.93</h3><time datetime="2026-11-08">Nov 8, 2026</time></header>
         <ul>
@@ -609,14 +620,6 @@ footer { border-top: 1px solid var(--line); padding-block: 32px 48px; color: var
         <li><strong>Queue up to 512 photos at once.</strong> Choose them in the Render Queue view and add them all in one step, with each photo's saved edits.</li>
         <li><strong>Queued photos keep their Lytro Desktop edits.</strong> A photo you never edited here now starts from the edits Lytro Desktop made, the same as when you open it.</li>
         <li><strong>No more failed jobs for photos without raw data.</strong> A queued photo that has no raw light field skips the full sensor step instead of failing.</li>
-        </ul>
-      </article>
-      <article class="upd" data-version="0.5.89">
-        <header><h3>0.5.89</h3><time datetime="2026-11-08">Nov 8, 2026</time></header>
-        <ul>
-        <li><strong>Queue many photos at once.</strong> In the Render Queue view, Ctrl-click or Shift-click photos in the library, then add a picture or video for every one of them in one step.</li>
-        <li><strong>A clearer depth graph.</strong> The strip under the Depth slider is now a smooth curve with a knob for the focus, and its Near, Far and focus labels no longer stretch.</li>
-        <li><strong>Faster, clearer changes after a full sensor render.</strong> Changing the blur or focus no longer draws a quick preview first, and the progress says when the picture comes from the kept one.</li>
         </ul>
       </article>
     </div>
