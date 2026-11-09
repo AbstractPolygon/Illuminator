@@ -1,4 +1,5 @@
 // The engine when its worker breaks: waiting requests fail at once, the page is told, and the next request starts a new worker.
+import { createOpenSequencer } from '../app/js/core/openseq.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -56,20 +57,17 @@ test('the engine hands the open request to the worker with its openSeq, and mess
   assert.equal(made[0].posted[0].openSeq, 7);
 });
 
-// staleSeq lives inside main.js (it closes over the page's openSeq counter and the module cannot be imported without the whole page), so its text is taken from the
-// source and run here: the behavior is tested, not just the wording. Moving it to a small module (for example app/js/core/openseq.js exporting staleSeq(n, current))
-// would let this import it; worker.js's guards (newestOpenSeq, superseded in open()) are inside the worker file in the same way and have no pure helper to test.
+// The page's openSeq counter is core/openseq.js (behavior tests in test/openseq.test.mjs); this keeps main.js wired to it and sending the number with the open request.
 test('the page treats an older openSeq as stale and accepts equal, newer and missing ones', () => {
   const src = readFileSync(new URL('../app/js/main.js', import.meta.url), 'utf8');
-  const m = src.match(/^const staleSeq = (\(n\) => [^;\n]+);$/m);
-  assert.ok(m, 'staleSeq was not found in main.js in the expected one-line form');
-  const make = (openSeq) => new Function('openSeq', `return ${m[1]};`)(openSeq);
-  const stale = make(5);
-  assert.equal(stale(4), true);
-  assert.equal(stale(0), true);
-  assert.equal(stale(5), false);
-  assert.equal(stale(6), false);
-  assert.equal(stale(undefined), false);
-  assert.equal(stale(null), false);
+  assert.match(src, /^const staleSeq = \(n\) => openSeq\.isStale\(n\);$/m);
+  const seq = createOpenSequencer();
+  for (let i = 0; i < 5; i++) seq.next();
+  assert.equal(seq.isStale(4), true);
+  assert.equal(seq.isStale(0), true);
+  assert.equal(seq.isStale(5), false);
+  assert.equal(seq.isStale(6), false);
+  assert.equal(seq.isStale(undefined), false);
+  assert.equal(seq.isStale(null), false);
   assert.match(src, /engine\.request\('open', \{ \.\.\.args, openSeq: my \}/);
 });

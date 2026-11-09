@@ -13,6 +13,15 @@ precision highp usampler2D;
 `;
 const GRID = 100; // cells across and down (the plane's tile statistics)
 const BINS = 1 << 16;
+// Float32 counts every whole number up to 2^24 exactly and no further.
+const EXACT_COUNT = 1 << 24;
+
+// The [first vertex, count] chunks the histogram is drawn in: no bin of a chunk can count more than EXACT_COUNT points.
+export function histChunks(total) {
+  const chunks = [];
+  for (let first = 0; first < total; first += EXACT_COUNT) chunks.push([first, Math.min(EXACT_COUNT, total - first)]);
+  return chunks;
+}
 
 // 10 bit white image value -> the engine's 16 bit sample, black subtracted
 const BUILD = `${HEAD}
@@ -339,19 +348,24 @@ export function engineModulationGpu(gpu, mod, cam, dev, grid, hot) {
       }
     }
     const histTex = make(256, 1024, gl.R32F, gl.NEAREST);
-    gpu.target(histTex, 256, 1024);
-    gl.clearColor(0, 0, 0, 0);
-    gl.clear(gl.COLOR_BUFFER_BIT);
-    gl.useProgram(programs.hist.p);
-    gl.uniform1i(programs.hist.u.uSrc, 1);
-    gpu.bindTex(1, S1tex);
-    gl.uniform1i(programs.hist.u.uWidth, W);
-    gl.bindVertexArray(gpu.emptyVao);
-    gl.enable(gl.BLEND);
-    gl.blendFunc(gl.ONE, gl.ONE);
-    gl.drawArrays(gl.POINTS, 0, N);
-    gl.disable(gl.BLEND);
-    const histRGBA = readFloat(histTex, 256, 1024);
+    // Blending adds in float32, which counts exactly only up to 2^24 per bin: points go in chunks of at most that many (no bin can get more than its chunk's size) and the chunks are summed here in doubles.
+    const histRGBA = new Float64Array(256 * 1024 * 4);
+    for (const [first, count] of histChunks(N)) {
+      gpu.target(histTex, 256, 1024);
+      gl.clearColor(0, 0, 0, 0);
+      gl.clear(gl.COLOR_BUFFER_BIT);
+      gl.useProgram(programs.hist.p);
+      gl.uniform1i(programs.hist.u.uSrc, 1);
+      gpu.bindTex(1, S1tex);
+      gl.uniform1i(programs.hist.u.uWidth, W);
+      gl.bindVertexArray(gpu.emptyVao);
+      gl.enable(gl.BLEND);
+      gl.blendFunc(gl.ONE, gl.ONE);
+      gl.drawArrays(gl.POINTS, first, count);
+      gl.disable(gl.BLEND);
+      const part = readFloat(histTex, 256, 1024);
+      for (let i = 0; i < histRGBA.length; i++) histRGBA[i] += part[i];
+    }
     drop(histTex);
     const q = [0, 0, 0, 0];
     for (let p = 0; p < 4; p++) {

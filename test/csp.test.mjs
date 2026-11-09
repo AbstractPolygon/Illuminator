@@ -31,9 +31,11 @@ test('the Electron header is the meta policy plus frame-ancestors', () => {
   header.delete('frame-ancestors');
   assert.deepEqual([...header], [...meta]);
   assert.ok(!meta.has('frame-ancestors'), 'frame-ancestors is ignored in a <meta> tag');
-  // main.cjs must actually send it on app:// responses.
-  assert.match(main, /require\('\.\/csp\.cjs'\)/);
-  assert.match(main, /headers\.set\('Content-Security-Policy', headerPolicy\)/);
+  // The app:// handler (electron/protocol.cjs, wired in main.cjs) must actually send it on responses.
+  const protocolSource = fs.readFileSync(new URL('../electron/protocol.cjs', import.meta.url), 'utf8');
+  assert.match(protocolSource, /require\('\.\/csp\.cjs'\)/);
+  assert.match(protocolSource, /headers\.set\('Content-Security-Policy', headerPolicy\)/);
+  assert.match(main, /createAppProtocolHandler/);
 });
 
 test('the policy is strict', () => {
