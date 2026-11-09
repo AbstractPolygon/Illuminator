@@ -610,11 +610,24 @@ vec3 gather(vec2 pf, vec4 c, ivec2 size, bool snap) {
   // Each tap stands for the area between taps: read the pre-averaged
   // (mipmapped) image at that scale, so large blurs are smooth, not grainy.
   float lod = max(0.0, log2(maxR * sqrt(3.14159265 / float(taps))) + 0.5);
+  // A small disc is visited pixel by pixel (the exact blur): a handful of taps at whole pixel positions leaves some of its pixels out and counts others twice,
+  // which showed as grain in slightly blurred texture. Larger discs keep the spiral of taps.
+  bool grid = snap && maxR <= 4.0;
+  int side = 2 * int(ceil(maxR)) + 1;
+  int count = grid ? side * side : taps;
+  if (grid) lod = 0.0;
   for (int i = 0; i < ${MAX_TAPS}; i++) {
-    if (i >= taps) break;
-    float rr = sqrt((float(i) + 0.5) / float(taps)) * maxR;
-    float th = float(i) * 2.39996323;
-    vec2 o = rr * vec2(cos(th), sin(th));
+    if (i >= count) break;
+    vec2 o;
+    if (grid) {
+      o = vec2(float(i % side - side / 2), float(i / side - side / 2));
+      // (the pixel itself is already in the sum)
+      if (o == vec2(0.0) || length(o) > maxR + 0.5) continue;
+    } else {
+      float rr = sqrt((float(i) + 0.5) / float(taps)) * maxR;
+      float th = float(i) * 2.39996323;
+      o = rr * vec2(cos(th), sin(th));
+    }
     vec2 qf = snap ? floor(pf + o + 0.5) : pf + o;
     // (a tap outside the picture adds nothing: clamped onto the border it counted the border pixels again and again)
     if (qf.x < 0.0 || qf.y < 0.0 || qf.x > float(size.x - 1) || qf.y > float(size.y - 1)) continue;
