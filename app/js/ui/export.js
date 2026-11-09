@@ -8,7 +8,7 @@ import { aiUpscale, denoiseRgb16 } from '../core/aiupscale.js';
 import { encodePng16 } from '../core/png16.js';
 import { convertRgba8, convertRgb16, tagPng, tagJpeg } from '../core/colorspace.js';
 import { VIDEO_FORMATS, videoType, VIDEO_CODECS, videoFrame, chooseVideoType, videoBitrate } from '../core/video-format.js';
-import { MIN_VIDEO_FRAMES, playOrder, recordFrames } from '../core/videoexport.js';
+import { MIN_VIDEO_FRAMES, playOrder, recordFrames, cancelControl } from '../core/videoexport.js';
 import { toImageData } from '../engine.js';
 
 export function initExport({ state, $, canvas, ctx, layoutCanvas, showsCamera, stereoShown, showNotice, engine, cameraParams, showProgress, hideProgress, modelUpscaleParams, finishModelEnlargement, showError, showSliderValue, scheduleSave, draw, cropValues, animationRequest, eyeOffset, eyeParams, ensureAnimation, drawGeometry, stereoTag }) {
@@ -412,13 +412,15 @@ export function initExport({ state, $, canvas, ctx, layoutCanvas, showsCamera, s
   }
 
   async function exportVideo() {
+    const cancel = cancelControl(state);
+    const cancelBtn = $('video-cancel-btn');
     $('webm-btn').disabled = true;
     try {
       await ensureAnimation();
       const frames = state.frames.filter(Boolean);
       if (frames.length < MIN_VIDEO_FRAMES) return;
       const order = playOrder(frames.length, state.loop);
-      state.cancelVideo = false;
+      cancel.begin();
       // Full resolution on: every frame rendered again from the whole sensor.
       const fullOn = !!(state.fullResMode && state.info && state.info.hasRaw);
       // Show 3D on: both eyes of every frame, combined in the 3D type.
@@ -495,6 +497,10 @@ export function initExport({ state, $, canvas, ctx, layoutCanvas, showsCamera, s
         if (!whole) part.getContext('2d').drawImage(native, cut.x, cut.y, cut.w, cut.h, 0, 0, part.width, part.height);
         return { big: upscaleImage(part, c.width, c.height, opts), img };
       };
+      // Cancel is offered only while frames are recorded; the loop stops at the next frame.
+      cancelBtn.onclick = () => { cancel.request(); cancelBtn.disabled = true; };
+      cancelBtn.disabled = false;
+      cancelBtn.hidden = false;
       const result = await recordFrames(order, {
         prepare,
         emit: ({ big, img }) => {
@@ -505,14 +511,18 @@ export function initExport({ state, $, canvas, ctx, layoutCanvas, showsCamera, s
         sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
         now: () => performance.now(),
         fps: state.fps,
-        cancelled: () => !!state.cancelVideo,
+        cancelled: cancel.isRequested,
         onProgress: (p) => showProgress('Recording video', p),
       });
       if (!result.cancelled) await new Promise((r) => setTimeout(r, 1000 / state.fps));
+      cancelBtn.hidden = true;
       recorder.stop();
       await done;
       // A cancelled recording is dropped: no file, no error.
-      if (result.cancelled) return;
+      if (cancel.stopped(result)) {
+        showNotice('Video export cancelled.');
+        return;
+      }
       const ext = VIDEO_FORMATS[pick.format].ext;
       const made = new Blob(chunks, { type: mime });
       // A recording with no pictures in it is a few bytes of header: say so instead of saving an empty file.
@@ -521,6 +531,8 @@ export function initExport({ state, $, canvas, ctx, layoutCanvas, showsCamera, s
     } catch (err) {
       showError(err);
     } finally {
+      cancelBtn.hidden = true;
+      cancelBtn.onclick = null;
       hideProgress();
       $('webm-btn').disabled = false;
     }

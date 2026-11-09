@@ -101,3 +101,50 @@ test('a failing frame rejects without emitting later frames', async () => {
   await assert.rejects(recordFrames([0, 1, 2], { fps: 24, now: c.now, sleep: c.sleep, prepare: async (n) => { if (n === 1) throw new Error('decode'); return n; }, emit: (v) => emitted.push(v) }), /decode/);
   assert.deepEqual(emitted, [0]);
 });
+
+import { cancelControl } from '../app/js/core/videoexport.js';
+
+test('cancel arriving right at the last frame: the loop reports it done, the control still counts it as stopped', async () => {
+  const c = clock();
+  const state = {};
+  const cancel = cancelControl(state);
+  cancel.begin();
+  const r = await recordFrames([0, 1, 2], { fps: 24, now: c.now, sleep: c.sleep, cancelled: cancel.isRequested, prepare: async (n) => n, emit: (v) => { if (v === 2) cancel.request(); } });
+  assert.deepEqual(r, { cancelled: false, emitted: 3 });
+  assert.equal(cancel.stopped(r), true);
+});
+
+test('cancel during the last frame wait discards that frame', async () => {
+  const c = clock();
+  const cancel = cancelControl({});
+  const emitted = [];
+  const r = await recordFrames([0, 1, 2], { fps: 24, now: c.now, sleep: async (ms) => { c.advance(ms); }, cancelled: cancel.isRequested, prepare: async (n) => { if (n === 2) cancel.request(); return n; }, emit: (v) => emitted.push(v) });
+  assert.equal(r.cancelled, true);
+  assert.deepEqual(emitted, [0, 1]);
+});
+
+test('a cancelled run never reaches the save step; a finished one does', async () => {
+  const c = clock();
+  const saved = [];
+  const run = async (cancelAt) => {
+    const cancel = cancelControl(state);
+    cancel.begin();
+    const r = await recordFrames([0, 1, 2, 3], { fps: 24, now: c.now, sleep: c.sleep, cancelled: cancel.isRequested, prepare: async (n) => { if (n === cancelAt) cancel.request(); return n; }, emit: () => {} });
+    if (cancel.stopped(r)) return;
+    saved.push('file');
+  };
+  const state = {};
+  await run(1);
+  assert.deepEqual(saved, []);
+  await run(-1);
+  assert.deepEqual(saved, ['file']);
+});
+
+test('the flag is cleared when the next run begins', () => {
+  const state = { cancelVideo: true };
+  const cancel = cancelControl(state);
+  assert.equal(cancel.isRequested(), true);
+  cancel.begin();
+  assert.equal(state.cancelVideo, false);
+  assert.equal(cancel.stopped({ cancelled: false }), false);
+});

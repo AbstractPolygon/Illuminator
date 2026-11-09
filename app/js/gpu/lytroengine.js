@@ -118,17 +118,22 @@ void main() {
   float best = 1e9;
   int br = 0;
   int bc = 0;
+  // The nearest lens of the range the CPU visits (core/superres.js forEachLensPixel): a radius beyond half a pitch also reaches a lens of the range
+  // from a pixel whose nearest lens lies outside it (the sensor's border), so the neighbors of the nearest column are candidates too.
   for (int r = r0; r <= r0 + 1; r++) {
     float off = float(r & 1) * pitch * 0.5;
-    int c = int(floor((lx - off) / pitch + 0.5));
-    float uu = lx - (float(c) * pitch + off);
-    float vv = ly - float(r) * rowStep;
-    float dd = uu * uu + vv * vv;
-    if (dd < best) { best = dd; br = r; bc = c; }
+    int c0 = int(floor((lx - off) / pitch + 0.5));
+    for (int dc = -1; dc <= 1; dc++) {
+      int c = c0 + dc;
+      if (r - uLens.x < 0 || c - uLens.y < 0 || r - uLens.x >= uLens.z || c - uLens.y >= uLens.w) continue;
+      float uu = lx - (float(c) * pitch + off);
+      float vv = ly - float(r) * rowStep;
+      float dd = uu * uu + vv * vv;
+      if (dd < best) { best = dd; br = r; bc = c; }
+    }
   }
   if (best > uRadius * uRadius) return;
   ivec2 cell = ivec2(bc - uLens.y, br - uLens.x);
-  if (cell.x < 0 || cell.y < 0 || cell.x >= uLens.w || cell.y >= uLens.z) return;
   int ch = colour(x, y);
   float b = uBlack[ch];
   float m = max(0.0, float(texelFetch(uMod, ivec2(x, y), 0).r) - b);
@@ -525,14 +530,20 @@ void main() {
   float best = 1e9;
   int br = 0;
   int bc = 0;
+  // Only the lenses of the range the CPU visits own a ray (as in the plane pass): a pixel just outside it, whose plane value is valid, must not take a ray from a lens beyond the range.
   for (int r = r0; r <= r0 + 1; r++) {
     float off = float(r & 1) * pitch * 0.5;
-    int c = int(floor((lx0 - off) / pitch + 0.5));
-    float uu = lx0 - (float(c) * pitch + off);
-    float vv = ly0 - float(r) * rowStep;
-    float dd = uu * uu + vv * vv;
-    if (dd < best) { best = dd; br = r; bc = c; }
+    int c0 = int(floor((lx0 - off) / pitch + 0.5));
+    for (int dc = -1; dc <= 1; dc++) {
+      int c = c0 + dc;
+      if (r - uLens.x < 0 || c - uLens.y < 0 || r - uLens.x >= uLens.z || c - uLens.y >= uLens.w) continue;
+      float uu = lx0 - (float(c) * pitch + off);
+      float vv = ly0 - float(r) * rowStep;
+      float dd = uu * uu + vv * vv;
+      if (dd < best) { best = dd; br = r; bc = c; }
+    }
   }
+  if (best > 1e8) return;
   float lensX = float(bc) * pitch + float(br & 1) * pitch * 0.5;
   float lensY = float(br) * rowStep;
   float u = lx0 - lensX;
@@ -958,6 +969,7 @@ export function lytroSplatGpu(gpu, P, onProgress = null) {
       gpu.setRayWarp(U, P.rayWarp);
       gl.uniform4f(U.uGrid, g.pitch, g.rowStep, cos, sin);
       gl.uniform2f(U.uOrigin, g.ox, g.oy);
+      gl.uniform4i(U.uLens, range.r0, range.c0, refs.rows, refs.cols);
       gl.uniform2f(U.uMin, P.sampler.xMin, P.sampler.yMin);
       gl.uniform1f(U.uUnit, P.unit);
       gl.uniform4f(U.uHex, P.apothem, P.rise, P.planeRadius, 0);
