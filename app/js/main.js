@@ -3929,7 +3929,7 @@ const { baseName, shownScale, showAtPhotoSize, savePhoto, showPhotoFormat, saveP
 const { showCameraDialog, openWebUsbCamera, importFromCameraFolder, importFromConnectedCamera } = initCameraImport({ $, state, setCameraSection: (...a) => setCameraSection(...a), showError: (...a) => showError(...a), webCameraLabel: (...a) => webCameraLabel(...a), importCameraFiles: (...a) => importCameraFiles(...a), openItem: (...a) => openItem(...a) });
 
 // camera section: ui/camerasection.js
-const { setCameraSection, renderCameraSection, renderCameraGrid, importCameraFiles, webCameraLabel, showWebCamera, importFromCamera } = initCameraSection({ state, cameraThumbs, renderLibrary: (...a) => renderLibrary(...a), $, showGrid: (...a) => showGrid(...a), openItem: (...a) => openItem(...a), showProgress: (...a) => showProgress(...a), showError: (...a) => showError(...a), hideProgress: (...a) => hideProgress(...a), importPhotos: (...a) => importPhotos(...a), importFromConnectedCamera, importFromCameraFolder, showCameraDialog });
+const { setCameraSection, renderCameraSection, renderCameraGrid, importCameraFiles, webCameraLabel, showWebCamera, importFromCamera } = initCameraSection({ state, cameraThumbs, renderLibrary: (...a) => renderLibrary(...a), $, showGrid: (...a) => showGrid(...a), openItem: (...a) => openItem(...a), showProgress: (...a) => showProgress(...a), showError: (...a) => showError(...a), hideProgress: (...a) => hideProgress(...a), importPhotos: (...a) => importPhotos(...a), importFromConnectedCamera, importFromCameraFolder, showCameraDialog, showNotice: (...a) => showNotice(...a) });
 
 // ---------------------------------------------------------------- wiring
 

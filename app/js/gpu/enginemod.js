@@ -17,10 +17,16 @@ const BINS = 1 << 16;
 const EXACT_COUNT = 1 << 24;
 
 // The [first vertex, count] chunks the histogram is drawn in: no bin of a chunk can count more than EXACT_COUNT points.
-export function histChunks(total) {
+export function histChunks(total, size = chunkSize) {
   const chunks = [];
-  for (let first = 0; first < total; first += EXACT_COUNT) chunks.push([first, Math.min(EXACT_COUNT, total - first)]);
+  for (let first = 0; first < total; first += size) chunks.push([first, Math.min(size, total - first)]);
   return chunks;
+}
+
+// Only tests change this: a tiny chunk makes the multi-chunk path (a sensor above about 67 MP) run on a small input. No argument restores the default.
+let chunkSize = EXACT_COUNT;
+export function setHistChunkSizeForTests(size = EXACT_COUNT) {
+  chunkSize = size;
 }
 
 // 10 bit white image value -> the engine's 16 bit sample, black subtracted

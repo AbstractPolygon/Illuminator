@@ -3,8 +3,9 @@ import { readThumbnail, blobReader } from '../core/lfp.js';
 import { native, NativeFile, listCameraFolder, recallCameraFolder, pickCameraFolder, rememberCameraFolder } from '../platform.js';
 import { downloadPicture } from '../camera/webusb.js';
 import { groupPhotos } from '../library/scan.js';
+import { partialImport } from '../core/partialimport.js';
 
-export function initCameraSection({ state, cameraThumbs, renderLibrary, $, showGrid, openItem, showProgress, showError, hideProgress, importPhotos, importFromConnectedCamera, importFromCameraFolder, showCameraDialog }) {
+export function initCameraSection({ state, cameraThumbs, renderLibrary, $, showGrid, openItem, showProgress, showError, hideProgress, importPhotos, importFromConnectedCamera, importFromCameraFolder, showCameraDialog, showNotice = () => {} }) {
   // The Camera section above the library: the connected camera's photos.
   // { cam: { kind: 'drive' | 'adb' | 'web', id, label, files }, note, show }
   // (`show`: the Show photos… button, to choose or allow reading the drive in
@@ -142,16 +143,35 @@ export function initCameraSection({ state, cameraThumbs, renderLibrary, $, showG
       }
     } else {
       const stop = native.onImportProgress((p) => showProgress(`Copying ${p.file} from the camera (${Math.min(p.index + 1, p.count)} of ${p.count})`, p.total ? p.bytes / p.total : 0));
+      let partial = null;
       try {
-        const files = await native.importFromCamera(cam.id, picked.map((f) => f.id));
-        entries = files.map((f) => ({ path: f.name, file: new NativeFile(f) }));
+        const result = await native.importFromCamera(cam.id, picked.map((f) => f.id));
+        if (result && result.partial) {
+          // Some photos were copied before the camera failed: they are added like a finished import, with one notice instead of the error.
+          partial = partialImport({ imported: result.files, failedFile: result.failedFile });
+          entries = partial.files.map((f) => ({ path: f.name, file: new NativeFile(f) }));
+        } else {
+          entries = result.map((f) => ({ path: f.name, file: new NativeFile(f) }));
+        }
       } catch (err) {
-        showError(err);
-        return [];
+        // Photos copied before the failure are added like a finished import, with one notice instead of the error.
+        partial = partialImport(err);
+        if (!partial.files.length) {
+          showError(err);
+          return [];
+        }
+        entries = partial.files.map((f) => ({ path: f.name, file: new NativeFile(f) }));
       } finally {
         stop();
         hideProgress();
       }
+      const added = await importPhotos(groupPhotos(entries));
+      if (cam.kind === 'adb') state.lib.store.remove('.incoming').catch(() => {});
+      if (partial) {
+        showNotice(partial.message);
+        renderCameraSection();
+      }
+      return added;
     }
     const added = await importPhotos(groupPhotos(entries));
     if (cam.kind === 'adb') state.lib.store.remove('.incoming').catch(() => {});

@@ -42,3 +42,14 @@ export async function recordFrames(order, { prepare, emit, discard = () => {}, s
   }
   return { cancelled: false, emitted };
 }
+
+// The Cancel button's flag, kept on the page's state. A run clears it first, so a cancel pressed during an earlier run never stops the next one;
+// `stopped(result)` also counts a cancel that arrives after the last frame was emitted (while the recorder is still flushing), which recordFrames cannot see.
+export function cancelControl(state) {
+  return {
+    begin: () => { state.cancelVideo = false; },
+    request: () => { state.cancelVideo = true; },
+    isRequested: () => !!state.cancelVideo,
+    stopped: (result) => !!(result && result.cancelled) || !!state.cancelVideo,
+  };
+}

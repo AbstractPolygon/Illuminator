@@ -245,7 +245,10 @@ function createIpc(deps) {
         // The files written before the failure stay allowed and in the staging folder; the page shows which one failed.
         const done = err && err.imported ? err.imported : [];
         done.forEach(allow);
-        if (done.length) err.message = `${err.message} (${done.length} photo${done.length === 1 ? ' was' : 's were'} copied before this)`;
+        // An error thrown here reaches the page as its message alone (the files copied so far would be lost), so a failure after some photos were copied is returned as a result
+        // that lists them; the page adds them to the library and shows the message. With nothing copied the error is thrown as before.
+        const described = (await Promise.all(done.map((p) => describe(p).catch(() => null)))).filter(Boolean);
+        if (described.length) return { partial: true, files: described, failedFile: String((err && err.failedFile) || ''), message: err.message };
         throw err;
       }
       paths.forEach(allow);

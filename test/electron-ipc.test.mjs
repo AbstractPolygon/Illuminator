@@ -487,11 +487,21 @@ test('import-from-camera: a partial failure keeps what was copied and says so', 
   const t2 = await setup({ camera: fake });
   t2.state.cameras = [{ id: 'c', kind: 'adb', files: [] }];
   const done2 = path.join(t2.lib, '.incoming', 'one.lfr');
-  fake.importFiles = async () => { const e = new Error('Cable pulled'); e.imported = [done2]; throw e; };
-  await assert.rejects(t2.h['import-from-camera']('c', ['x']), (e) => e.message === 'Cable pulled (1 photo was copied before this)');
+  // The photos copied before the failure come back as a result (an error would reach the page as its message alone), described like a finished import.
+  await fsp.mkdir(path.dirname(done2), { recursive: true });
+  await fsp.writeFile(done2, 'x');
+  await fsp.writeFile(`${done2}2`, 'yy');
+  fake.importFiles = async () => { const e = new Error('Cable pulled'); e.imported = [done2]; e.failedFile = 'IMG_2.LFR'; throw e; };
+  const one = await t2.h['import-from-camera']('c', ['x']);
+  assert.deepEqual(one, { partial: true, files: [{ path: done2, name: 'one.lfr', size: 1 }], failedFile: 'IMG_2.LFR', message: 'Cable pulled' });
   assert.equal(await t2.ipc.checkAllowed(done2), done2);
-  fake.importFiles = async () => { const e = new Error('Boom'); e.imported = [done2, done2 + '2']; throw e; };
-  await assert.rejects(t2.h['import-from-camera']('c', ['x']), (e) => e.message === 'Boom (2 photos were copied before this)');
+  fake.importFiles = async () => { const e = new Error('Boom'); e.imported = [done2, `${done2}2`]; throw e; };
+  const two = await t2.h['import-from-camera']('c', ['x']);
+  assert.equal(two.partial, true);
+  assert.deepEqual(two.files.map((f) => f.size), [1, 2]);
+  // Listed files that vanished are left out; with none left it is an error again.
+  fake.importFiles = async () => { const e = new Error('Gone'); e.imported = [path.join(t2.lib, '.incoming', 'missing.lfr')]; throw e; };
+  await assert.rejects(t2.h['import-from-camera']('c', ['x']), (e) => e.message === 'Gone');
   fake.importFiles = async () => { throw new Error('Plain'); };
   await assert.rejects(t2.h['import-from-camera']('c', ['x']), (e) => e.message === 'Plain');
   await t.cleanup();
