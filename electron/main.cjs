@@ -627,11 +627,17 @@ const CLI_AT = process.argv.indexOf('--cli');
 
 app.whenReady().then(async () => {
   await loadSettings();
+  const { headerPolicy } = require('./csp.cjs');
   protocol.handle('app', (request) => {
     const { pathname } = new URL(request.url);
     const file = path.normalize(path.join(APP_DIR, decodeURIComponent(pathname)));
     if (!file.startsWith(APP_DIR + path.sep)) return new Response('Not found', { status: 404 });
-    return net.fetch(pathToFileURL(file).href);
+    return net.fetch(pathToFileURL(file).href).then((res) => {
+      // Content-Security-Policy as a header (same policy as the <meta> tag in app/index.html, plus frame-ancestors).
+      const headers = new Headers(res.headers);
+      headers.set('Content-Security-Policy', headerPolicy);
+      return new Response(res.body, { status: res.status, statusText: res.statusText, headers });
+    });
   });
   // USB plug-in events reach the page (WebUSB) for Lytro cameras only,
   // without asking: the page only watches them come and go.
