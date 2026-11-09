@@ -587,6 +587,16 @@ footer { border-top: 1px solid var(--line); padding-block: 32px 48px; color: var
     <p class="eyebrow">Latest updates</p>
     <h2 style="font-size:clamp(30px,4vw,46px);font-weight:800;margin-top:10px">What's new.</h2>
     <div class="updates" id="updates-list">
+      <article class="upd" data-version="0.5.95">
+        <header><h3>0.5.95</h3><time datetime="2026-11-09">Nov 9, 2026</time></header>
+        <ul>
+        <li><strong>Slight blur looks smooth.</strong> Small amounts of background blur are now even and clean instead of slightly grainy.</li>
+        <li><strong>Tapping to focus works with a finger.</strong> A tap that drifts a few pixels on a touch screen still counts as a tap.</li>
+        <li><strong>Switching photos quickly is safe.</strong> Opening another photo while one is still loading no longer mixes up edits, depth or thumbnails.</li>
+        <li><strong>Replacing photos on import is safer.</strong> If a copy fails, the original photo and its edits stay as they were.</li>
+        <li><strong>Fewer broken colors and depth glitches.</strong> White balance no longer breaks at certain temperatures, and depth along the bottom and right edges is more accurate (photos are measured once more after updating).</li>
+        </ul>
+      </article>
       <article class="upd" data-version="0.5.94">
         <header><h3>0.5.94</h3><time datetime="2026-11-09">Nov 9, 2026</time></header>
         <ul>
@@ -612,14 +622,6 @@ footer { border-top: 1px solid var(--line); padding-block: 32px 48px; color: var
         <li><strong>Batch an album with a look.</strong> In the Render Queue, Choose all, pick a look and add pictures for the whole album; your photos keep their settings.</li>
         <li><strong>Batch videos too.</strong> Add a video for every chosen photo; photos without an animation use the open photo's.</li>
         <li><strong>A clear message when a video can't be made.</strong> A computer that cannot encode the chosen format now says so, instead of saving an empty file.</li>
-        </ul>
-      </article>
-      <article class="upd" data-version="0.5.90">
-        <header><h3>0.5.90</h3><time datetime="2026-11-08">Nov 8, 2026</time></header>
-        <ul>
-        <li><strong>Queue up to 512 photos at once.</strong> Choose them in the Render Queue view and add them all in one step, with each photo's saved edits.</li>
-        <li><strong>Queued photos keep their Lytro Desktop edits.</strong> A photo you never edited here now starts from the edits Lytro Desktop made, the same as when you open it.</li>
-        <li><strong>No more failed jobs for photos without raw data.</strong> A queued photo that has no raw light field skips the full sensor step instead of failing.</li>
         </ul>
       </article>
     </div>
