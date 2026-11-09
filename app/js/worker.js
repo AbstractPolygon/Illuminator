@@ -63,6 +63,9 @@ import { costHelperCount, pooledCostVolume } from './costpool.js';
 import { STAGE_NAMES } from './core/speedreport.js';
 import { encodeKept, decodeKept, fingerprint, keptHash, hashBytes } from './core/keptpicture.js';
 import { mapF32, nthSmallestPair } from './core/typed.js';
+import * as cacheKeys from './core/cachekeys.js';
+import { createStaleGuard } from './core/openseq.js';
+import { makeJobGuard } from './core/jobguard.js';
 
 // Requests whose picture is wanted at 16 bits per channel (see finishGpu).
 const bits16Ids = new Set();
@@ -467,10 +470,7 @@ function dropKeptStills() {
 // a photo opened again finds it. The app's version is part of it, as the picture can change with the code.
 // The lens grid when it is not the one the photo was opened with (the Lenslets view sets another): part of what the depth and the pictures made from it depend on. Undefined
 // for the grid the photo opened with, so those keys (and the caches saved under them) stay as they were.
-function gridTag() {
-  const g = state.lf && state.lf.grid ? JSON.stringify(state.lf.grid) : null;
-  return g && g !== state.openGrid ? g : undefined;
-}
+const gridTag = () => cacheKeys.gridTag(state);
 function keptHashFor(parts, skip = []) {
   const grid = gridTag();
   const photo = [
@@ -796,8 +796,7 @@ function requireRaw() {
 // The page numbers its opens (`openSeq`, increasing): a request older than one already received is refused, and one overtaken while it waits stops at its next check. Every cache,
 // kept picture and depth message of a photo carries the `openSeq` it was opened with, so the page can tell them from a previous photo's.
 const STALE_OPEN = 'This photo was replaced by one opened after it.';
-let newestOpenSeq = -1;
-let openToken = 0;
+const openGuard = createStaleGuard(STALE_OPEN);
 
 // Lets go of what belongs to the photo that was open, before another is set up (and for the 'release' request): the raw sensor data and everything made from it on the CPU and
 // on the graphics card. What a photo opened again needs (its sampler, in samplerCache) stays unless `all`.
@@ -852,15 +851,7 @@ function restoreHeldGpu() {
 }
 
 async function open({ id, bytes, synthetic, userDepth = null, depthCache = null, openSeq = null }) {
-  if (openSeq != null) {
-    if (openSeq < newestOpenSeq) throw new Error(STALE_OPEN);
-    newestOpenSeq = openSeq;
-  }
-  const token = ++openToken;
-  const superseded = () => token !== openToken || (openSeq != null && openSeq < newestOpenSeq);
-  const checkOpen = () => {
-    if (superseded()) throw new Error(STALE_OPEN);
-  };
+  const { check: checkOpen } = openGuard.begin(openSeq);
   releasePhoto();
   restoreHeldGpu();
   state.openSeq = openSeq;
@@ -872,19 +863,10 @@ async function open({ id, bytes, synthetic, userDepth = null, depthCache = null,
   state.openOut = null;
   // The depth of each depth method measured so far, by what it was measured with (depthMethodKey): switching back to a method does not measure again. The Illuminator
   // method's depths kept with the photo are the first entries.
-  state.depthMethods = new Map();
   // (a damaged entry counts as absent; the page is asked to write the cache again once the photo is open)
-  let cacheDamaged = !!depthCache && !(depthCache.alpha && depthCache.key);
-  for (const e of (depthCache && depthCache.extra) || []) {
-    let k = null;
-    try {
-      k = JSON.parse(e.key);
-    } catch {
-      k = null;
-    }
-    if (!k || typeof k !== 'object') cacheDamaged = true;
-    else if (k.rev === CACHE_REV) state.depthMethods.set(e.key, { raw: { alpha: e.alpha, confidence: e.confidence, range: e.range, flat: e.flat }, parts: null, w: e.w, h: e.h });
-  }
+  const kept0 = cacheKeys.keptMethods(depthCache);
+  state.depthMethods = kept0.methods;
+  const cacheDamaged = kept0.damaged;
   // A Lytro Desktop depth map kept with the photo replaces the measured one.
   state.userDepth = userDepth;
   state.gen++;
@@ -1339,13 +1321,14 @@ async function superRes({ id, job, alpha = 0, scale, u = 0, v = 0, aperture = 0,
   if (aperture <= 0 && state.settings.lytroEngine !== false && state.lf.rayWarpBytes && state.lf.readModulation && !alpha) return lytroEdof({ id, job, scale, color, masks, quiet });
   state.jobs.superres = job;
   const { lf, dev, sampler } = state;
+  const samplerJob = makeJobGuard(() => state.sampler);
   if (!checkRenderMemory(sampler, scale, { cpu: !state.gpu, quiet })) return { cancelled: true };
   const progress = (stage, p) => post({ id, type: 'progress', stage, progress: p });
   if (!state.vignetting) {
     progress('Measuring lens vignetting', 0);
     state.vignetting = estimateVignetting(lf.raw, lf.cam, dev, lf.grid);
   }
-  if (!(await ensureDepth(id)) || state.sampler !== sampler) return { cancelled: true };
+  if (!(await ensureDepth(id)) || samplerJob.stale()) return { cancelled: true };
   const allInFocus = aperture <= 0;
   // The depth is a little off from where this photo's rays meet (Lytro's by
   // an amount that differs from photo to photo): find by how much, once per
@@ -1358,7 +1341,7 @@ async function superRes({ id, job, alpha = 0, scale, u = 0, v = 0, aperture = 0,
     progress('Finding the focus', 0);
     const probeBase = await allInFocusBase(id, u, v);
     // Another photo was opened (or the grid changed) while the base was built: its focus offset and cache are not this picture's to set.
-    if (state.sampler !== sampler) return { cancelled: true };
+    if (samplerJob.stale()) return { cancelled: true };
     const probe = estimateFocusOffset(lf.raw, lf.cam, dev, sampler, {
       base: probeBase, baseW: sampler.outW, baseH: sampler.outH, depth: state.depth.alpha,
       vignetting: state.vignetting, lensOffsets: state.lensOffsets, lambdaToAlpha: LAMBDA_TO_ALPHA, rayWarp: activeRayWarp(),
@@ -1376,7 +1359,7 @@ async function superRes({ id, job, alpha = 0, scale, u = 0, v = 0, aperture = 0,
   if (!state.lensOffsets && !allInFocus) {
     progress('Measuring lens centers', 0);
     await renderFullSensor({ alpha: 0, allInFocus: true, u: 0, v: 0, scale, passes: 0, base: await allInFocusBase(id, 0, 0) }, () => {});
-    if (state.jobs.superres !== job || state.sampler !== sampler) return { cancelled: true };
+    if (state.jobs.superres !== job || samplerJob.stale()) return { cancelled: true };
   }
   // The same picture was made just before (only color settings changed since): its color pass again, from the kept picture.
   const stillCtx = { focus: alpha, overrides: masks, view: viewOf(u, v) };
@@ -1518,6 +1501,8 @@ async function lytroEdof({ id, job, scale = 3, color = null, masks = null, quiet
   if (quiet && (!state.depth || (state.cpuFallbacks && state.cpuFallbacks.size))) return { cancelled: true };
   state.jobs.superres = job;
   const { lf, dev, sampler } = state;
+  const samplerJob = makeJobGuard(() => state.sampler);
+  const lfJob = makeJobGuard(() => state.lf);
   // (the engine's picture is combined on the processor whatever the card does, so its memory counts too)
   if (!checkRenderMemory(sampler, scale, { cpu: true, quiet })) return { cancelled: true };
   const progress = (stage, p) => post({ id, type: 'progress', stage, progress: p });
@@ -1526,7 +1511,7 @@ async function lytroEdof({ id, job, scale = 3, color = null, masks = null, quiet
     const vt = debugFlags().vigTiles;
     state.vignetting = vt ? estimateVignetting(lf.raw, lf.cam, dev, lf.grid, { tilesX: vt[0], tilesY: vt[1], lensStride: 1, selfRef: true }) : estimateVignetting(lf.raw, lf.cam, dev, lf.grid);
   }
-  if (!(await ensureDepth(id)) || state.sampler !== sampler) return { cancelled: true };
+  if (!(await ensureDepth(id)) || samplerJob.stale()) return { cancelled: true };
   const { W, H } = superResParams(sampler, { scale });
   const cs = colorState(color);
   const dbg = debugFlags();
@@ -1667,7 +1652,7 @@ async function lytroEdof({ id, job, scale = 3, color = null, masks = null, quiet
     if (state.modulation === undefined) {
       const loaded = lf.readModulation ? await loadModulation(lf) : null;
       // Another photo was opened while the frame was read: it is not this photo's modulation to keep.
-      if (state.lf !== lf) return { cancelled: true };
+      if (lfJob.stale()) return { cancelled: true };
       state.modulation = loaded;
     }
     const sp = lytroSplat({
@@ -1737,7 +1722,7 @@ async function lytroEdof({ id, job, scale = 3, color = null, masks = null, quiet
       progress('Reconstructing with the filter bank', 0);
       if (!state.reconSource) {
         const source = bankKernels(await decodePngRgb(new Uint8Array(lf.reconFilter.png)), lf.reconFilter.meta);
-        if (state.lf !== lf) return { cancelled: true };
+        if (lfJob.stale()) return { cancelled: true };
         state.reconSource = source;
       }
       const bank = buildBank(state.reconSource, W, H, { ...LYTRO_BANK, ...(dbg.bank || {}) });
@@ -1950,15 +1935,16 @@ function cameraWhite() {
 // The white image stored inside the open photo (the one the engine divides the picture by), measured: each lens's disc centre. Once per photo.
 async function photoWhite() {
   const { lf } = state;
+  const lfJob = makeJobGuard(() => state.lf);
   if (state.photoWhite === undefined) {
     state.photoWhite = null;
     try {
       const img = lf.readModulation ? await lf.readModulation() : null;
       const white = img ? measureWhiteRaw(img, lf.cam, Number.isFinite(img.black) ? img.black : lf.cam.black[0]) : null;
-      if (state.lf !== lf) return white;
+      if (lfJob.stale()) return white;
       state.photoWhite = white;
     } catch {
-      if (state.lf === lf) state.photoWhite = null;
+      if (!lfJob.stale()) state.photoWhite = null;
     }
   }
   return state.photoWhite;
@@ -2368,11 +2354,11 @@ async function ensureViewDepth(id) {
   if (state.depth) return true;
   const style = resolveDepthStyle(state.settings.depthStyle);
   if (state.pp || state.userDepth || style === 'classic' || hook('forceFullDepth')) return ensureDepth(id);
-  const sampler = state.sampler;
-  if (!(await ensureRefocusViews(id)) || state.sampler !== sampler) return false;
+  const samplerJob = makeJobGuard(() => state.sampler);
+  if (!(await ensureRefocusViews(id)) || samplerJob.stale()) return false;
   if (state.depth) return true;
   const quick = await measureClassic(id, true, () => {});
-  if (!quick || state.sampler !== sampler) return false;
+  if (!quick || samplerJob.stale()) return false;
   state.depthRaw = quick;
   state.depthFast = true;
   applyDepthSmoothing();
@@ -2419,13 +2405,13 @@ async function measureDepthOnce(id) {
 // The stages of a measurement are separated by a tick (`tick`) so requests that arrived meanwhile (a colour change, a view) are served between them.
 async function measureDepthTimed(id) {
   if (state.depth && !state.depthFast) return true;
-  const sampler0 = state.sampler;
+  const samplerJob = makeJobGuard(() => state.sampler);
   if (state.depthFast) {
     state.depthFast = false;
     state.depth = null;
     state.depthRaw = null;
   }
-  if (!(await ensureRefocusViews(id)) || state.sampler !== sampler0) return false;
+  if (!(await ensureRefocusViews(id)) || samplerJob.stale()) return false;
   if (!state.depth && state.userDepth && state.settings.lytroDepth !== false && state.settings.depthStyle !== 'guided') {
     const { outW, outH } = state.sampler;
     const alpha = userDepthAlpha(state.userDepth, state.sampler, state.lf.cam, 0, lensWarp(state.lens, outW, outH));
@@ -2459,7 +2445,7 @@ async function measureDepthTimed(id) {
     if (recalled && recalled.w === outW && recalled.h === outH) {
       if (state.settings.depthObjects) await findObjects(id);
       // Another photo (or a new grid) was set up while the objects were found: its depth must not be replaced by this one's.
-      if (state.sampler !== sampler0) return false;
+      if (samplerJob.stale()) return false;
       state.depthParts = recalled.parts || null;
       state.depthRaw = recalled.raw;
       state.depthFast = false;
@@ -2475,7 +2461,7 @@ async function measureDepthTimed(id) {
     const lap = {};
     DEPTH_REGIONS.objects = state.settings.depthObjects ? await findObjects(id) : null;
     await tick();
-    if (state.sampler !== sampler0) return false; // another photo was opened meanwhile: stop at this stage boundary
+    if (samplerJob.stale()) return false; // another photo was opened meanwhile: stop at this stage boundary
     const report = (from, to) => (p) => post({ id, type: 'progress', stage: 'Measuring depth', progress: from + (to - from) * p });
     if (style === 'combined' || style === 'match') {
       const kept = state.depthCacheIn && state.depthCacheIn.alpha.length && state.depthCacheIn.key === depthCacheKey() && style === 'match' && engineDepthAvailable() ? state.depthCacheIn : null;
@@ -2483,7 +2469,7 @@ async function measureDepthTimed(id) {
       if (kept) state.engineViews = Object.assign([], { raster: { w: kept.w, h: kept.h } });
       else await prepareEngineViews(id);
       await tick();
-    if (state.sampler !== sampler0) return false; // another photo was opened meanwhile: stop at this stage boundary
+    if (samplerJob.stale()) return false; // another photo was opened meanwhile: stop at this stage boundary
     }
     lap.views = Date.now() - tDepth;
     try {
@@ -2491,10 +2477,10 @@ async function measureDepthTimed(id) {
         const classic = await measureClassic(id, fast, report(0, 0.4));
         lap.classic = Date.now() - tDepth - lap.views;
         await tick();
-    if (state.sampler !== sampler0) return false; // another photo was opened meanwhile: stop at this stage boundary
+    if (samplerJob.stale()) return false; // another photo was opened meanwhile: stop at this stage boundary
         const tMatch = Date.now();
         const match = await measureLytro(report(0.4, 0.95));
-        if (state.sampler !== sampler0) return false;
+        if (samplerJob.stale()) return false;
         lap.match = Date.now() - tMatch;
         lap.inFrame = state.frameMs;
         if (match && classic) {
@@ -2507,7 +2493,7 @@ async function measureDepthTimed(id) {
         }
       } else if (style === 'match') {
         const matched = await measureLytro(report(0, 1));
-        if (state.sampler !== sampler0) return false;
+        if (samplerJob.stale()) return false;
         state.depthRaw = matched || (await measureClassic(id, fast, report(0, 1)));
       } else {
         state.depthRaw = await measureClassic(id, fast, report(0, 1));
@@ -2524,8 +2510,8 @@ async function measureDepthTimed(id) {
     // filter and an MRF in its engine): the same here, on the depth as finally
     // measured, so every style gets it.
     await tick();
-    if (state.sampler !== sampler0) return false; // another photo was opened meanwhile: stop at this stage boundary
-    if (state.sampler !== sampler0) return false;  // another photo was opened (or the detail changed) meanwhile
+    if (samplerJob.stale()) return false; // another photo was opened meanwhile: stop at this stage boundary
+    if (samplerJob.stale()) return false;  // another photo was opened (or the detail changed) meanwhile
     const tSettle = Date.now();
     settleDepth(outW, outH, lap);
     state.depthFast = false;  // a quick measurement made while this one ran is replaced by it
@@ -2698,13 +2684,14 @@ async function loadModulation(lf) {
 async function prepareEngineViews(id) {
   state.engineViews = null;
   const { lf, dev, sampler } = state;
+  const lfJob = makeJobGuard(() => state.lf);
   const dbg = debugFlags();
   // On by default for raw photos (settings.engineViews = false turns it off): the GPU ray splat when there is one (gpu/lytroengine.js, agrees with the CPU to about 1 %), else the CPU (about a minute on a full sensor).
   if (!lf || !engineDepthAvailable() || dbg.legacy || dbg.noExact || state.pp || !lf.geometryBytes || !lf.rayWarpBytes || !lf.metadata) return;
   if (!state.vignetting) state.vignetting = estimateVignetting(lf.raw, lf.cam, dev, lf.grid);
   if (state.modulation === undefined) {
     const loaded = lf.readModulation ? await loadModulation(lf) : null;
-    if (state.lf !== lf) return;
+    if (lfJob.stale()) return;
     state.modulation = loaded;
   }
   if (!state.modulation) return;
@@ -2815,29 +2802,16 @@ function engineViewMatrix() {
 // and on the CPU if the GPU cannot do it. Returns the finished, unsmoothed depth.
 // The processed version of the photo (core/processed-cache.js): what the depth the engine's way was measured with. A cache with another key is not used. The key holds the cache
 // revision (core/cacherev.js), not the app's version, so a new release keeps the caches of the last.
-const DEPTH_CACHE_FORMAT = 1;
-function depthCacheKey() {
-  const s = state.settings;
-  return JSON.stringify({ rev: CACHE_REV, format: DEPTH_CACHE_FORMAT, photo: state.lf && state.lf.photoId, detail: s.detail, hot: s.hotPixels !== false, grid: gridTag() });
-}
-// What a measured depth depends on: the photo, the depth method and the settings that change the measurement (not the smoothing, contrast, blend or the model, which are
-// applied to a measured depth).
-function depthMethodKey(style) {
-  const s = state.settings;
-  return JSON.stringify({ rev: CACHE_REV, photo: state.lf && state.lf.photoId, detail: s.detail, hot: s.hotPixels !== false, style, quality: s.depthQuality ?? 'normal', objects: !!s.depthObjects, lytro: !!(state.userDepth && s.lytroDepth !== false), guided: s.depthStyle === 'guided', grid: gridTag() });
-}
+const depthCacheKey = () => cacheKeys.depthCacheKey(state);
+// What a measured depth depends on (core/cachekeys.js).
+const depthMethodKey = (style) => cacheKeys.depthMethodKey(state, style);
 
 function depthCacheFor(raster) {
-  const c = state.depthCacheIn;
-  return c && c.alpha.length && raster && c.key === depthCacheKey() && c.w === raster.w && c.h === raster.h ? c : null;
+  return cacheKeys.depthCacheFor(state.depthCacheIn, depthCacheKey(), raster);
 }
 // What opening the photo works out (the engine's colour units and white balance, from its modulation frame), kept with the photo so reopening it does not read and
 // process that frame (about 3 s on a full sensor). The key says what it was worked out with.
-const OPEN_CACHE_FORMAT = 1;
-function openCacheKey() {
-  const s = state.settings;
-  return JSON.stringify({ rev: CACHE_REV, format: OPEN_CACHE_FORMAT, photo: state.lf && state.lf.photoId, hot: s.hotPixels !== false, wb: s.engineWb !== false, mod: s.engineModulation !== false });
-}
+const openCacheKey = () => cacheKeys.openCacheKey(state);
 const finite3 = (a) => Array.isArray(a) && a.length === 3 && a.every(Number.isFinite);
 function usableOpenCache(o) {
   if (!o || o.key !== openCacheKey() || !finite3(o.scale)) return null;
@@ -2865,7 +2839,7 @@ function postDepthCache() {
 }
 
 async function measureLytro(progress) {
-  const sampler = state.sampler;
+  const samplerJob = makeJobGuard(() => state.sampler);
   const raster = state.engineViews && state.engineViews.raster;
   const { outW, outH } = raster ? { outW: raster.w, outH: raster.h } : state.sampler;
   setDepthStyle('match');
@@ -2913,7 +2887,7 @@ async function measureLytro(progress) {
       if (helpers > 0) sharedCost = await pooledCostVolume(ordered, outW, outH, labelValues, helpers, (p) => progress(0.3 * p));
     }
     // Another photo was opened (or the grid changed) while the helpers ran: this depth belongs to a picture that is gone, and its cache must not carry the new photo's key.
-    if (state.sampler !== sampler) return null;
+    if (samplerJob.stale()) return null;
     const lam = engineDepthMap(ordered, outW, outH, labelValues, (stage, p) => progress(p), state.gpu && !debugFlags().noGpuCost ? gpuCostVolume : sharedCost ? () => sharedCost : null, state.gpu && !debugFlags().noGpuSolve ? (cost, guide, w, h, labels, prog) => { try { return engineSolveGpu(state.gpu, cost, guide, w, h, labels, prog); } catch (e) { gpuFellBack('The depth solver', e); throw e; } } : null);
     // pixels of blown-out highlights have no cost to solve from: they take their surroundings' depth (core/enginedepth.js fillBlownDepth)
     const filled = fillBlownDepth(lam, ordered[8], outW, outH);

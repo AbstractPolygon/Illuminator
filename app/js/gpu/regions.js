@@ -21,6 +21,31 @@ precision highp sampler2D;
 precision highp usampler2D;
 out vec4 o;`;
 
+// SLIC_FIX looks back at most this many pixels in raster order for a labeled one (a loop with a fixed trip count).
+const FIX_LOOK = 4096;
+// SLIC_ASSIGN searches this many grid cells each way around a pixel's cell for the centers whose window holds it.
+const ASSIGN_REACH = 3;
+
+// Throws where SLIC_FIX gave up (min label -1: a run of unreached pixels longer than FIX_LOOK - 1), which would have left them in a wrong region; callers fall back to the CPU slic().
+export function checkSlicFix(minLabel) {
+  if (minLabel < 0) throw new Error(`SLIC left a run of more than ${FIX_LOOK - 1} pixels unreached; the GPU cannot fill it`);
+}
+
+// A center that moved further from its grid seed than this can be held by a window whose cell lies more than ASSIGN_REACH cells from the pixel's, so SLIC_ASSIGN would miss it.
+// A window reaches S from its center; a pixel in cell g is at least (|home cell - g| - 0.5) cells from a center seeded in the middle of its cell.
+export function slicDriftLimit(step, S) {
+  return (ASSIGN_REACH + 0.5) * step - S;
+}
+
+// `moved`: the centers' positions as rgba floats (x, y in r, g), `seeds`: the same at the start. Throws where a center left the limit.
+export function checkSlicDrift(moved, seeds, k, step, S) {
+  const limit = slicDriftLimit(step, S);
+  for (let c = 0; c < k; c++) {
+    const d = Math.max(Math.abs(moved[4 * c] - seeds[4 * c]), Math.abs(moved[4 * c + 1] - seeds[4 * c + 1]));
+    if (d > limit) throw new Error(`A SLIC center moved ${d.toFixed(1)} pixels, more than the ${limit.toFixed(1)} the GPU assignment searches`);
+  }
+}
+
 const SCATTER_FRAGMENT = `#version 300 es
 precision highp float;
 in vec4 vVal;
@@ -119,7 +144,7 @@ void main() {
   o = vec4(label);
 }`;
 
-// Pixels no centre reached join the pixel before them in raster order (after its own fix), as in slic(). Rare.
+// Pixels no centre reached join the pixel before them in raster order (after its own fix), as in slic(). Rare. A run longer than FIX_LOOK - 1 gets -1.
 const SLIC_FIX = `${HEAD}
 uniform sampler2D uLabel;
 void main() {
@@ -128,13 +153,14 @@ void main() {
   float l = texelFetch(uLabel, p, 0).r;
   if (l >= 0.0) { o = vec4(l); return; }
   int idx = p.y * sz.x + p.x;
-  for (int i = 1; i < 4096; i++) {
+  for (int i = 1; i < ${FIX_LOOK}; i++) {
     int j = idx - i;
     if (j < 0) { o = vec4(0.0); return; }
     float v = texelFetch(uLabel, ivec2(j % sz.x, j / sz.x), 0).r;
     if (v >= 0.0) { o = vec4(v); return; }
   }
-  o = vec4(0.0);
+  // gave up: marked -1 so slic() can tell
+  o = vec4(-1.0);
 }`;
 
 // New centres from the sums (x, y, count) and (l, a, b); a centre nobody joined keeps its old place.
@@ -1315,7 +1341,8 @@ class Scope {
     const k = cols * rows;
     const m2 = (compactness / step) ** 2;
     const S = Math.ceil(step);
-    const posT0 = this.upRGBA(k, 1, Float32Array.from(pos));
+    const seeds = Float32Array.from(pos);
+    const posT0 = this.upRGBA(k, 1, seeds);
     let cPos = posT0;
     let cLab = this.pass(this.prog.slicInit, k, 1, (U) => this.bind(U, [['uLab', labT], ['uPos', posT0]]));
     let label = null;
@@ -1329,7 +1356,7 @@ class Scope {
         gl.uniform1f(U.uStep, step);
         gl.uniform1f(U.uM2, m2);
         gl.uniform1i(U.uS, S);
-        gl.uniform1i(U.uReach, 3);
+        gl.uniform1i(U.uReach, ASSIGN_REACH);
       });
       if (it === iterations - 1) break;
       const lab0 = label;
@@ -1347,8 +1374,10 @@ class Scope {
       });
       cPos = np;
       cLab = nl;
+      checkSlicDrift(this.read(np, k, 1), seeds, k, step, S);
     }
     const fixed = this.pass(this.prog.slicFix, w, h, (U) => this.bind(U, [['uLabel', label]]));
+    checkSlicFix(this.read(this.minmax(fixed, w, h), 1, 1)[0]);
     return { label: fixed, k, centerPos: cPos, cols, rows, S };
   }
 }

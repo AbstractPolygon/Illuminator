@@ -18,6 +18,13 @@ import { mapF32, nthSmallestPair } from '../core/typed.js';
 const MAX_VIEWS = 64;
 // The most labels the engine's range can come to: -35 up to its top (at most 100), padded to a multiple of four.
 const MAX_LABELS = 144;
+// The arm search below is a loop with a fixed trip count (GLSL ES 3.00 wants one the compiler can see); a longer arm would be cut short without a sign.
+const ARM_STEPS = 128;
+
+// Throws where an arm length would be cut short on the GPU; the callers fall back to the CPU path.
+export function checkArmLength(arm) {
+  if (!(arm - 1 <= ARM_STEPS)) throw new Error(`The GPU depth arms reach at most ${ARM_STEPS} pixels, not ${arm - 1}`);
+}
 
 const HEAD = `#version 300 es
 precision highp float;
@@ -177,7 +184,7 @@ float diff(ivec2 i, ivec2 j) {
 
 float reach(ivec2 i, ivec2 step, int room) {
   int k = 1;
-  for (int n = 0; n < 128; n++) {
+  for (int n = 0; n < ${ARM_STEPS}; n++) {
     if (k >= uArm || k > room) break;
     ivec2 j = i + step * k;
     float d = diff(i, j);
@@ -418,10 +425,16 @@ void main() {
   vec4 mv = vec4(0.0);
   if (qh.x >= 0 && qh.x < uW) mh = message(qh, uOldH, uUniformW == 1 ? 1.0 : texelFetch(uEdge, ivec2(min(p.x, qh.x), p.y), 0).r, g);
   if (qv.y >= 0 && qv.y < uH) mv = message(qv, uOldV, uUniformW == 1 ? 1.0 : texelFetch(uEdge, ivec2(p.x, min(p.y, qv.y)), 0).g, g);
-  vec4 base = texelFetch(uU, at(p, g), 0) + texelFetch(uOldH, at(p, g), 0) + texelFetch(uOldV, at(p, g), 0);
+  vec4 oh = texelFetch(uOldH, at(p, g), 0);
+  vec4 ov = texelFetch(uOldV, at(p, g), 0);
+  // Added in the CPU's order (U, left, right, up, down) so both round the same way.
+  vec4 fromL = uDX > 0 ? mh : oh;
+  vec4 fromR = uDX > 0 ? oh : mh;
+  vec4 fromU = uDY > 0 ? mv : ov;
+  vec4 fromD = uDY > 0 ? ov : mv;
   outH = mh;
   outV = mv;
-  outB = base + mh + mv;
+  outB = (((texelFetch(uU, at(p, g), 0) + fromL) + fromR) + fromU) + fromD;
 }`;
 
 // The labels' beliefs at the end: best label (core/depth.js bestDepth), the
@@ -850,6 +863,7 @@ export function engineSolveGpu(gpu, volume, guide, w, h, labels, onProgress = ()
   const L = labels.length;
   const n = w * h;
   if (L % 4 || L > MAX_LABELS) throw new Error('Label count not supported by the GPU solver');
+  checkArmLength(A.arm);
   for (let l = 1; l < L; l++) if (labels[l] - labels[l - 1] !== 1) throw new Error('The GPU solver needs consecutive labels');
   const work = new Work(gpu, w, h);
   try {
@@ -1011,6 +1025,7 @@ export function measureMatchGpu(gpu, views, w, h, { onProgress } = {}) {
   const count = Math.ceil((Math.floor((P.top - P.first) / P.step) + 1) / 4) * 4;
   const fineCount = P.adapt.on ? P.adapt.fine : count;
   if (Math.max(count, fineCount) > MAX_LABELS) throw new Error('Too many depth labels for the GPU');
+  checkArmLength(DEPTH_CBCA.arm);
   const alphas = Array.from({ length: count }, (_, i) => (P.first + i * P.step) * P.lambda);
   // a copy: pushing onto P.refs would change the module's setting for every later photo
   const refs = [...(P.refs ?? views.map((_, k) => k))];

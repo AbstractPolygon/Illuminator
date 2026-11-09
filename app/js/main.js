@@ -49,6 +49,7 @@ import { initWhiteBalancePicker } from './ui/whitebalance.js';
 import { initColorMatrix } from './ui/colormatrix.js';
 import { initToneCurve } from './ui/tonecurve.js';
 import { initNumberFields } from './ui/numberfields.js';
+import { createOpenSequencer } from './core/openseq.js';
 
 const $ = (id) => document.getElementById(id);
 const engine = new Engine();
@@ -56,7 +57,7 @@ engine.onNotice = (text) => showNotice(text);
 // The worker stopped: the requests waiting for it have failed (their callers clean up); what is left is the page's own busy flags, and the photo, which only the
 // worker held, must be opened again.
 engine.onWorkerLost = () => {
-  openSeq++;
+  openSeq.next();
   state.view.busy = false;
   state.view.pending = false;
   spreadView.busy = false;
@@ -134,10 +135,10 @@ function hideProgress() {
 
 // Every open (a library photo, a dropped file, a script) takes the next number; a request, render or save that belongs to an earlier number is stale and must not
 // touch what is on show now. The worker echoes the number it was sent with (`openSeq` on the open request and on its cache messages).
-let openSeq = 0;
-const staleSeq = (n) => n != null && n < openSeq;
+const openSeq = createOpenSequencer();
+const staleSeq = (n) => openSeq.isStale(n);
 // A progress callback for work that began at generation `gen`: it stays silent once another photo is on its way in.
-const progressFor = (gen) => (stage, p) => { if (gen === openSeq) showProgress(stage, p); };
+const progressFor = (gen) => (stage, p) => { if (!openSeq.superseded(gen)) showProgress(stage, p); };
 
 // A failure that leaves the photo as it was (export, look, import, render, settings): a notice over the picture.
 function showError(err, title = 'Something went wrong') {
@@ -233,14 +234,14 @@ function saveThumbnail() {
   state.wantThumb = false;
   const photo = state.current && state.current.photo;
   if (!photo || !state.lib || !canvas.width) return;
-  const gen = openSeq;
+  const gen = openSeq.current();
   const s = Math.min(1, 320 / Math.max(canvas.width, canvas.height));
   const c = document.createElement('canvas');
   c.width = Math.round(canvas.width * s);
   c.height = Math.round(canvas.height * s);
   c.getContext('2d').drawImage(canvas, 0, 0, c.width, c.height);
   c.toBlob((blob) => {
-    if (!blob || gen !== openSeq) return;
+    if (!blob || openSeq.superseded(gen)) return;
     state.lib.saveThumbnail(photo, blob).then(() => {
       const old = thumbs.get(photo.id);
       if (old) URL.revokeObjectURL(old);
@@ -799,22 +800,22 @@ async function importPhotos(entries, { album = state.album, replace = false } = 
 
 async function openItem(photo) {
   // A click on another photo while this one is still loading takes over: everything below stops at its next await.
-  const my = ++openSeq;
+  const my = openSeq.next();
   state.scripted = false;
   closeMenu();
   // The photo on show keeps its last change before the view is reset or the controls are rewritten.
   await flushSave();
-  if (my !== openSeq) return;
+  if (openSeq.superseded(my)) return;
   await calReady;
-  if (my !== openSeq) return;
+  if (openSeq.superseded(my)) return;
   const file = await state.lib.file(photo).catch(() => null);
-  if (my !== openSeq) return;
+  if (openSeq.superseded(my)) return;
   if (!file) {
     showOpenError(new Error(`${photo.name} is missing from the library folder.`));
     return;
   }
   const sidecar = await state.lib.sidecar(photo).catch(() => null);
-  if (my !== openSeq) return;
+  if (openSeq.superseded(my)) return;
   // (a change made while the files were read)
   const saved = flushSave();
   state.current = { photo, name: photo.name, file, sidecar };
@@ -824,11 +825,11 @@ async function openItem(photo) {
   renderLibrary();
   await saved;
   const bytes = await file.arrayBuffer();
-  if (my !== openSeq) return;
+  if (openSeq.superseded(my)) return;
   const { userDepth, depthCache, transfer } = await depthInputs(photo, [bytes]);
-  if (my !== openSeq) return;
+  if (openSeq.superseded(my)) return;
   await openWith({ bytes, userDepth, depthCache }, transfer, my);
-  if (my === openSeq && state.info && state.current && state.current.photo === photo) state.lib.setPhotoId(photo, state.info.photoId).catch(() => {});
+  if (!openSeq.superseded(my) && state.info && state.current && state.current.photo === photo) state.lib.setPhotoId(photo, state.info.photoId).catch(() => {});
 }
 
 // Whether the measured depth is kept next to each library photo: where the library is kept between sessions (the desktop app's folder, or the browser's storage in the web app), and
@@ -952,7 +953,7 @@ function closePhoto() {
   // Its last change is kept, and nothing in flight (an open, a render) lands on the empty view.
   flushSave();
   flushProcessed();
-  openSeq++;
+  openSeq.next();
   clearTimeout(saveTimer);
   saveTimer = 0;
   state.editsKey = null;
@@ -971,18 +972,18 @@ function closePhoto() {
   setMode(state.mode);
 }
 
-async function openWith(args, transfer, my = ++openSeq) {
+async function openWith(args, transfer, my = openSeq.next()) {
   resetView();
   // After the reset, so a picture of the photo before cannot become this one's saved thumbnail.
   state.wantThumb = !!(state.current && state.current.photo && !state.current.photo.thumb);
   try {
     const info = await engine.request('open', { ...args, openSeq: my }, { transfer, onProgress: progressFor(my) });
-    if (my !== openSeq) return;
+    if (openSeq.superseded(my)) return;
     hideProgress();
     state.info = info;
     $('placeholder').hidden = true;
     await restoreEdits(info);
-    if (my !== openSeq) return;
+    if (openSeq.superseded(my)) return;
     showAutoFringe();
     renderInfo();
     if (!info.hasRaw && !info.processed) throw new Error('The file contains no light field image.');
@@ -991,7 +992,7 @@ async function openWith(args, transfer, my = ++openSeq) {
     if (info.hasRaw) engine.request('prepare').catch(() => {});
     emitEvent('photoOpened', { name: state.current ? state.current.name : null, raw: !!info.hasRaw });
   } catch (err) {
-    if (my === openSeq) showOpenError(err);
+    if (!openSeq.superseded(my)) showOpenError(err);
   }
 }
 
@@ -1013,8 +1014,8 @@ function cancelSaves(photo) {
 // ---------------------------------------------------------------- drawing
 
 // `gen`: the open generation the picture was asked for in; a picture of the photo before is dropped.
-function draw(img, gen = openSeq) {
-  if (!img || gen !== openSeq) return;
+function draw(img, gen = openSeq.current()) {
+  if (!img || openSeq.superseded(gen)) return;
   state.enlarged = false;
   if (img.pair) return drawPair(img);
   startNoticeTimer();
@@ -1237,11 +1238,11 @@ async function updateSpreadOverlay() {
     return;
   }
   spreadView.busy = true;
-  const gen = openSeq;
+  const gen = openSeq.current();
   try {
     const field = tiltView ? { ...focusField(), spread: 0, smooth: 0.3 } : focusField();
     const msg = await engine.request('spreadMask', { alpha: +$('focus').value, ...field }, { onProgress: progressFor(gen) });
-    if (gen !== openSeq) return;
+    if (openSeq.superseded(gen)) return;
     hideProgress();
     if (msg && msg.pixels) {
       const mask = toImageData(msg);
@@ -1260,7 +1261,7 @@ async function updateSpreadOverlay() {
       }
     }
   } catch (err) {
-    if (gen === openSeq) showError(err, 'Could not show the spread');
+    if (!openSeq.superseded(gen)) showError(err, 'Could not show the spread');
   } finally {
     spreadView.busy = false;
     if (spreadView.pending) {
@@ -1568,11 +1569,11 @@ async function renderCamera({ final = false } = {}) {
     return;
   }
   v.busy = true;
-  const gen = openSeq;
+  const gen = openSeq.current();
   try {
     if (stereoShown()) {
       const img = await stereoPreview(cameraParams());
-      if (gen !== openSeq) return;
+      if (openSeq.superseded(gen)) return;
       hideProgress();
       if (img && showsCamera()) draw(img, gen);
     } else {
@@ -1604,7 +1605,7 @@ async function renderCamera({ final = false } = {}) {
         });
       }
       // Another photo was opened while this rendered: its picture is not for the new one.
-      if (gen !== openSeq) return;
+      if (openSeq.superseded(gen)) return;
       hideProgress();
       if (msg && (msg.pixels || msg.bitmap) && showsCamera()) {
         draw(toImageData(msg), gen);
@@ -1614,7 +1615,7 @@ async function renderCamera({ final = false } = {}) {
       if (msg && !final && (msg.nrDeferred || recovery)) nrFinalTimer = setTimeout(() => { if (showsCamera()) renderCamera({ final: true }); }, 350);
     }
   } catch (err) {
-    if (gen === openSeq) showError(err, 'Could not render the picture');
+    if (!openSeq.superseded(gen)) showError(err, 'Could not render the picture');
   } finally {
     v.busy = false;
     if (v.pending) {
@@ -1955,7 +1956,7 @@ async function renderStill() {
     setFullRes(false);
     return;
   }
-  const gen = openSeq;
+  const gen = openSeq.current();
   try {
     const passes = +$('still-passes').value;
     const hash = stillHash(scale, passes);
@@ -1965,7 +1966,7 @@ async function renderStill() {
     if (hash) {
       const file = await state.lib.still(photo, hash);
       const img = file && (await stillFromFile(file));
-      if (gen !== openSeq) return;
+      if (openSeq.superseded(gen)) return;
       if (img && state.fullRes && state.current && state.current.photo === photo) {
         state.still = img;
         state.stillKept = false;
@@ -1983,7 +1984,7 @@ async function renderStill() {
     let finished = false;
     if (!state.still && !state.depthShown) {
       engine.job('superResPreview', 'preview', { ...(state.stillFrame || cameraParams()), scale, passes }).promise.then((pv) => {
-        if (finished || gen !== openSeq || !pv || !(pv.pixels || pv.bitmap) || !state.fullRes || state.depthShown) return;
+        if (finished || openSeq.superseded(gen) || !pv || !(pv.pixels || pv.bitmap) || !state.fullRes || state.depthShown) return;
         draw(toImageData(pv), gen);
         showAtPhotoSize();
         $('frame-label').textContent = `${canvas.width}×${canvas.height} preview`;
@@ -1994,7 +1995,7 @@ async function renderStill() {
     const { promise } = engine.job('superRes', 'superres', { ...(state.stillFrame || cameraParams()), scale, passes }, { onProgress: progressFor(gen) });
     const msg = await promise;
     finished = true;
-    if (gen !== openSeq) return;
+    if (openSeq.superseded(gen)) return;
     // Ignore a result that arrives after full resolution was switched off.
     if (msg && (msg.pixels || msg.bitmap) && state.fullRes) {
       state.still = toImageData(msg);
@@ -2015,9 +2016,9 @@ async function renderStill() {
       }
     }
   } catch (err) {
-    if (gen === openSeq) showError(err, 'Could not render the full sensor picture');
+    if (!openSeq.superseded(gen)) showError(err, 'Could not render the full sensor picture');
   } finally {
-    if (gen === openSeq) hideProgress();
+    if (!openSeq.superseded(gen)) hideProgress();
   }
 }
 
@@ -2189,14 +2190,14 @@ function setFullRes(on, { restore = true } = {}) {
 }
 
 async function renderDepth() {
-  const gen = openSeq;
+  const gen = openSeq.current();
   try {
     const msg = await engine.request('depthMap', { grey: $('depth-grey').checked, contrast: $('depth-contrast').value / 100 }, { onProgress: progressFor(gen) });
-    if (gen !== openSeq) return;
+    if (openSeq.superseded(gen)) return;
     hideProgress();
     if (msg && msg.pixels && state.depthShown) draw(toImageData(msg), gen);
   } catch (err) {
-    if (gen === openSeq) showError(err, 'Could not show the depth map');
+    if (!openSeq.superseded(gen)) showError(err, 'Could not show the depth map');
   }
 }
 
@@ -2788,14 +2789,14 @@ function setDepthPick(on) {
 }
 async function pickDepthFromClick(event) {
   const [x, y] = viewPoint(event);
-  const gen = openSeq;
+  const gen = openSeq.current();
   try {
     const res = await engine.request('focusAt', { x, y, u: state.camera.u, v: state.camera.v, depth: true }, { onProgress: progressFor(gen) });
-    if (gen !== openSeq) return;
+    if (openSeq.superseded(gen)) return;
     hideProgress();
     if (res && typeof res.alpha === 'number') pickDepthRange(res.alpha);
   } catch (err) {
-    if (gen === openSeq) showError(err, 'Could not pick the depth');
+    if (!openSeq.superseded(gen)) showError(err, 'Could not pick the depth');
   }
   setDepthPick(false);
 }
@@ -2822,11 +2823,11 @@ async function focusAt(event) {
   const [fx, fy] = sourceFraction(event);
   state.focusPoint = { x: Math.min(1, Math.max(0, fx)), y: Math.min(1, Math.max(0, fy)) };
   showFocusPoint();
-  const gen = openSeq;
+  const gen = openSeq.current();
   try {
     await applyFocusAt(x, y, true);
   } catch (err) {
-    if (gen === openSeq) showError(err, 'Could not focus there');
+    if (!openSeq.superseded(gen)) showError(err, 'Could not focus there');
   }
 }
 
@@ -2835,10 +2836,10 @@ let lastClick = null;
 async function applyFocusAt(x, y, opening) {
   // Blur drawn from the depth map (the default): the focus value is the depth map's value at the click. Optical refocusing: measured from the views.
   const depth = apertureFor(Math.min(fNumber(), 2.8)).aperture === 0;
-  const gen = openSeq;
+  const gen = openSeq.current();
   const res = await engine.request('focusAt', { x, y, u: state.camera.u, v: state.camera.v, depth }, { onProgress: opening ? progressFor(gen) : undefined });
   // (the click was on a photo that is no longer open)
-  if (gen !== openSeq) return;
+  if (openSeq.superseded(gen)) return;
   if (opening) hideProgress();
   if (!res || typeof res.alpha !== 'number') return;
   if (!opening && !(lastClick && lastClick.x === x && lastClick.y === y && $('focus').value === lastClick.value)) return;
@@ -4007,9 +4008,9 @@ if (native && native.onMenu) {
 }
 $('camera-btn').onclick = importFromCamera;
 $('sample-btn').onclick = async () => {
-  const my = ++openSeq;
+  const my = openSeq.next();
   await flushSave();
-  if (my !== openSeq) return;
+  if (openSeq.superseded(my)) return;
   state.current = null;
   state.editsKey = null;
   state.wantThumb = false;
@@ -4072,9 +4073,9 @@ $('png-btn').onclick = savePng;
   version: VERSION,
   openBytes: async (name, bytes, sidecar = null, { userDepth = null, depthCache = null } = {}) => {
     const copy = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
-    const my = ++openSeq;
+    const my = openSeq.next();
     await flushSave();
-    if (my !== openSeq) return;
+    if (openSeq.superseded(my)) return;
     state.lastProcessed = null;
     state.scripted = true; // its settings are not read from, or saved to, the app's store
     state.current = { photo: null, name, file: new File([copy], name), sidecar };
@@ -4312,11 +4313,11 @@ function colorSettings(val = (id) => +$(id).value) {
 
 // Never rejects (it is an onchange handler): a failure shows as a notice and the progress bar goes away.
 async function applySettings() {
-  const gen = openSeq;
+  const gen = openSeq.current();
   try {
     await applySettingsNow(gen);
   } catch (err) {
-    if (gen === openSeq) {
+    if (!openSeq.superseded(gen)) {
       hideProgress();
       showError(err, 'Could not apply the settings');
     }
@@ -4345,7 +4346,7 @@ async function applySettingsNow(gen) {
   // Progress shows when a setting needs work first (a depth mask measures depth).
   const info = await engine.request('settings', { settings }, { onProgress: progressFor(gen) });
   // Another photo opened meanwhile: these are not its settings.
-  if (gen !== openSeq) return;
+  if (openSeq.superseded(gen)) return;
   hideProgress();
   if (info) state.info = { ...state.info, ...info };
   showAutoFringe();
@@ -4421,32 +4422,32 @@ async function resetPhotoSettings(photo) {
 }
 
 async function restoreEdits(info) {
-  const gen = openSeq;
+  const gen = openSeq.current();
   clearTimeout(saveTimer);
   state.editsKey = photoKey(info);
   const photo = state.current && state.current.photo;
   // Library photos keep their edits in their folder; earlier versions kept
   // them in the app's storage, which is still read for those photos.
   let saved = photo ? await state.lib.loadEdits(photo) : null;
-  if (gen !== openSeq) return;
+  if (openSeq.superseded(gen)) return;
   if (!saved && state.editsKey && !state.scripted) saved = await editsStore.load(state.editsKey);
-  if (gen !== openSeq) return;
+  if (openSeq.superseded(gen)) return;
   const reset = !!(saved && saved.reset);
   if (reset) saved = null;
   else if (!saved) saved = await lytroEdits(info, state.current);
   // Another photo was opened meanwhile: these edits are not for it.
-  if (gen !== openSeq) return;
+  if (openSeq.superseded(gen)) return;
   await applyEdits(info, saved);
-  if (gen !== openSeq) return;
+  if (openSeq.superseded(gen)) return;
   resetHistory();
 }
 
 // Sets every control from an edits document (null: the defaults) and
 // renders the result.
 async function applyEdits(info, saved) {
-  const gen = openSeq;
+  const gen = openSeq.current();
   // A count, not a flag: two overlapping runs must not end each other's restoring.
-  state.restoring = (state.restoring || 0) + 1;
+  state.restoring = openSeq.beginRestore();
   try {
     const { view, focusPoint } = writeEdits(document, saved, DEFAULT_EDITS);
     // Tilt is off by default; edits saved before it could be turned off keep
@@ -4495,9 +4496,9 @@ async function applyEdits(info, saved) {
     $('anim-focus').hidden = $('anim').value !== 'focus';
     await applySettings();
   } finally {
-    state.restoring--;
+    state.restoring = openSeq.endRestore();
   }
-  if (gen !== openSeq) return;
+  if (openSeq.superseded(gen)) return;
   // Full sensor is a mode (the panel, the Render button, Auto render), not just a value.
   setFullResMode($('fullres-on').checked);
 }

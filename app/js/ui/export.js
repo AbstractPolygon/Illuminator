@@ -8,6 +8,7 @@ import { aiUpscale, denoiseRgb16 } from '../core/aiupscale.js';
 import { encodePng16 } from '../core/png16.js';
 import { convertRgba8, convertRgb16, tagPng, tagJpeg } from '../core/colorspace.js';
 import { VIDEO_FORMATS, videoType, VIDEO_CODECS, videoFrame, chooseVideoType, videoBitrate } from '../core/video-format.js';
+import { MIN_VIDEO_FRAMES, playOrder, recordFrames } from '../core/videoexport.js';
 import { toImageData } from '../engine.js';
 
 export function initExport({ state, $, canvas, ctx, layoutCanvas, showsCamera, stereoShown, showNotice, engine, cameraParams, showProgress, hideProgress, modelUpscaleParams, finishModelEnlargement, showError, showSliderValue, scheduleSave, draw, cropValues, animationRequest, eyeOffset, eyeParams, ensureAnimation, drawGeometry, stereoTag }) {
@@ -415,10 +416,9 @@ export function initExport({ state, $, canvas, ctx, layoutCanvas, showsCamera, s
     try {
       await ensureAnimation();
       const frames = state.frames.filter(Boolean);
-      if (frames.length < 2) return;
-      const order = state.loop === 'pingpong'
-        ? [...frames.keys(), ...[...frames.keys()].reverse().slice(1, -1)]
-        : [...frames.keys(), ...frames.keys()];
+      if (frames.length < MIN_VIDEO_FRAMES) return;
+      const order = playOrder(frames.length, state.loop);
+      state.cancelVideo = false;
       // Full resolution on: every frame rendered again from the whole sensor.
       const fullOn = !!(state.fullResMode && state.info && state.info.hasRaw);
       // Show 3D on: both eyes of every frame, combined in the 3D type.
@@ -458,13 +458,11 @@ export function initExport({ state, $, canvas, ctx, layoutCanvas, showsCamera, s
       const done = new Promise((r) => { recorder.onstop = r; });
       // Frames go out on the frame rate's beat, however long one takes to
       // prepare (a full resolution frame is decoded first).
-      const t0 = performance.now();
       recorder.start();
       const eye = stereo ? Object.assign(document.createElement('canvas'), { width: Math.round(eyeW), height: Math.round(h) }) : null;
       const eyeCtx = eye ? eye.getContext('2d', { willReadFrequently: mode === 'anaglyph' }) : null;
       const decode = async (x) => (x && x.blob ? createImageBitmap(x.blob) : x);
-      for (let n = 0; n < order.length; n++) {
-        const i = order[n];
+      const prepare = async (n, i) => {
         let img = null;
         if (stereo) {
           // Each eye through the frame's crop and rotation, then side by side
@@ -495,16 +493,26 @@ export function initExport({ state, $, canvas, ctx, layoutCanvas, showsCamera, s
           else nctx.drawImage(img, 0, 0, native.width, native.height);
         }
         if (!whole) part.getContext('2d').drawImage(native, cut.x, cut.y, cut.w, cut.h, 0, 0, part.width, part.height);
-        const big = upscaleImage(part, c.width, c.height, opts);
-        const wait = t0 + (n * 1000) / state.fps - performance.now();
-        if (wait > 0) await new Promise((r) => setTimeout(r, wait));
-        cctx.drawImage(big, 0, 0);
-        if (full && img) img.close();
-        showProgress('Recording video', n / order.length);
-      }
-      await new Promise((r) => setTimeout(r, 1000 / state.fps));
+        return { big: upscaleImage(part, c.width, c.height, opts), img };
+      };
+      const result = await recordFrames(order, {
+        prepare,
+        emit: ({ big, img }) => {
+          cctx.drawImage(big, 0, 0);
+          if (full && img) img.close();
+        },
+        discard: ({ img }) => { if (full && img) img.close(); },
+        sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
+        now: () => performance.now(),
+        fps: state.fps,
+        cancelled: () => !!state.cancelVideo,
+        onProgress: (p) => showProgress('Recording video', p),
+      });
+      if (!result.cancelled) await new Promise((r) => setTimeout(r, 1000 / state.fps));
       recorder.stop();
       await done;
+      // A cancelled recording is dropped: no file, no error.
+      if (result.cancelled) return;
       const ext = VIDEO_FORMATS[pick.format].ext;
       const made = new Blob(chunks, { type: mime });
       // A recording with no pictures in it is a few bytes of header: say so instead of saving an empty file.

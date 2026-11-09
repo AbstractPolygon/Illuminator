@@ -4,6 +4,7 @@
 // so the live view of the photo being edited is not held up; it is driven through the scripting interface (ui/api.js). The list and its rules are in core/renderqueue.js.
 
 import { RenderQueue, uniqueName, describeSettings, phasesFor, pickPhotos, firstChosen } from '../core/renderqueue.js';
+import { runNext, assertRunning } from '../core/queuerun.js';
 import { download } from '../platform.js';
 import { applyLookToEdits } from '../core/looks.js';
 
@@ -206,7 +207,7 @@ export function initQueue({ $, state, native, currentEdits, showNotice, showErro
         if (processed) await lib.saveProcessed(photo, processed).catch((err) => console.warn('Could not save the processed version', err));
       }
       // Cancel stops the job at once, but this function runs on until it ends: a cancelled job saves nothing.
-      if (job.status !== 'running') throw new Error('Cancelled');
+      assertRunning(job);
       return await save(out);
     } finally {
       off();
@@ -214,23 +215,10 @@ export function initQueue({ $, state, native, currentEdits, showNotice, showErro
   }
 
   async function pump() {
-    const job = queue.next();
-    if (!job) return;
-    queue.start(job);
-    const stopped = new Promise((_, reject) => {
-      current = { job, abort: () => reject(new Error('Cancelled')) };
-    });
-    try {
-      const output = await Promise.race([runJob(job), stopped]);
-      queue.finish(job, output);
-    } catch (err) {
-      if (job.status === 'running') queue.fail(job, err);
-      else dropRunner();
-    } finally {
-      current = null;
-    }
-    // After a failure the copy may be in a bad state: a fresh one for the next job.
-    if (job.status === 'failed') dropRunner();
+    const ran = await runNext(queue, runJob, (abort) => { current = abort ? { job: queue.running, abort } : null; });
+    if (!ran) return;
+    // After a failure or a cancel the copy may be in a bad state: a fresh one for the next job.
+    if (ran.failed || ran.cancelled) dropRunner();
     if (!queue.next()) {
       // Nothing left: the hidden copy gives its memory back.
       dropRunner();
