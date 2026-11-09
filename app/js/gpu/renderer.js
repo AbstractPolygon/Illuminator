@@ -2644,17 +2644,13 @@ export class GpuRenderer {
     return t;
   }
 
-  // Uploads the raw sensor image (once per photo).
-  setRaw(raw, cam, dev) {
+  // Lets go of the sensor image and what was made from it for the photo (depth, parallax, ray tables, sharpening map), which may be another size than the next photo's:
+  // a render before setDepth() then sees "no depth". The veil is left: the worker sets it before setRaw. A processed light field has no raw, so without this call the last raw
+  // photo's sensor texture (about 60 MB on an ILLUM) would stay on the card.
+  releaseRaw() {
     const gl = this.gl;
-    // GpuRenderer.create() checked only the first photo's sensor; the renderer is reused for later (larger) ones.
-    const max = gl.getParameter(gl.MAX_TEXTURE_SIZE);
-    if (cam.width > max || cam.height > max) throw new Error('sensor exceeds GPU texture size');
     if (this.rawTex) gl.deleteTexture(this.rawTex);
     this.rawTex = null;
-    // The previous photo's depth, parallax, ray tables and sharpening map
-    // may be another size; a render before setDepth() then sees "no depth".
-    // (The veil is left: the worker sets it before setRaw.)
     for (const t of [this.depthTex, this.parallaxTex]) if (t) gl.deleteTexture(t);
     if (this.rayTex) {
       gl.deleteTexture(this.rayTex.grid);
@@ -2663,6 +2659,15 @@ export class GpuRenderer {
     if (this.usmTex) gl.deleteTexture(this.usmTex.tex);
     this.depthTex = this.parallaxTex = this.rayTex = this.usmTex = null;
     this.depthSize = this.parallaxSize = this.depthRange = null;
+  }
+
+  // Uploads the raw sensor image (once per photo).
+  setRaw(raw, cam, dev) {
+    const gl = this.gl;
+    // GpuRenderer.create() checked only the first photo's sensor; the renderer is reused for later (larger) ones.
+    const max = gl.getParameter(gl.MAX_TEXTURE_SIZE);
+    if (cam.width > max || cam.height > max) throw new Error('sensor exceeds GPU texture size');
+    this.releaseRaw();
     this.dropOtherSizes();
     // The spare unit, so a texture bound for drawing is not replaced.
     gl.activeTexture(gl.TEXTURE0 + SPARE_UNIT);
