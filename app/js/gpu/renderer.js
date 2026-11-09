@@ -513,6 +513,33 @@ void main() {
   outColor = vec4(c.rgb, a / ws);
 }`;
 
+// Perspective shift with the depth contrast: the viewpoint picture, each pixel taken from where the reshaped depth would have put it instead of where the measured depth
+// did. uExtra holds the reshaped depth minus the measured depth; uShift is the pixels one unit of depth moves a pixel for this viewpoint.
+const PARALLAX = `#version 300 es
+precision highp float;
+precision highp int;
+uniform sampler2D uSrc;
+uniform sampler2D uExtra;
+uniform vec2 uDepthScale;
+uniform vec2 uShift;
+out vec4 outColor;
+void main() {
+  ivec2 p = ivec2(gl_FragCoord.xy);
+  ivec2 size = textureSize(uSrc, 0);
+  ivec2 dsz = textureSize(uExtra, 0);
+  ivec2 dp = clamp(ivec2((vec2(p) + 0.5) * uDepthScale), ivec2(0), dsz - 1);
+  float d = texelFetch(uExtra, dp, 0).r;
+  vec2 f = vec2(p) - d * uShift;
+  ivec2 i0 = ivec2(floor(f));
+  vec2 t = f - vec2(i0);
+  ivec2 hi = size - 1;
+  vec4 c00 = texelFetch(uSrc, clamp(i0, ivec2(0), hi), 0);
+  vec4 c10 = texelFetch(uSrc, clamp(i0 + ivec2(1, 0), ivec2(0), hi), 0);
+  vec4 c01 = texelFetch(uSrc, clamp(i0 + ivec2(0, 1), ivec2(0), hi), 0);
+  vec4 c11 = texelFetch(uSrc, clamp(i0 + ivec2(1, 1), ivec2(0), hi), 0);
+  outColor = mix(mix(c00, c10, t.x), mix(c01, c11, t.x), t.y);
+}`;
+
 const MAX_TAPS = 512;
 
 // Depth of field, step 2: each pixel gathers light from neighbors whose own
@@ -2495,6 +2522,7 @@ export class GpuRenderer {
       chroma: program(gl, CHROMA_PASS),
       dofPrep: program(gl, DOF_PREP),
       dofFeather: program(gl, DOF_FEATHER),
+      parallax: program(gl, PARALLAX),
       focusScore: program(gl, FOCUS_SCORE),
       focusMask: program(gl, FOCUS_MASK),
       focusSpread: program(gl, FOCUS_SPREAD),
@@ -2991,6 +3019,36 @@ export class GpuRenderer {
     }
     this.depthRange = [lo, hi];
     this.depthSize = [w, h];
+  }
+
+  // The reshaped depth minus the measured depth (null: none), for parallaxWarp.
+  setParallax(extra, w, h) {
+    const gl = this.gl;
+    if (this.parallaxTex) gl.deleteTexture(this.parallaxTex);
+    this.parallaxTex = null;
+    if (!extra) return;
+    this.parallaxTex = this.texture(w, h, gl.R32F);
+    gl.bindTexture(gl.TEXTURE_2D, this.parallaxTex);
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, w, h, gl.RED, gl.FLOAT, extra);
+    this.parallaxSize = [w, h];
+  }
+
+  // The picture seen from viewpoint (u, v) with each pixel's parallax changed by its extra depth (see PARALLAX); `detail` is the depth's pixels per unit per viewpoint step.
+  parallaxWarp(src, w, h, u, v, detail) {
+    if (!this.parallaxTex) return src;
+    const gl = this.gl;
+    const out = this.scratch(w, h, 'parallax');
+    const P = this.programs.parallax;
+    this.target(out, w, h);
+    gl.useProgram(P.p);
+    gl.uniform1i(P.u.uSrc, 1);
+    this.bindTex(1, src);
+    gl.uniform1i(P.u.uExtra, 3);
+    this.bindTex(3, this.parallaxTex);
+    gl.uniform2f(P.u.uDepthScale, this.parallaxSize[0] / w, this.parallaxSize[1] / h);
+    gl.uniform2f(P.u.uShift, detail * u * (w / this.parallaxSize[0]), detail * v * (h / this.parallaxSize[1]));
+    this.draw();
+    return out;
   }
 
   // Float texture array (one channel) for depth work, reused by size.

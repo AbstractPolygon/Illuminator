@@ -507,8 +507,11 @@ function postKeptPicture(hash, w, h, rgb) {
 // an ImageBitmap. `pxPerUnit`: blur pixels per unit of focus difference per
 // unit of `dof`, for this image's size. `keep`: keep the picture as it is
 // before the color pass, so color changes can redraw it (see view()).
-async function presentGpu(id, tex, w, h, { alpha = 0, dof = 0, bokeh = {}, pxPerUnit, masks = { focus: alpha }, keep = null, keepStill = null, draft = false, mode = undefined, color = null, distortionCorrected = false }, message) {
+async function presentGpu(id, tex, w, h, { alpha = 0, dof = 0, bokeh = {}, pxPerUnit, masks = { focus: alpha }, keep = null, keepStill = null, draft = false, mode = undefined, color = null, distortionCorrected = false, parallax = false }, message) {
   const gpu = state.gpu;
+  // Depth map contrast on the viewpoint's parallax (see state.depthParallax).
+  if (parallax && masks.view && (masks.view.u || masks.view.v) && wantsParallax()) await ensureViewDepth(id);
+  if (parallax && state.depthParallax && masks.view && (masks.view.u || masks.view.v)) tex = gpu.parallaxWarp(tex, w, h, masks.view.u, masks.view.v, state.settings.detail);
   if (dof > 0 && (await ensureViewDepth(id))) {
     // Whatever really is at the focus depth stays sharp, also where the depth map has it wrong (thin near objects, such as the wires of a fence): see GpuRenderer.focusMask.
     // (not with a tilted focus plane, whose depth differs across the picture)
@@ -893,11 +896,12 @@ async function frames({ id, job, path, alpha = 0, aperture = 0, dof = 0, bokeh }
     const f = list[i];
     if (state.gpu) {
       const tex = f.aperture > 0 ? state.gpu.refocusTo(f.alpha, apertureOptions(f)) : await singleView(id, f.u, f.v);
-      await presentGpu(id, tex, outW, outH, { alpha: f.alpha, dof: f.dof, bokeh: f.bokeh, color: f.color, pxPerUnit: viewPxPerUnit(), masks: { focus: f.alpha, overrides: f.masks, view: viewOf(f.u, f.v) } }, { id, type: 'frame', index: i });
+      await presentGpu(id, tex, outW, outH, { alpha: f.alpha, dof: f.dof, bokeh: f.bokeh, color: f.color, pxPerUnit: viewPxPerUnit(), parallax: true, masks: { focus: f.alpha, overrides: f.masks, view: viewOf(f.u, f.v) } }, { id, type: 'frame', index: i });
       await tick();
       continue;
     }
-    const rgb = f.aperture > 0 ? refocusRGB(f.alpha, apertureOptions(f)) : await singleView(id, f.u, f.v);
+    let rgb = f.aperture > 0 ? refocusRGB(f.alpha, apertureOptions(f)) : await singleView(id, f.u, f.v);
+    if (wantsParallax() && (await ensureViewDepth(id))) rgb = withParallax(rgb, outW, outH, f.u, f.v);
     frameMessage(id, i, await withDepthOfField(id, rgb, outW, outH, f.alpha, f.dof, 1, f.bokeh), { focus: f.alpha, overrides: f.masks, view: viewOf(f.u, f.v) }, colorState(f.color));
     await tick();
   }
@@ -1062,6 +1066,42 @@ function apertureOptions({ u = 0, v = 0, aperture = 1 }) {
 // focus value `alpha`; `scale` is the image's size relative to the views.
 // `bokeh` is { shape: 'smooth' | 'circle' | 'blades', blades, oval, rotation,
 // onion, highlights: 0..1 } (see core/dof.js).
+// Whether the viewpoint's parallax follows the reshaped depth (the Depth map contrast checkbox, with some contrast): the depth is needed even with no blur.
+function wantsParallax() {
+  return !!state.settings.depthContrastPersp && (state.settings.depthContrast ?? 0) > 0 && !state.pp;
+}
+
+// The same on the CPU: a view's pixels taken from where the reshaped depth puts them (see PARALLAX in gpu/renderer.js). rgb is three floats per pixel.
+function withParallax(rgb, w, h, u, v) {
+  const extra = state.depthParallax;
+  if (!extra || !(u || v) || !state.sampler) return rgb;
+  const { outW, outH } = state.sampler;
+  const kx = state.settings.detail * u * (w / outW);
+  const ky = state.settings.detail * v * (h / outH);
+  const out = new Float32Array(rgb.length);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const d = extra[Math.min(outH - 1, Math.floor(((y + 0.5) * outH) / h)) * outW + Math.min(outW - 1, Math.floor(((x + 0.5) * outW) / w))];
+      const fx = x - d * kx;
+      const fy = y - d * ky;
+      const x0 = Math.floor(fx);
+      const y0 = Math.floor(fy);
+      const tx = fx - x0;
+      const ty = fy - y0;
+      const xa = Math.max(0, Math.min(w - 1, x0));
+      const xb = Math.max(0, Math.min(w - 1, x0 + 1));
+      const ya = Math.max(0, Math.min(h - 1, y0));
+      const yb = Math.max(0, Math.min(h - 1, y0 + 1));
+      for (let c = 0; c < 3; c++) {
+        const top = rgb[(ya * w + xa) * 3 + c] * (1 - tx) + rgb[(ya * w + xb) * 3 + c] * tx;
+        const bottom = rgb[(yb * w + xa) * 3 + c] * (1 - tx) + rgb[(yb * w + xb) * 3 + c] * tx;
+        out[(y * w + x) * 3 + c] = top * (1 - ty) + bottom * ty;
+      }
+    }
+  }
+  return out;
+}
+
 async function withDepthOfField(id, rgb, w, h, alpha, dof, scale = 1, bokeh = {}) {
   if (!(dof > 0)) return rgb;
   if (!(await ensureViewDepth(id))) return rgb;
@@ -1083,11 +1123,12 @@ async function refocusFrames({ id, job, alphas, u, v, aperture, dof = 0, bokeh }
     if (state.jobs.refocus !== job) return { cancelled: true };
     if (state.gpu) {
       const tex = state.gpu.refocusTo(alphas[i], opts);
-      await presentGpu(id, tex, outW, outH, { alpha: alphas[i], dof, bokeh, pxPerUnit: viewPxPerUnit(), masks: { focus: alphas[i], view: viewOf(u, v) } }, { id, type: 'frame', index: i });
+      await presentGpu(id, tex, outW, outH, { alpha: alphas[i], dof, bokeh, pxPerUnit: viewPxPerUnit(), parallax: true, masks: { focus: alphas[i], view: viewOf(u, v) } }, { id, type: 'frame', index: i });
       await tick();
       continue;
     }
-    const rgb = refocusRGB(alphas[i], opts);
+    let rgb = refocusRGB(alphas[i], opts);
+    if (wantsParallax() && (await ensureViewDepth(id))) rgb = withParallax(rgb, outW, outH, u, v);
     frameMessage(id, i, await withDepthOfField(id, rgb, outW, outH, alphas[i], dof, 1, bokeh), { focus: alphas[i], view: viewOf(u, v) });
     await tick();
   }
@@ -1650,7 +1691,7 @@ async function view({ id, u, v, alpha = 0, aperture = 0, dof = 0, bokeh, draft =
     } else {
       tex = await singleView(id, u, v);
     }
-    await presentGpu(id, tex, outW, outH, { alpha, dof, bokeh, pxPerUnit: viewPxPerUnit(), masks, keep: key, draft, mode }, message);
+    await presentGpu(id, tex, outW, outH, { alpha, dof, bokeh, pxPerUnit: viewPxPerUnit(), parallax: true, masks, keep: key, draft, mode }, message);
     state.gpu.endTiming();
     if (!draft) schedulePrefetch();
     return undefined;
@@ -1662,6 +1703,7 @@ async function view({ id, u, v, alpha = 0, aperture = 0, dof = 0, bokeh, draft =
   } else {
     rgb = await singleView(id, u, v);
   }
+  if (wantsParallax() && (await ensureViewDepth(id))) rgb = withParallax(rgb, state.sampler.outW, state.sampler.outH, u, v);
   rgb = await withDepthOfField(id, rgb, state.sampler.outW, state.sampler.outH, alpha, dof, 1, bokeh);
   const skipNr = draft || deferNr;
   const pixels = toPixels(rgb, state.sampler.outW, state.sampler.outH, { focus: alpha, view: viewOf(u, v) }, state, false, false, skipNr);
@@ -1884,7 +1926,8 @@ async function settings({ id, settings: s }) {
   const hotChanged = s.hotPixels !== undefined && s.hotPixels !== (state.settings.hotPixels ?? true);
   const detailChanged = s.detail !== undefined && s.detail !== state.settings.detail;
   const smoothingChanged = s.depthSmoothing !== undefined && s.depthSmoothing !== state.settings.depthSmoothing;
-  const contrastChanged = s.depthContrast !== undefined && s.depthContrast !== (state.settings.depthContrast ?? 0);
+  const contrastChanged = (s.depthContrast !== undefined && s.depthContrast !== (state.settings.depthContrast ?? 0))
+    || (s.depthContrastPersp !== undefined && !!s.depthContrastPersp !== !!state.settings.depthContrastPersp);
   const modelOf = (v) => (methodDepthModel(v) ? v : null);
   const modelChanged = s.depthStyle !== undefined && modelOf(s.depthStyle) !== modelOf(state.settings.depthStyle);
   const modelBlendChanged = (s.depthModelBlend !== undefined && s.depthModelBlend !== (state.settings.depthModelBlend ?? 0.7))
@@ -2929,9 +2972,14 @@ function applyDepthSmoothing() {
   state.depthPlain = smoothed;
   const placed = shift || field ? Float32Array.from(smoothed, (x, i) => x + shift + (field ? field[i] : 0)) : smoothed;
   state.depth = { ...raw, alpha: shapeDepthContrast(placed, state.settings.depthContrast ?? 0) };
+  // With "Apply to perspective shift": how much farther the reshaped depth is from the measured one at each pixel (the viewpoint's parallax is changed by that).
+  state.depthParallax = state.settings.depthContrastPersp && state.depth.alpha !== placed ? Float32Array.from(state.depth.alpha, (x, i) => x - placed[i]) : null;
   state.depthSmoothingApplied = amount;
   state.gen++;
-  if (state.gpu) state.gpu.setDepth(state.depth.alpha, outW, outH);
+  if (state.gpu) {
+    state.gpu.setDepth(state.depth.alpha, outW, outH);
+    state.gpu.setParallax(state.depthParallax, outW, outH);
+  }
 }
 
 // Color-coded depth map: near is warm, far is cool.
@@ -3355,7 +3403,10 @@ function recoverGpu({ keepPhoto = true } = {}) {
     const vg = state.vignetting;
     state.gpu.setSampler(state.sampler, (u, v) => vignettingGainAt(vg, u, v));
   }
-  if (state.depth && state.sampler) state.gpu.setDepth(state.depth.alpha, state.sampler.outW, state.sampler.outH);
+  if (state.depth && state.sampler) {
+    state.gpu.setDepth(state.depth.alpha, state.sampler.outW, state.sampler.outH);
+    state.gpu.setParallax(state.depthParallax, state.sampler.outW, state.sampler.outH);
+  }
   return hadViews;
 }
 

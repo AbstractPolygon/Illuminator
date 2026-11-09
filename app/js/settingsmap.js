@@ -61,6 +61,7 @@ export const RENDER_SETTINGS = [
   ['depthModelSmooth', 'depth-model-smooth', 'pct'],
   ['depthModelCurve', 'depth-model-curve', 'pct'],
   ['depthContrast', 'depth-contrast', 'pct'],
+  ['depthContrastPersp', 'depth-contrast-persp', 'bool'],
   ['depthObjects', 'depth-objects', 'bool'],
   ['depthObjectSoft', 'depth-objects-soft', 'pct'],
   ['lytroDepth', 'lytro-depth', 'bool'],
