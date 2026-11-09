@@ -1,4 +1,5 @@
 import { segmentDepth, guidedFilterColor, snapDepthEdges } from './segments.js';
+import { mapF32, nthSmallest } from './typed.js';
 
 // Depth from the light field: for a range of refocus depths (alpha), shift
 // every view as refocusing would and measure how well they agree. At the
@@ -343,42 +344,7 @@ export function edgeAwareFill(values, conf, guide, w, h, sigmaS, sigmaR, iterati
   return out;
 }
 
-// The k-th smallest value of `values` (what Float32Array.from(values).sort()[k] gives, without sorting all of them): quickselect on a copy. NaNs sort last, as in a sort.
-export function nthSmallest(values, k) {
-  const a = Float32Array.from(values);
-  let nan = 0;
-  for (let i = a.length - 1; i >= 0; i--) {
-    if (a[i] !== a[i]) {
-      a[i] = a[a.length - 1 - nan];
-      a[a.length - 1 - nan] = NaN;
-      nan++;
-    }
-  }
-  const n = a.length - nan;
-  if (k >= n) return NaN;
-  let lo = 0;
-  let hi = n - 1;
-  while (lo < hi) {
-    const pivot = a[(lo + hi) >> 1];
-    let i = lo;
-    let j = hi;
-    while (i <= j) {
-      while (a[i] < pivot) i++;
-      while (a[j] > pivot) j--;
-      if (i <= j) {
-        const tmp = a[i];
-        a[i] = a[j];
-        a[j] = tmp;
-        i++;
-        j--;
-      }
-    }
-    if (k <= j) hi = j;
-    else if (k >= i) lo = i;
-    else return a[k];
-  }
-  return a[k];
-}
+export { nthSmallest };
 
 // Sorts the first n values of a small array in place (insertion sort: quicker than a typed array's sort for a window of 9 or 25 values).
 function sortSmall(a, n) {
@@ -1256,11 +1222,11 @@ export function estimateDepth(views, width, height, { min = DEPTH_SEARCH.min, ma
     });
     if (DEPTH_TRWS.on) {
       const cv = views[Math.floor(views.length / 2)];
-      return bestDepth(trwsVolume(scores, depthColorGuide(Float32Array.from(cv.rgb, (x) => x * cv.gain)), width, height, DEPTH_TRWS), alphas, n);
+      return bestDepth(trwsVolume(scores, depthColorGuide(mapF32(cv.rgb, (x) => x * cv.gain)), width, height, DEPTH_TRWS), alphas, n);
     }
     if (DEPTH_MRF.on) {
       const cv = views[Math.floor(views.length / 2)];
-      const volume = smoothVolume(scores, depthColorGuide(Float32Array.from(cv.rgb, (x) => x * cv.gain)), width, height, DEPTH_LCOST.weight * DEPTH_LCOST.tc + (1 - DEPTH_LCOST.weight) * DEPTH_LCOST.tg, DEPTH_MRF);
+      const volume = smoothVolume(scores, depthColorGuide(mapF32(cv.rgb, (x) => x * cv.gain)), width, height, DEPTH_LCOST.weight * DEPTH_LCOST.tc + (1 - DEPTH_LCOST.weight) * DEPTH_LCOST.tg, DEPTH_MRF);
       return bestDepth(volume, alphas, n);
     }
     return bestDepth(scores, alphas, n);
@@ -1269,15 +1235,14 @@ export function estimateDepth(views, width, height, { min = DEPTH_SEARCH.min, ma
   // then still tell a right depth from a wrong one) instead of by their
   // local detail.
   const detailImages = DEPTH_VIS.raw ? raw : raw.map((l) => detailOf(l, width, height).detail);
-  const centerLocal = DEPTH_VIS.raw ? Float32Array.from(center, (x) => Math.max(x, 0) ** 0.5) : detailOf(center, width, height).local;
+  const centerLocal = DEPTH_VIS.raw ? mapF32(center, (x) => Math.max(x, 0) ** 0.5) : detailOf(center, width, height).local;
   let measured = match(detailImages, centerLocal, occlusion, window, 0, coarse ? 0.6 : 1);
   if (DEPTH_DIRECT.on && DEPTH_MATCH.adapt.on) {
     // Second, fine pass over the depth range this picture really uses.
-    const sorted = Float32Array.from(measured.alpha).sort();
     const { fine, lowQ, highQ, pad } = DEPTH_MATCH.adapt;
     const step = alphas[1] - alphas[0];
-    const lo = Math.max(min, sorted[Math.floor(lowQ * (n - 1))] - pad * step);
-    const hi = Math.min(max, sorted[Math.floor(highQ * (n - 1))] + pad * step);
+    const lo = Math.max(min, nthSmallest(measured.alpha, Math.floor(lowQ * (n - 1))) - pad * step);
+    const hi = Math.min(max, nthSmallest(measured.alpha, Math.floor(highQ * (n - 1))) + pad * step);
     alphas = Array.from({ length: fine }, (_, i) => lo + ((hi - lo) * i) / (fine - 1));
     measured = match(detailImages, centerLocal, occlusion, window, 0, coarse ? 0.6 : 1);
   }
@@ -1296,7 +1261,7 @@ export function estimateDepth(views, width, height, { min = DEPTH_SEARCH.min, ma
   }
   if (onProgress) onProgress(1);
   const cv = views[Math.floor(views.length / 2)];
-  const color = depthColorGuide(Float32Array.from(cv.rgb, (x) => x * cv.gain));
+  const color = depthColorGuide(mapF32(cv.rgb, (x) => x * cv.gain));
   return finishDepth(measured, width, height, guide, { refine, min, max, color });
 }
 
@@ -1331,7 +1296,7 @@ export async function estimateDepthPooled(views, width, height, { min = DEPTH_SE
     return bestDepth(scores, alphas, n, null, plan.weights());
   };
   const detailImages = DEPTH_VIS.raw ? raw : raw.map((l) => detailOf(l, width, height).detail);
-  const centerLocal = DEPTH_VIS.raw ? Float32Array.from(center, (x) => Math.max(x, 0) ** 0.5) : detailOf(center, width, height).local;
+  const centerLocal = DEPTH_VIS.raw ? mapF32(center, (x) => Math.max(x, 0) ** 0.5) : detailOf(center, width, height).local;
   let measured = await match(detailImages, centerLocal, occlusion, window, 0, coarse ? 0.6 : 1);
   if (coarse) {
     const blurred = raw.map((l) => boxSum(l, width, height, DEPTH_COARSE.blur));
@@ -1340,7 +1305,7 @@ export async function estimateDepthPooled(views, width, height, { min = DEPTH_SE
   }
   if (onProgress) onProgress(1);
   const cv = views[mid];
-  const color = depthColorGuide(Float32Array.from(cv.rgb, (x) => x * cv.gain));
+  const color = depthColorGuide(mapF32(cv.rgb, (x) => x * cv.gain));
   return finishDepth(measured, width, height, guide, { refine, min, max, color });
 }
 

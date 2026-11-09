@@ -13,6 +13,7 @@ import { program } from './renderer.js';
 import { DEPTH_CBCA, DEPTH_EDGE, DEPTH_TRWS, DEPTH_LCOST, depthColorGuide, median3 } from '../core/depth.js';
 import { DEPTH_PASSES, viewColors } from '../core/depthmatch.js';
 import { ENGINE_AGG, ENGINE_MRF } from '../core/enginedepth.js';
+import { mapF32, nthSmallest } from '../core/typed.js';
 
 const MAX_VIEWS = 64;
 // The most labels the engine's range can come to: -35 up to its top (at most 100), padded to a multiple of four.
@@ -1052,7 +1053,7 @@ export function measureMatchGpu(gpu, views, w, h, { onProgress } = {}) {
     // One reference view's depth over `labels` (linear: first + k * step).
     const measureView = (r, labels, weights, refine, behind = false) => {
       const K = labels.length;
-      const guide = DEPTH_PASSES.engineView && !DEPTH_PASSES.sqrtGuide ? colors[r] : depthColorGuide(Float32Array.from(views[r].rgb, (x) => x * views[r].gain));
+      const guide = DEPTH_PASSES.engineView && !DEPTH_PASSES.sqrtGuide ? colors[r] : depthColorGuide(mapF32(views[r].rgb, (x) => x * views[r].gain));
       upload2D(work, guideTex, guide, 3);
       let Q = pr.arms;
       fullscreen(Q, armsTex);
@@ -1275,10 +1276,9 @@ export function measureMatchGpu(gpu, views, w, h, { onProgress } = {}) {
     // Pass 2: the center again, hidden views left out, over the range pass 1 found.
     let labels = pass1;
     if (P.adapt.on) {
-      const sorted = Float32Array.from(depths[c]).sort();
       const step = alphas[1] - alphas[0];
-      const lo = Math.max(alphas[0], sorted[Math.floor(P.adapt.lowQ * (n - 1))] - P.adapt.pad * step);
-      const hi = Math.min(alphas[count - 1], sorted[Math.floor(P.adapt.highQ * (n - 1))] + P.adapt.pad * step);
+      const lo = Math.max(alphas[0], nthSmallest(depths[c], Math.floor(P.adapt.lowQ * (n - 1))) - P.adapt.pad * step);
+      const hi = Math.min(alphas[count - 1], nthSmallest(depths[c], Math.floor(P.adapt.highQ * (n - 1))) + P.adapt.pad * step);
       labels = labelsOf(lo, (hi - lo) / (P.adapt.fine - 1), P.adapt.fine);
     }
     done(0.85);

@@ -18,6 +18,7 @@ import { lensWarp } from './lens.js';
 import { lensRange, lensCenter, toLocal } from './lenslet.js';
 import { LAMBDA_TO_ALPHA } from './recipe.js';
 import { hook, setHook } from './debugflags.js';
+import { mapF32 } from './typed.js';
 
 const BINS = 17;
 
@@ -347,7 +348,7 @@ export function renderSuperRes(raw, cam, dev, sampler, options) {
       }
     }
     const metrics = candidates.map((cand) => {
-      rayDepth = Float32Array.from(depth, (x) => x + cand * lambdaToAlpha);
+      rayDepth = mapF32(depth, (x) => x + cand * lambdaToAlpha);
       const dis = rayDisagreement(
         options.gpuSplat
           ? options.gpuSplat({ ...gpuParams(null), rayDepth, squares: true })
@@ -1045,7 +1046,7 @@ export function snapCandidates(depth, bw, bh) {
     depth,
     depthFilter(depth, bw, bh, EDGE_SNAP.radius, Math.min),
     depthFilter(depth, bw, bh, EDGE_SNAP.radius, Math.max),
-    ...EDGE_SNAP.offsets.map((o) => Float32Array.from(depth, (x) => x + o)),
+    ...EDGE_SNAP.offsets.map((o) => mapF32(depth, (x) => x + o)),
   ];
 }
 

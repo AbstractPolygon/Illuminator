@@ -14,6 +14,7 @@
 
 import { applyDepthOfField } from './dof.js';
 import { smoothDepth } from './depth.js';
+import { nthSmallest } from './typed.js';
 
 const SRGB_TO_LINEAR = new Float32Array(256);
 for (let i = 0; i < 256; i++) {
@@ -62,8 +63,7 @@ export function decodeDepth(desc, image) {
 }
 
 function percentile(values, p) {
-  const s = Float32Array.from(values).sort();
-  return s[Math.min(s.length - 1, Math.max(0, Math.floor(p * (s.length - 1))))];
+  return nthSmallest(values, Math.min(values.length - 1, Math.max(0, Math.floor(p * (values.length - 1)))));
 }
 
 // Bilinear sample of a depth map at image position (x, y) of a w x h image.

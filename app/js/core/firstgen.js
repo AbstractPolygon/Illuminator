@@ -4,6 +4,8 @@
 //   a white below 1 is pulled toward 1 (1 - 0.9 (1 - white)); gain = min(8, 1 / (white - black)).
 // The engine's picture is (x - black) * gain. Here the exposure is that gain times the ISO gain (the black offset is not applied).
 
+import { nthSmallest } from './typed.js';
+
 export const isFirstGeneration = (cam) => !!cam && /^F01/i.test(cam.model || '');
 
 export const isoDigitalGain = (iso) => Math.max(1, (iso || 0) / 794);
@@ -25,8 +27,7 @@ export function firstGenLevel(rgb, w, h, iso) {
   }
   if (planes[0].length < 100) return null;
   const pct = (a, q) => {
-    const t = Float32Array.from(a).sort();
-    return t[Math.min(t.length - 1, Math.max(0, Math.round(q * (t.length - 1))))];
+    return nthSmallest(a, Math.min(a.length - 1, Math.max(0, Math.round(q * (a.length - 1)))));
   };
   const white0 = Math.max(...planes.map((a) => pct(a, 0.999)));
   const black = Math.min(Math.min(...planes.map((a) => pct(a, 0.001))), 0.1 * white0);

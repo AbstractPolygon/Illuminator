@@ -9,6 +9,7 @@
 import { engineTone } from './base.js';
 import { crossArms, aggregateCross, flatness, trwsVolume, bestDepth, depthColorGuide, median3, DEPTH_CBCA, DEPTH_EDGE, DEPTH_TRWS, DEPTH_LCOST } from './depth.js';
 import { hook } from './debugflags.js';
+import { mapF32, nthSmallest } from './typed.js';
 
 export const DEPTH_PASSES = {
   // 3x3 colour matrix (row-major) of the engine's depth views; null: linear views.
@@ -281,10 +282,10 @@ function costVolume(colors, views, r, alphas, w, h, hidden, behind) {
 function measureView(colors, views, r, alphas, w, h, weights, refine = false, behind = null) {
   const n = w * h;
   // The engine computes the arms, the flatness and the smoothness weights on the view image its cost compares (gamma domain, colour matched), whose thresholds are in those units.
-  const guide = DEPTH_PASSES.engineView && !DEPTH_PASSES.sqrtGuide ? colors[r] : depthColorGuide(Float32Array.from(views[r].rgb, (x) => x * views[r].gain));
+  const guide = DEPTH_PASSES.engineView && !DEPTH_PASSES.sqrtGuide ? colors[r] : depthColorGuide(mapF32(views[r].rgb, (x) => x * views[r].gain));
   const arms = crossArms(guide, w, h, DEPTH_CBCA);
   const flat = DEPTH_EDGE.on ? flatness(guide, w, h, DEPTH_EDGE) : null;
-  const hidden = weights ? weights.map((m) => (m ? Float32Array.from(m, (x) => 1 - x) : null)) : null;
+  const hidden = weights ? weights.map((m) => (m ? mapF32(m, (x) => 1 - x) : null)) : null;
   const volume = costVolume(colors, views, r, alphas, w, h, hidden, behind);
   const scores = volume.map((cost) => {
     const agg = aggregateCross(cost, arms, DEPTH_CBCA.iterations);
@@ -366,10 +367,9 @@ export function measureMatch(views, w, h, { onProgress } = {}) {
   // Pass 2: the center again, hidden views left out, over the range pass 1 found.
   let labels = alphas;
   if (P.adapt.on) {
-    const sorted = Float32Array.from(depths[c]).sort();
     const step = alphas[1] - alphas[0];
-    const lo = Math.max(alphas[0], sorted[Math.floor(P.adapt.lowQ * (n - 1))] - P.adapt.pad * step);
-    const hi = Math.min(alphas[count - 1], sorted[Math.floor(P.adapt.highQ * (n - 1))] + P.adapt.pad * step);
+    const lo = Math.max(alphas[0], nthSmallest(depths[c], Math.floor(P.adapt.lowQ * (n - 1))) - P.adapt.pad * step);
+    const hi = Math.min(alphas[count - 1], nthSmallest(depths[c], Math.floor(P.adapt.highQ * (n - 1))) + P.adapt.pad * step);
     labels = Array.from({ length: P.adapt.fine }, (_, i) => lo + ((hi - lo) * i) / (P.adapt.fine - 1));
   }
   if (onProgress) onProgress(0.85);
