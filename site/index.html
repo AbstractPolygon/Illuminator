@@ -587,6 +587,14 @@ footer { border-top: 1px solid var(--line); padding-block: 32px 48px; color: var
     <p class="eyebrow">Latest updates</p>
     <h2 style="font-size:clamp(30px,4vw,46px);font-weight:800;margin-top:10px">What's new.</h2>
     <div class="updates" id="updates-list">
+      <article class="upd" data-version="0.5.98">
+        <header><h3>0.5.98</h3><time datetime="2026-11-09">Nov 9, 2026</time></header>
+        <ul>
+        <li><strong>Video export has a Cancel button.</strong> Stop a video that is being recorded at any time; nothing is saved and nothing is downloaded.</li>
+        <li><strong>Photos copied before a camera error are kept.</strong> If the camera fails part way through an import, the photos already copied are added to your library and the message says which one could not be read.</li>
+        <li><strong>Colors near the edges of a light field render the same on the graphics card and the processor.</strong> A band of pixels along the border could come out wrong on the graphics card (photos are measured once more after updating).</li>
+        </ul>
+      </article>
       <article class="upd" data-version="0.5.97">
         <header><h3>0.5.97</h3><time datetime="2026-11-09">Nov 9, 2026</time></header>
         <ul>
@@ -612,17 +620,6 @@ footer { border-top: 1px solid var(--line); padding-block: 32px 48px; color: var
         <li><strong>Switching photos quickly is safe.</strong> Opening another photo while one is still loading no longer mixes up edits, depth or thumbnails.</li>
         <li><strong>Replacing photos on import is safer.</strong> If a copy fails, the original photo and its edits stay as they were.</li>
         <li><strong>Fewer broken colors and depth glitches.</strong> White balance no longer breaks at certain temperatures, and depth along the bottom and right edges is more accurate (photos are measured once more after updating).</li>
-        </ul>
-      </article>
-      <article class="upd" data-version="0.5.94">
-        <header><h3>0.5.94</h3><time datetime="2026-11-09">Nov 9, 2026</time></header>
-        <ul>
-        <li><strong>Click to focus is now fully sharp.</strong> Whatever you click now comes out as sharp as with no blur at all; before, the blur softened the whole picture, so nothing ever reached full focus.</li>
-        <li><strong>Depth map contrast can change the perspective shift too.</strong> A checkbox under it makes near and far objects slide against each other more when you move the viewpoint.</li>
-        <li><strong>Measured depth is kept across updates.</strong> Photos you already measured do not need to be measured again after a new version.</li>
-        <li><strong>The Render Queue matches the picture in the app.</strong> Queued pictures use the depth map edited in Lytro Desktop, and a batch reuses depth that is already measured.</li>
-        <li><strong>The depth sliders respond sooner.</strong> Depth map contrast, smoothing and the other depth settings take less time to show.</li>
-        <li><strong>Big libraries load faster.</strong> Importing hundreds of photos and showing their thumbnails costs less, and the web app now remembers measured depth after a reload.</li>
         </ul>
       </article>
     </div>
