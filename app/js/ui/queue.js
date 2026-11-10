@@ -7,6 +7,7 @@ import { RenderQueue, uniqueName, describeSettings, phasesFor, pickPhotos, first
 import { runNext, assertRunning } from '../core/queuerun.js';
 import { download } from '../platform.js';
 import { applyLookToEdits } from '../core/looks.js';
+import { syncCards } from './queuecards.js';
 
 // The most photos one Add puts in the list.
 const MAX_AT_ONCE = 512;
@@ -19,6 +20,7 @@ export function initQueue({ $, state, native, currentEdits, showNotice, showErro
   let renderTimer = 0;
   let picked = []; // the photos chosen in the library while the view is open (ids)
   let anchor = null;
+  const cards = new Map(); // job id -> its card (ui/queuecards.js)
   const queue = new RenderQueue({ onChange: () => scheduleRender() });
   queue.paused = true;
 
@@ -264,9 +266,9 @@ export function initQueue({ $, state, native, currentEdits, showNotice, showErro
     return b;
   }
 
+  // A card is built once per job and then only updated (see ui/queuecards.js): its Cancel button must stay the same element while progress comes in.
   function card(job) {
     const li = document.createElement('li');
-    li.className = `queue-card ${job.status}`;
     const photo = state.lib && state.lib.get(job.spec.photoId);
     const url = photo && thumbFor ? thumbFor(photo) : null;
     const thumb = document.createElement('div');
@@ -281,7 +283,6 @@ export function initQueue({ $, state, native, currentEdits, showNotice, showErro
       Object.assign(document.createElement('span'), { className: 'queue-title', textContent: job.title }),
       Object.assign(document.createElement('span'), { className: 'queue-kind', textContent: job.kind === 'video' ? 'Video' : job.spec.fullSensor ? 'Full sensor picture' : 'Picture' }),
     );
-    const percent = Math.round(job.progress * 100);
     const bar = document.createElement('div');
     bar.className = 'queue-bar-row';
     const track = document.createElement('div');
@@ -289,26 +290,41 @@ export function initQueue({ $, state, native, currentEdits, showNotice, showErro
     track.setAttribute('role', 'progressbar');
     track.setAttribute('aria-valuemin', '0');
     track.setAttribute('aria-valuemax', '100');
-    track.setAttribute('aria-valuenow', String(percent));
-    track.append(Object.assign(document.createElement('div'), { className: 'queue-fill' }));
-    track.firstChild.style.width = `${percent}%`;
-    bar.append(track, Object.assign(document.createElement('span'), { className: 'queue-percent', textContent: `${percent}%` }));
+    const fill = Object.assign(document.createElement('div'), { className: 'queue-fill' });
+    track.append(fill);
+    const percentText = Object.assign(document.createElement('span'), { className: 'queue-percent' });
+    bar.append(track, percentText);
     const status = document.createElement('div');
     status.className = 'queue-status';
-    status.textContent = job.status === 'failed' ? `Failed: ${job.error}`
-      : job.status === 'done' ? `Saved ${typeof job.output === 'string' ? job.output.split(/[\\/]/).pop() : ''}`.trim()
-        : job.status === 'running' ? job.stage || STATUS_TEXT.running : STATUS_TEXT[job.status];
     const chips = document.createElement('div');
     chips.className = 'queue-chips';
     for (const text of describeSettings(job.spec)) chips.append(Object.assign(document.createElement('span'), { className: 'queue-chip', textContent: text }));
     main.append(head, bar, status, chips);
     const actions = document.createElement('div');
     actions.className = 'queue-actions';
-    if (job.status === 'waiting') actions.append(button('▲', 'Earlier', () => queue.move(job.id, -1)), button('▼', 'Later', () => queue.move(job.id, 1)));
-    if (job.status === 'waiting' || job.status === 'running') actions.append(button('Cancel', 'Cancel this job', () => cancel(job)));
-    else actions.append(button('Remove', 'Remove from the list', () => queue.remove(job.id)));
     li.append(thumb, main, actions);
-    return li;
+    let shown = null;
+    return {
+      el: li,
+      update(j) {
+        li.className = `queue-card ${j.status}`;
+        const percent = Math.round(j.progress * 100);
+        track.setAttribute('aria-valuenow', String(percent));
+        fill.style.width = `${percent}%`;
+        percentText.textContent = `${percent}%`;
+        status.textContent = j.status === 'failed' ? `Failed: ${j.error}`
+          : j.status === 'done' ? `Saved ${typeof j.output === 'string' ? j.output.split(/[\\/]/).pop() : ''}`.trim()
+            : j.status === 'running' ? j.stage || STATUS_TEXT.running : STATUS_TEXT[j.status];
+        // The buttons depend on the status alone: they are replaced only when it changes.
+        if (shown === j.status) return;
+        shown = j.status;
+        const buttons = [];
+        if (j.status === 'waiting') buttons.push(button('▲', 'Earlier', () => queue.move(j.id, -1)), button('▼', 'Later', () => queue.move(j.id, 1)));
+        if (j.status === 'waiting' || j.status === 'running') buttons.push(button('Cancel', j.kind === 'video' ? 'Cancel this video' : 'Cancel this picture', () => cancel(j)));
+        else buttons.push(button('Remove', 'Remove from the list', () => queue.remove(j.id)));
+        actions.replaceChildren(...buttons);
+      },
+    };
   }
 
   function scheduleRender() {
@@ -342,12 +358,13 @@ export function initQueue({ $, state, native, currentEdits, showNotice, showErro
     $('queue-view-summary').textContent = summary;
     $('queue-current').textContent = many ? `Adds from ${photos.length} chosen photos` : canAdd ? `Adds from: ${photos[0].name}` : libraryPhoto() ? 'Opening the photo…' : 'Choose a library photo to add it';
     const list = $('queue-list');
-    list.replaceChildren(...queue.jobs.map(card));
+    syncCards(list, queue.jobs, cards, card);
     $('queue-empty').hidden = queue.jobs.length > 0;
     const running = !queue.paused;
     $('queue-toggle').textContent = running && (queue.running || queue.counts().waiting) ? 'Pause queue' : 'Start queue';
     $('queue-toggle').disabled = !queue.jobs.some((j) => j.status === 'waiting' || j.status === 'running');
     $('queue-clear').disabled = !queue.jobs.some((j) => !['waiting', 'running'].includes(j.status));
+    $('queue-cancel-all').disabled = !active;
     $('queue-folder-row').hidden = !(native && native.chooseOutputFolder);
     $('queue-folder').textContent = folder ? folder : 'No folder chosen';
   }
@@ -356,6 +373,11 @@ export function initQueue({ $, state, native, currentEdits, showNotice, showErro
     const wasRunning = job.status === 'running';
     queue.cancel(job.id);
     if (wasRunning && current && current.job === job) current.abort();
+  }
+
+  // Cancels every waiting job and the running one (the hidden copy is thrown away, as for one cancel).
+  function cancelAll() {
+    for (const job of queue.jobs.filter((j) => j.status === 'waiting' || j.status === 'running')) cancel(job);
   }
 
   async function chooseFolder() {
@@ -379,6 +401,7 @@ export function initQueue({ $, state, native, currentEdits, showNotice, showErro
     selectAll();
   });
   $('queue-clear').onclick = () => queue.clearFinished();
+  $('queue-cancel-all').onclick = () => cancelAll();
   $('queue-folder-btn').onclick = () => chooseFolder();
   $('queue-toggle').onclick = async () => {
     if (!queue.paused) {
