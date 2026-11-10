@@ -269,11 +269,11 @@ export function initQueue({ $, state, native, currentEdits, showNotice, showErro
   // A card is built once per job and then only updated (see ui/queuecards.js): its Cancel button must stay the same element while progress comes in.
   function card(job) {
     const li = document.createElement('li');
-    const photo = state.lib && state.lib.get(job.spec.photoId);
-    const url = photo && thumbFor ? thumbFor(photo) : null;
     const thumb = document.createElement('div');
     thumb.className = 'queue-thumb';
-    if (url) thumb.append(Object.assign(document.createElement('img'), { src: url, alt: '' }));
+    const img = Object.assign(document.createElement('img'), { alt: '' });
+    img.hidden = true;
+    thumb.append(img);
     if (job.kind === 'video') thumb.append(Object.assign(document.createElement('span'), { className: 'queue-badge', textContent: '▶', title: 'Video' }));
     const main = document.createElement('div');
     main.className = 'queue-main';
@@ -308,6 +308,14 @@ export function initQueue({ $, state, native, currentEdits, showNotice, showErro
       el: li,
       update(j) {
         li.className = `queue-card ${j.status}`;
+        // The thumbnail is read each time: it may still be loading when the card is made, and a new one replaces (and frees) the old address.
+        const photo = state.lib && state.lib.get(j.spec.photoId);
+        const url = (photo && thumbFor && thumbFor(photo)) || '';
+        if (img.getAttribute('src') !== url) {
+          if (url) img.src = url;
+          else img.removeAttribute('src');
+          img.hidden = !url;
+        }
         const percent = Math.round(j.progress * 100);
         track.setAttribute('aria-valuenow', String(percent));
         fill.style.width = `${percent}%`;
