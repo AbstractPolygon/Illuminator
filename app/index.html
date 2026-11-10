@@ -72,6 +72,8 @@
       <input id="look-file" type="file" accept=".illuminator-look,.json,application/json" hidden>
       <h2 id="photos-title">All photos</h2>
       <div id="library-filter" class="library-filter">
+        <input id="filter-text" type="search" placeholder="Keyword or name" list="keyword-list" aria-label="Keyword or name" title="Shows photos with a keyword, or a name, containing this text">
+        <datalist id="keyword-list"></datalist>
         <select id="filter-rating" title="Show only photos with at least this rating" aria-label="Rating">
           <option value="0">Any rating</option>
           <option value="1">★ and up</option>
@@ -87,8 +89,6 @@
           <option value="notreject">Not rejected</option>
           <option value="none">Unflagged</option>
         </select>
-        <input id="filter-text" type="search" placeholder="Keyword or name" list="keyword-list" aria-label="Keyword or name" title="Shows photos with a keyword, or a name, containing this text">
-        <datalist id="keyword-list"></datalist>
         <button id="filter-clear" type="button" class="link-button" hidden>Clear filter</button>
       </div>
       <ul id="library-list"></ul>
