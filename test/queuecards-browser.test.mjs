@@ -112,7 +112,7 @@ test('the list is touched only when the order changes', async (t) => {
     const page = await browser.newPage();
     await page.goto(`http://localhost:${server.address().port}/t.html`);
     const res = await page.evaluate(async () => {
-      const { syncCards } = await import('/js/ui/queuecards.js');
+      const { syncCards, pruneCards } = await import('/js/ui/queuecards.js');
       const list = document.getElementById('list');
       const cards = new Map();
       const build = (job) => {
@@ -130,11 +130,14 @@ test('the list is touched only when the order changes', async (t) => {
       const quiet = watch.takeRecords().length + mutations;
       syncCards(list, [jobs[2], jobs[0]], cards, build);
       const after = [...list.children].map((li) => li.textContent);
-      return { quiet, after, size: cards.size };
+      // With the view closed only the cards are pruned: a cleared job's card goes, and the list is not drawn.
+      pruneCards(cards, [jobs[2]]);
+      return { quiet, after, size: cards.size, pruned: [...cards.keys()], shown: list.children.length };
     });
     assert.equal(res.quiet, 0, 'a text change alone leaves the list untouched');
     assert.deepEqual(res.after, ['c', 'a']);
-    assert.equal(res.size, 2, 'the card of a removed job is dropped');
+    assert.deepEqual(res.pruned, [3], 'pruning keeps only the cards of jobs still listed');
+    assert.equal(res.shown, 1, 'a pruned card leaves the list too');
   } finally {
     await browser.close();
   }
