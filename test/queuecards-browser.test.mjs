@@ -1,7 +1,7 @@
-/* global document, MutationObserver -- used inside page.evaluate, which runs in the browser */
+/* global document, window, MutationObserver -- used inside page.evaluate, which runs in the browser */
 // The Render Queue's job cards in a browser: progress updates leave the Cancel button the same element (so a click that began before an update still lands), a button is
 // replaced only when the job's status changes, and the list is touched only when the order changes. Skipped where Playwright or its browser is not installed.
-import test from 'node:test';
+import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import fs from 'node:fs';
@@ -11,10 +11,10 @@ import { launchBrowser } from './helpers/playwright.mjs';
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'app');
 
-test('a Cancel click survives progress updates, for pictures and videos', async (t) => {
-  const browser = await launchBrowser(t);
-  if (!browser) return;
-  const server = http.createServer((q, r) => {
+// One small server for both tests: an empty page with a list, and the app's scripts.
+let server;
+before(() => {
+  server = http.createServer((q, r) => {
     const u = decodeURIComponent(q.url.split('?')[0]);
     if (u === '/t.html') {
       r.writeHead(200, { 'content-type': 'text/html' });
@@ -25,6 +25,12 @@ test('a Cancel click survives progress updates, for pictures and videos', async 
       r.end(e ? undefined : d);
     });
   }).listen(0);
+});
+after(() => server.close());
+
+test('a Cancel click survives progress updates, for pictures and videos', async (t) => {
+  const browser = await launchBrowser(t);
+  if (!browser) return;
   try {
     const page = await browser.newPage();
     await page.goto(`http://localhost:${server.address().port}/t.html`);
@@ -59,7 +65,7 @@ test('a Cancel click survives progress updates, for pictures and videos', async 
           },
         };
       };
-      queue = new RenderQueue({ onChange: () => syncCards(list, queue.jobs, cards, build) });
+      window.queue = queue = new RenderQueue({ onChange: () => syncCards(list, queue.jobs, cards, build) });
       const photo = queue.add({ n: 1 }, { kind: 'photo', title: 'Picture' });
       const video = queue.add({ n: 2 }, { kind: 'video', title: 'Video' });
       const out = {};
@@ -67,7 +73,7 @@ test('a Cancel click survives progress updates, for pictures and videos', async 
       const button = list.querySelector('li button');
       const items = [...list.children];
       // Progress arrives many times a second: nothing in the list may be replaced.
-      for (let i = 1; i <= 20; i++) queue.setProgress(photo, i / 20, 'Rendering');
+      for (let i = 1; i <= 10; i++) queue.setProgress(photo, i / 20, 'Rendering');
       out.sameButton = list.querySelector('li button') === button;
       out.sameItems = [...list.children].every((el, i) => el === items[i]);
       out.label = list.children[0].textContent;
@@ -75,13 +81,18 @@ test('a Cancel click survives progress updates, for pictures and videos', async 
     });
     assert.ok(res.out.sameButton, 'the Cancel button is the same element after progress updates');
     assert.ok(res.out.sameItems);
-    assert.equal(res.out.label, 'Picture running 100%Cancel');
+    assert.equal(res.out.label, 'Picture running 50%Cancel');
 
-    // A real mouse press and release on the running picture's Cancel.
+    // A real press on the running picture's Cancel, progress arriving before the release (what lost the click before), then the release.
     const first = page.locator('#list li').nth(0).locator('button');
     const box = await first.boundingBox();
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
     await page.mouse.down();
+    await page.evaluate(() => {
+      const job = window.queue.running;
+      for (let i = 11; i <= 15; i++) window.queue.setProgress(job, i / 20, 'Rendering');
+    });
+    assert.match(await page.locator('#list li').nth(0).textContent(), /75%/, 'progress came in while the button was held');
     await page.mouse.up();
     // The waiting video's Cancel is clicked normally.
     await page.locator('#list li').nth(1).locator('button').click();
@@ -91,24 +102,12 @@ test('a Cancel click survives progress updates, for pictures and videos', async 
     assert.match(await page.locator('#list li').nth(0).locator('button').textContent(), /Remove/, 'a cancelled job offers Remove');
   } finally {
     await browser.close();
-    server.close();
   }
 });
 
 test('the list is touched only when the order changes', async (t) => {
   const browser = await launchBrowser(t);
   if (!browser) return;
-  const server = http.createServer((q, r) => {
-    const u = decodeURIComponent(q.url.split('?')[0]);
-    if (u === '/t.html') {
-      r.writeHead(200, { 'content-type': 'text/html' });
-      return r.end('<!doctype html><meta charset=utf8><ul id=list></ul>');
-    }
-    fs.readFile(path.join(root, u), (e, d) => {
-      r.writeHead(e ? 404 : 200, { 'content-type': 'text/javascript' });
-      r.end(e ? undefined : d);
-    });
-  }).listen(0);
   try {
     const page = await browser.newPage();
     await page.goto(`http://localhost:${server.address().port}/t.html`);
@@ -138,6 +137,5 @@ test('the list is touched only when the order changes', async (t) => {
     assert.equal(res.size, 2, 'the card of a removed job is dropped');
   } finally {
     await browser.close();
-    server.close();
   }
 });
