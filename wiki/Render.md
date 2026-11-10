@@ -25,7 +25,7 @@ To add several photos at once, choose them in the library while the view is open
 1. Set a library photo up as you want it (its settings, *Photo* format, color space and size, *Full sensor* with its *Scale* and *Detail recovery*, or the animation and *Video* settings).
 2. *Add picture* or *Add video* (in the Render Queue view, or in the *Render Queue* section of the right sidebar, below *Render Settings*) puts a job in the list. The job keeps the photo's settings as they are at that moment; carry on editing the photo, or other photos, as you like. A video needs *Animation* turned on.
 3. The view shows a card for every job: the photo's thumbnail (marked with ▶ for a video), a bar with the percentage done and what it is doing, and its export settings (format, color space and size, *Full sensor* scale and recovery, aperture; for a video the format, compression, size and bitrate).
-4. *Start queue* runs the jobs in order, one at a time. *Pause queue* lets the running job finish and starts no more. *▲* and *▼* reorder waiting jobs, *Cancel* stops a job, *Remove* and *Clear finished* tidy the list.
+4. *Start queue* runs the jobs in order, one at a time. *Pause queue* lets the running job finish and starts no more. *▲* and *▼* reorder waiting jobs, *Cancel* on a card stops that picture or video (a running job stops at once and saves nothing), *Cancel all* stops the running job and drops every waiting one, *Remove* and *Clear finished* tidy the list.
 
 In the browser each finished file is saved as a download (named like the photo; a second one with the same name gets *(2)*). In the desktop app you choose a folder once per session (*Choose folder…*) and the files are written there without asking each time.
 
