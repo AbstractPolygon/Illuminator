@@ -7,7 +7,7 @@ import { RenderQueue, uniqueName, describeSettings, phasesFor, pickPhotos, first
 import { runNext, assertRunning } from '../core/queuerun.js';
 import { download } from '../platform.js';
 import { applyLookToEdits } from '../core/looks.js';
-import { syncCards } from './queuecards.js';
+import { syncCards, pruneCards } from './queuecards.js';
 
 // The most photos one Add puts in the list.
 const MAX_AT_ONCE = 512;
@@ -362,7 +362,10 @@ export function initQueue({ $, state, native, currentEdits, showNotice, showErro
     $('queue-select-all').disabled = !listed().length;
     const active = queue.jobs.filter((j) => j.status === 'waiting' || j.status === 'running').length;
     $('queue-open').textContent = active ? `Open Render Queue (${active} waiting)` : 'Open Render Queue';
-    if (!state.queueView) return;
+    if (!state.queueView) {
+      pruneCards(cards, queue.jobs);
+      return;
+    }
     $('queue-view-summary').textContent = summary;
     $('queue-current').textContent = many ? `Adds from ${photos.length} chosen photos` : canAdd ? `Adds from: ${photos[0].name}` : libraryPhoto() ? 'Opening the photo…' : 'Choose a library photo to add it';
     const list = $('queue-list');

@@ -15,18 +15,23 @@ export function syncCards(list, jobs, cards, build) {
     card.update(job);
     wanted.push(card.el);
   }
-  const ids = new Set(jobs.map((j) => j.id));
-  for (const id of [...cards.keys()]) {
-    if (!ids.has(id)) {
-      cards.get(id).el.remove();
-      cards.delete(id);
-    }
-  }
+  pruneCards(cards, jobs);
   // Only a change of order (or a new or removed card) touches the list; a card that is already in its place is left alone.
   const have = Array.from(list.children);
   if (have.length !== wanted.length || wanted.some((el, i) => have[i] !== el)) {
     wanted.forEach((el, i) => {
       if (list.children[i] !== el) list.insertBefore(el, list.children[i] || null);
     });
+  }
+}
+
+// Drops the cards of jobs no longer in the list (removed or cleared), so they do not stay in memory while the queue view is closed and the list is not drawn.
+export function pruneCards(cards, jobs) {
+  const ids = new Set(jobs.map((j) => j.id));
+  for (const [id, card] of cards) {
+    if (!ids.has(id)) {
+      card.el.remove();
+      cards.delete(id);
+    }
   }
 }
