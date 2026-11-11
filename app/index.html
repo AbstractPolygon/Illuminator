@@ -150,7 +150,7 @@
           <label class="queue-look" title="Puts a look (Library &gt; Looks) on every photo added, for its export only: the photos keep their own settings">Look
             <select id="queue-look"><option value="">No look</option></select>
           </label>
-          <button id="queue-add-photo-view" type="button" title="Adds a picture of the open photo, or of each photo chosen in the library (Ctrl or Shift and click; Command-click on a Mac, where Ctrl-click opens a menu), with the Photo and Full sensor settings as they are now" disabled>Add picture</button>
+          <button id="queue-add-photo-view" type="button" title="Adds a picture of the open photo, or the photos chosen in the library, with the current settings" disabled>Add picture</button>
           <button id="queue-add-video-view" type="button" title="Adds the animation of the open photo, or of each chosen photo that has one, as a video" disabled>Add video</button>
         </div>
         <div id="queue-folder-row" class="queue-folder" hidden>
@@ -353,7 +353,7 @@
         </details>
         <details class="subpanel">
           <summary><h3>Tone</h3></summary>
-          <label title="Desktop Classic: the camera's exposure with Lytro Desktop's contrast and color, as photos look there. Flat: an exposure picked for each photo, without a curve, for editing from a neutral start">Look
+          <label title="Desktop Classic: Lytro Desktop's contrast and color. Flat: neutral, for editing">Look
             <select id="base-look">
               <option value="lytro" selected>Desktop Classic</option>
               <option value="flat">Flat</option>
@@ -553,7 +553,7 @@
             <label title="Shifts what the mask covers toward magenta or green">Tint <output data-for="mx-tint" for="mx-tint">0</output>
               <input id="mx-tint" type="range" min="-100" max="100" step="1" value="0" data-default="0">
             </label>
-            <label title="Fades what the mask covers toward a soft blue-gray, like fog or distance haze. Below zero it removes haze and stretches the contrast. With a Depth mask it fogs the far parts">Haze <output data-for="mx-haze" for="mx-haze">0</output>
+            <label title="Fades what the mask covers toward a soft blue-gray, like haze. Below zero removes haze">Haze <output data-for="mx-haze" for="mx-haze">0</output>
               <input id="mx-haze" type="range" min="-100" max="100" step="1" value="0" data-default="0">
             </label>
             <label title="Softens what the mask covers">Blur <output data-for="mx-blur" for="mx-blur">0</output>
@@ -581,7 +581,7 @@
             <input id="dof-depth" type="range" min="-100" max="100" step="1" value="0" data-default="0">
           </label>
           <input id="focus" type="hidden" value="0">
-          <div id="depth-ruler-row" class="depth-ruler" title="Where the picture lies in depth, nearer on the left (blue), farther on the right (orange). The line is the focus and the lit part of the curve the sharp range. Click or drag to focus there" hidden>
+          <div id="depth-ruler-row" class="depth-ruler" title="Depth: near on the left (blue), far on the right (orange). Click or drag to focus there" hidden>
             <canvas id="depth-ruler"></canvas>
             <div class="depth-ruler-labels" aria-hidden="true"><span class="near">Near</span><output id="depth-ruler-focus"></output><span class="far">Far</span></div>
           </div>
@@ -593,39 +593,39 @@
             <input id="depth-smooth" type="range" min="0" max="100" step="5" value="30" data-default="30">
           </label>
           <label id="lytro-depth-row" class="check" title="Uses the depth map edited in Lytro Desktop, imported with the photo, instead of measuring depth" hidden><input id="lytro-depth" type="checkbox" checked> Lytro Desktop depth map</label>
-          <label id="depth-style-row" title="How the depth map is measured. Blended: the Illuminator and the Classic Desktop depth together, with a slider for the mix (more fine detail on some photos, slower). Illuminator: Illuminator's measurement, a plain cost volume. Classic Desktop: Lytro Desktop's style, the engine's measurement.">Depth method
+          <label id="depth-style-row" title="How depth is measured. Blended mixes the other two; Illuminator and Classic Desktop are one style each">Depth method
             <select id="depth-style">
               <option value="classic">Illuminator</option>
               <option value="match" selected>Classic Desktop</option>
               <option value="combined">Blended</option>
             </select>
           </label>
-          <label id="depth-model-blend-row" title="How much of the depth model's result is used. 0: the measured depth alone. 100: the model's depth (fitted to the measurement) alone. The model gives clean object edges and an answer on glossy or blank surfaces; the measurement keeps the scale" hidden>Model blend <output for="depth-model-blend" data-for="depth-model-blend">70</output>
+          <label id="depth-model-blend-row" title="How much of the depth model's result is used. 0: measured depth alone, 100: model alone" hidden>Model blend <output for="depth-model-blend" data-for="depth-model-blend">70</output>
             <input id="depth-model-blend" type="range" min="0" max="100" step="5" value="70" data-default="70">
           </label>
-          <label id="depth-model-smooth-row" title="The depth model's setting: blurs its depth before it is fitted to the measurement, for gentler depth where the model is noisy or blocky. 0 leaves it as the model made it. Each depth model keeps its settings" hidden>Model smoothing <output data-for="depth-model-smooth" for="depth-model-smooth">0</output>
+          <label id="depth-model-smooth-row" title="Blurs the model's depth before it is fitted: gentler where it is noisy or blocky. 0: none" hidden>Model smoothing <output data-for="depth-model-smooth" for="depth-model-smooth">0</output>
             <input id="depth-model-smooth" type="range" min="0" max="100" step="5" value="0" data-default="0">
           </label>
-          <label id="depth-model-curve-row" title="The depth model's setting: bends its depth. Below 50 pulls the middle distances toward the far end, above 50 toward the near end. 50 leaves it as it is" hidden>Model curve <output data-for="depth-model-curve" for="depth-model-curve">50</output>
+          <label id="depth-model-curve-row" title="Bends the model's depth. Below 50 pulls middle distances far, above 50 near" hidden>Model curve <output data-for="depth-model-curve" for="depth-model-curve">50</output>
             <input id="depth-model-curve" type="range" min="0" max="100" step="5" value="50" data-default="50">
           </label>
           <input id="depth-model-params" type="hidden" value="{}" data-text>
-          <label id="depth-blend-row" title="How the two depth measurements are mixed. 0: Illuminator's depth alone. 100: the Classic Desktop depth alone. 50: the default mix, Classic Desktop up close and Illuminator's in the distance" hidden>Blend <output for="depth-blend" data-for="depth-blend">50</output>
+          <label id="depth-blend-row" title="Mix of the two depth measurements. 0: Illuminator alone, 100: Classic Desktop alone" hidden>Blend <output for="depth-blend" data-for="depth-blend">50</output>
             <input id="depth-blend" type="range" min="0" max="100" step="5" value="50" data-default="50">
           </label>
-          <label id="depth-objects-row" class="check" title="Finds the objects in the photo and puts depth edges on their outlines, with or without the High quality depth map. The first time, it downloads a 45 MB object model (kept for later); finding the objects takes a few seconds per photo"><input id="depth-objects" type="checkbox"> Object edges</label>
-          <label id="depth-objects-soft-row" title="Softens the depth where objects meet: the steps at their outlines become a gradual ramp (too sharp edges look cut out). 0: hard outlines" hidden>Smooth edges <output data-for="depth-objects-soft" for="depth-objects-soft">30</output>
+          <label id="depth-objects-row" class="check" title="Finds objects and puts depth edges on their outlines. Downloads a 45 MB model the first time"><input id="depth-objects" type="checkbox"> Object edges</label>
+          <label id="depth-objects-soft-row" title="Softens depth where objects meet, so outlines look less cut out. 0: hard outlines" hidden>Smooth edges <output data-for="depth-objects-soft" for="depth-objects-soft">30</output>
             <input id="depth-objects-soft" type="range" min="0" max="100" step="1" value="30" data-default="30">
           </label>
-          <label id="depth-hq-row" class="check" title="Sharper depth edges, matched to the photo, for photos and videos; about twice as slow to compute. Off: the faster, rougher depth map"><input id="depth-hq" type="checkbox" checked> High quality depth map</label>
+          <label id="depth-hq-row" class="check" title="Sharper depth edges for photos and videos; about twice as slow. Off: faster, rougher"><input id="depth-hq" type="checkbox" checked> High quality depth map</label>
           <div class="row check-row">
             <label class="check"><input id="depth-btn" type="checkbox"> Show depth map</label>
             <label class="check" title="Shows the depth map in gray, light for near and dark for far, instead of in color"><input id="depth-grey" type="checkbox"> Grayscale</label>
           </div>
-          <label title="Stretches the depth map's colors over a narrower range of depth, so differences show more, as Lytro Desktop's depth maps do. It reshapes the depth itself, so the depth map and the depth of field change together">Depth map contrast <output for="depth-contrast" data-for="depth-contrast">0</output>
+          <label title="Stretches depth map colors over a narrower range, as Lytro Desktop's do. Changes the depth itself">Depth map contrast <output for="depth-contrast" data-for="depth-contrast">0</output>
             <input id="depth-contrast" type="range" min="0" max="100" step="5" value="0" data-default="0">
           </label>
-          <label class="check" title="Also uses the reshaped depth when the viewpoint moves, so near and far objects shift against each other as much as the contrast makes their depth differ. Applies to the camera view and animations; a Full sensor render keeps the measured parallax"><input id="depth-contrast-persp" type="checkbox"> Apply to perspective shift</label>
+          <label class="check" title="Uses the reshaped depth when the viewpoint moves too. A Full sensor render does not"><input id="depth-contrast-persp" type="checkbox"> Apply to perspective shift</label>
         </details>
         <details class="subpanel">
           <summary><h3>Focus Spread</h3></summary>
@@ -636,14 +636,14 @@
           <label title="Softens the edges of the sharp range: blur builds up gradually instead of starting at once">Smoothing <output data-for="spread-smooth" for="spread-smooth">0</output>
             <input id="spread-smooth" type="range" min="0" max="100" step="1" value="0" data-default="0">
           </label>
-          <label title="Feathers the focus spread: the blur map is smoothed across the picture, so the sharp range turns into blur gradually where it meets the blurred areas. The picture itself is not blurred by it">Blur <output data-for="spread-blur" for="spread-blur">0</output>
+          <label title="Smooths the blur map so the sharp range fades into blur gradually">Blur <output data-for="spread-blur" for="spread-blur">0</output>
             <input id="spread-blur" type="range" min="0" max="100" step="1" value="0" data-default="0">
           </label>
           <label class="check"><input id="spread-show" type="checkbox"> Show spread</label>
         </details>
         <details class="subpanel">
           <summary><h3>Tilt</h3></summary>
-          <label title="One-click starting points for the tilt: a miniature-style band, a landscape tilt and more. They set the tilt, aperture and blur, and you adjust from there">Preset
+          <label title="One-click tilt starting points, such as a miniature look. They set tilt, aperture and blur">Preset
             <select id="tilt-preset">
               <option value="" selected>Choose…</option>
               <option value="miniature">Miniature (horizontal band)</option>
@@ -660,16 +660,16 @@
           <label title="Direction the plane of focus tilts">Rotation <output data-for="tilt-rotation" for="tilt-rotation">0°</output>
             <input id="tilt-rotation" type="range" min="-90" max="90" step="1" value="0" data-default="0">
           </label>
-          <label class="check" title="Tints the picture by how far each part lies from the tilted plane of focus: blue nearer, orange farther, clear where it is in focus"><input id="tilt-show" type="checkbox" disabled> Show tilt</label>
+          <label class="check" title="Tints by distance from the plane of focus: blue nearer, orange farther"><input id="tilt-show" type="checkbox" disabled> Show tilt</label>
         </details>
         <details class="subpanel">
           <summary><h3>Perspective</h3></summary>
           <label title="Drag on the picture to move the viewpoint">Viewpoint <output id="viewpoint">Center</output></label>
-          <label title="How far the viewpoint can move, as a share of the lens's opening. Up to 100% uses only what the camera recorded; with the aperture closed (f/22, as the picture opens), real views go farther, as far as the lens images stay bright enough, often 120 to 150% depending on the photo and the direction. Past that, the picture from the edge is moved on by the depth map, which can smear the edges of near objects and the background they uncover. Applies to dragging the picture, animations, 3D and lenticular prints (a Full sensor render keeps to 100%)">Reach <output data-for="view-reach" for="view-reach">100%</output>
+          <label title="How far the viewpoint can move, as a share of the lens opening. Past what the camera recorded, depth fills in">Reach <output data-for="view-reach" for="view-reach">100%</output>
             <input id="view-reach" type="range" min="100" max="300" step="10" value="100" data-default="100">
           </label>
-          <label class="check" id="view-fill-row" title="Where a viewpoint past what the camera recorded uncovers what no view saw (behind near objects, and at the picture's edges), MI-GAN paints it from the picture around it instead of stretching the background beside it. Used when saving lenticular prints (and their preview) and 3D images; dragging the picture keeps the quick fill. Needs the fill model (Settings > Fill model). It invents what it paints: good on foliage, sky and walls, less so on people or text"><input id="view-fill" type="checkbox" disabled> Fill with AI</label>
-          <label class="check" title="Choose the depth that stays still when the viewpoint moves; otherwise it is the focus plane (or, with the aperture closed, the camera's focus)"><input id="pivot-on" type="checkbox"> Custom pivot</label>
+          <label class="check" id="view-fill-row" title="Paints what no view saw using the fill model (Settings), for prints and 3D images"><input id="view-fill" type="checkbox" disabled> Fill with AI</label>
+          <label class="check" title="The depth that stays still when the viewpoint moves; otherwise the focus plane"><input id="pivot-on" type="checkbox"> Custom pivot</label>
           <label title="The depth that stays still when the viewpoint moves">Pivot depth <output data-for="pivot" for="pivot">0</output>
             <input id="pivot" type="range" min="-100" max="100" step="1" value="0" data-default="0" disabled>
           </label>
@@ -733,7 +733,7 @@
           <label title="Fills small, faint dark spots left by dust on the sensor or lens: higher removes larger spots">Dust <output for="nr-dust" data-for="nr-dust">0</output>
             <input id="nr-dust" type="range" min="0" max="100" step="1" value="0" data-default="0">
           </label>
-          <label title="Removes small bright or dark specks (one to four pixels) that stand out from their surroundings; lines and edges are kept">Despeckle <output for="nr-speckle" data-for="nr-speckle">0</output>
+          <label title="Removes small bright or dark specks; edges are kept">Despeckle <output for="nr-speckle" data-for="nr-speckle">0</output>
             <input id="nr-speckle" type="range" min="0" max="100" step="1" value="0" data-default="0">
           </label>
           <label title="The largest speck removed, in pixels across: specks up to this size go, larger spots and lines stay">Speck size <output for="nr-speckle-size" data-for="nr-speckle-size">2 px</output>
@@ -833,7 +833,7 @@
         <label id="fps-custom" class="fps-custom" hidden>
           <input id="fps" type="text" inputmode="decimal" value="24" data-default="24" aria-label="Custom frame rate in frames a second"> fps
         </label>
-        <label title="Fills the keyframes (viewpoint, zoom and pan) with a ready-made camera move, which you can then edit and export as a video. It replaces the viewpoint, zoom and pan keyframes only, and can be undone">Camera move
+        <label title="Fills viewpoint, zoom and pan keyframes with a ready-made camera move. Can be undone">Camera move
           <select id="anim-preset">
             <option value="" selected>Choose a move…</option>
             <option value="orbit">Orbit</option>
@@ -906,16 +906,16 @@
         </details>
         <details class="subpanel" id="lenticular-panel">
           <summary><h3>Lenticular Print</h3></summary>
-          <label title="3D: a still scene that looks three-dimensional, from views across the lens. Animation: an animation that plays as the print tilts, from as many frames as the print has pictures, sampled evenly from the start to the end of the Animation section's animation (a focus sweep refocuses, a camera move moves)">Print type
+          <label title="3D: views across the lens. Animation: frames sampled evenly from the animation, played as the print tilts">Print type
             <select id="lent-type">
               <option value="3d" selected>3D</option>
               <option value="anim">Animation</option>
             </select>
           </label>
-          <label id="lent-depth-row" title="How far apart the outermost viewpoints are, as a share of the lens's opening: more gives more movement and depth, and more doubling out of focus. Past 100%, the views beyond the opening are made from the edge view and the depth map, which can smear the edges of near objects">Movement <output data-for="lent-depth" for="lent-depth">100%</output>
+          <label id="lent-depth-row" title="Distance between the outermost viewpoints, as a share of the lens opening: more means more depth and more double images">Movement <output data-for="lent-depth" for="lent-depth">100%</output>
             <input id="lent-depth" type="range" min="20" max="300" step="10" value="100" data-default="100">
           </label>
-          <label title="Which way the print is tilted to see it change, and so which way the sheet's lenses run: left and right for upright lenses (for 3D, each eye then sees a different view); up and down for lenses across (both eyes see the same picture, the usual choice for an animation)">Tilt
+          <label title="Which way the print tilts: left and right for 3D, up and down for animations">Tilt
             <select id="lent-tilt">
               <option value="lr" selected>Left and right</option>
               <option value="ud">Up and down</option>
@@ -935,10 +935,10 @@
           <label id="lent-lpi-row" title="Lenses per inch of the lens sheet, as printed on the sheet or its box" hidden>Lenses per inch (LPI)
             <input id="lent-lpi" type="number" min="10" max="300" step="any" value="62">
           </label>
-          <label title="The printer's resolution in dots per inch, the one it prints at without scaling (such as 600 or 720 for many inkjets). Pictures under each lens: this divided by the sheet's LPI">Printer (DPI)
+          <label title="The printer's resolution in dots per inch. Pictures per lens: this divided by the sheet's LPI">Printer (DPI)
             <input id="lent-dpi" type="number" min="100" max="4800" step="1" value="720">
           </label>
-          <label title="The sheet's real pitch for this printer and paper: print the pitch test, look at it through the sheet, and enter the value of the band that flips evenly between black and white. Empty: the sheet's LPI">Measured pitch (LPI)
+          <label title="The sheet's measured pitch from the pitch test. Empty: the sheet's LPI">Measured pitch (LPI)
             <input id="lent-pitch" type="number" min="10" max="300" step="any" placeholder="Same as the sheet">
           </label>
           <div class="row2">
@@ -949,11 +949,11 @@
               <input id="lent-height" type="number" min="0.5" max="60" step="any" value="4">
             </label>
           </div>
-          <label class="check" title="Swaps the order of the pictures under each lens: for a 3D print that looks inside out (near things behind far ones) or a flip that runs the wrong way"><input id="lent-reverse" type="checkbox"> Reverse order</label>
+          <label class="check" title="Reverses the order of the pictures under each lens, for a print that looks inside out"><input id="lent-reverse" type="checkbox"> Reverse order</label>
           <p id="lent-info" class="hint"></p>
           <button id="lent-preview-btn" class="wide" title="Shows how the print looks through the lens sheet as it is tilted: the pictures in turn, with the detail the lenses keep" disabled>Preview</button>
           <div class="lent-buttons">
-            <button id="lent-test-btn" title="Saves a pitch test: a chart of bands at pitches around the sheet's, to print on the same printer and paper and look at through the sheet. The band that flips evenly between black and white is the measured pitch">Save pitch</button>
+            <button id="lent-test-btn" title="Saves a pitch test chart to print and view through the sheet; the band that flips evenly is the pitch">Save pitch</button>
             <button id="lent-btn" title="Saves the print: a PNG at the printer's resolution, to print at 100% without scaling" disabled>Save print</button>
           </div>
         </details>
@@ -966,7 +966,7 @@
               <option value="2">2×</option>
             </select>
           </label>
-          <label title="Extra passes that bring back finer detail, from every pixel the sensor recorded, in the picture, in photos and video frames (slower). With Full sensor on they act on the full sensor still">Detail recovery
+          <label title="Extra passes that bring back finer detail from every sensor pixel (slower)">Detail recovery
             <select id="still-passes">
               <option value="0" selected>Off</option>
               <option value="2">Low (2 passes)</option>
@@ -974,7 +974,7 @@
             </select>
           </label>
           <div class="stack">
-            <label class="check" title="Rebuilds the picture from every pixel the sensor recorded, on/off (F). Photos: press Render. Videos: every frame is rebuilt this way when exported (much slower)"><input id="fullres-on" type="checkbox"> Full sensor</label>
+            <label class="check" title="Rebuilds the picture from every sensor pixel (F). Photos: press Render. Videos: slower"><input id="fullres-on" type="checkbox"> Full sensor</label>
             <div id="fullres-panel" hidden>
               <label title="Size of the full sensor picture, for photos and every video frame">Scale
                 <select id="still-scale">
@@ -983,7 +983,7 @@
                   <option value="4">4× lens grid</option>
                 </select>
               </label>
-              <label title="Where each microlens really is. The lenses sit a little off their regular grid, each by a different amount, and out of focus the errors add up to a pattern at the lens grid's period. Automatic uses the camera's white images when its calibration has been imported (Settings) and the white image stored in the photo otherwise; Measured from photo measures each lens's center from the white image stored in the photo's file; Camera calibration uses the imported calibration only; Off uses the regular grid">Lens centers
+              <label title="Where each microlens really is. Automatic uses the camera calibration if imported, else the photo's white image">Lens centers
                 <select id="lens-centres">
                   <option value="auto" selected>Automatic</option>
                   <option value="camera">Camera calibration</option>
@@ -991,11 +991,11 @@
                   <option value="off">Off</option>
                 </select>
               </label>
-              <label class="check" title="Takes out the diamond pattern the microlens grid can leave in out-of-focus areas of a picture rendered from the full sensor at 3× and 4× (it shows most once the picture is sharpened). Off by default: Lytro Desktop has no such step, and it can soften detail near the camera's focus"><input id="lattice-on" type="checkbox"> Lattice filter</label>
-              <label title="How faint a pattern the filter looks for before it acts. Higher finds fainter ones (and acts on more pictures); lower acts only where the pattern is plain">Lattice detection <output data-for="lattice-detect" for="lattice-detect">50</output>
+              <label class="check" title="Takes out the diamond pattern at 3× and 4×. Off by default: it can soften detail"><input id="lattice-on" type="checkbox"> Lattice filter</label>
+              <label title="How faint a pattern the filter looks for. Higher finds fainter ones">Lattice detection <output data-for="lattice-detect" for="lattice-detect">50</output>
                 <input id="lattice-detect" type="range" min="0" max="100" step="5" value="50" data-default="50">
               </label>
-              <label title="How hard the filter pulls the pattern down: low leaves some of it, high takes it all out and can soften fine texture at the same frequencies">Lattice strength <output data-for="lattice-strength" for="lattice-strength">75</output>
+              <label title="How hard the filter pulls the pattern down; high can soften fine texture">Lattice strength <output data-for="lattice-strength" for="lattice-strength">75</output>
                 <input id="lattice-strength" type="range" min="10" max="100" step="5" value="75" data-default="75">
               </label>
             </div>
@@ -1003,26 +1003,26 @@
         </details>
         <details class="subpanel">
           <summary><h3>Upscaling</h3></summary>
-          <label title="How saved photos, 3D images and video frames are enlarged to their Size: Lanczos keeps edges crisp; Smooth is softer; FSR 1 follows edges and sharpens with the Sharpen setting">Method
-            <select id="upscale-method" title="Upscaling models (Settings) appear here once downloaded; they enlarge saved photos, and the picture on show, videos and 3D images use Lanczos">
+          <label title="How saved pictures are enlarged: Lanczos is crisp, Smooth is soft, FSR 1 follows edges and sharpens">Method
+            <select id="upscale-method" title="Downloaded upscaling models (Settings) appear here; they enlarge saved photos only">
               <option value="lanczos" selected>Lanczos (sharp)</option>
               <option value="smooth">Smooth</option>
               <option value="fsr">FSR 1 (AMD, crisp edges)</option>
             </select>
           </label>
-          <label id="upscale-lobes-row" title="Lanczos only: how many lobes the filter has. 2 is softer with less ringing at edges, 3 is the usual, 4 is crisper with more ringing. Each method keeps its settings">Lobes <output data-for="upscale-lobes" for="upscale-lobes">3</output>
+          <label id="upscale-lobes-row" title="Lanczos only: filter lobes. 2 is softer, 3 usual, 4 crisper with more ringing">Lobes <output data-for="upscale-lobes" for="upscale-lobes">3</output>
             <input id="upscale-lobes" type="range" min="2" max="4" step="1" value="3" data-default="3">
           </label>
-          <label id="upscale-denoise-row" title="The downloaded model's setting: smooths noise in the picture before the model enlarges it, so it does not take noise for texture and sharpen it. Keeps strong edges. 0 for none" hidden>Clean up first <output data-for="upscale-denoise" for="upscale-denoise">0</output>
+          <label id="upscale-denoise-row" title="Smooths noise before the model enlarges, so it is not sharpened. 0: none" hidden>Clean up first <output data-for="upscale-denoise" for="upscale-denoise">0</output>
             <input id="upscale-denoise" type="range" min="0" max="100" step="1" value="0" data-default="0">
           </label>
-          <label id="upscale-strength-row" title="The downloaded model's setting: how much of its result is used; the rest is the plain (Lanczos) enlargement. Lower it if the model adds artifacts or an over-processed look" hidden>Model strength <output data-for="upscale-strength" for="upscale-strength">100</output>
+          <label id="upscale-strength-row" title="How much of the model's result is used; the rest is plain enlargement" hidden>Model strength <output data-for="upscale-strength" for="upscale-strength">100</output>
             <input id="upscale-strength" type="range" min="0" max="100" step="1" value="100" data-default="100">
           </label>
-          <label title="Sharpens enlarged pictures to bring back crispness lost in enlarging; 0 for none. For FSR 1 it is its RCAS sharpness. Each method keeps its setting"><span id="upscale-sharpen-label">Sharpen</span> <output data-for="upscale-sharpen" for="upscale-sharpen">25</output>
+          <label title="Sharpens enlarged pictures; 0 for none. For FSR 1 it is the RCAS sharpness"><span id="upscale-sharpen-label">Sharpen</span> <output data-for="upscale-sharpen" for="upscale-sharpen">25</output>
             <input id="upscale-sharpen" type="range" min="0" max="100" step="1" value="25" data-default="25">
           </label>
-          <label id="upscale-grain-row" title="The downloaded model's setting: fine film-like grain added to the enlargement, mostly in the mid-tones, because a model's result is smoother than a photograph. 0 for none" hidden>Grain <output data-for="upscale-grain" for="upscale-grain">0</output>
+          <label id="upscale-grain-row" title="Adds fine film-like grain to the enlargement. 0 for none" hidden>Grain <output data-for="upscale-grain" for="upscale-grain">0</output>
             <input id="upscale-grain" type="range" min="0" max="100" step="1" value="0" data-default="0">
           </label>
           <input id="upscale-params" type="hidden" value="{}" data-text>
@@ -1039,7 +1039,7 @@
               <option value="4">4×</option>
             </select>
           </label>
-          <label title="PNG is lossless; 16-bit PNG keeps finer tones; JPEG is smaller; JPEG HDR and TIFF HDR keep the full range of light (always sRGB)">File format
+          <label title="PNG is lossless; JPEG is smaller; the HDR formats keep the full range of light (sRGB)">File format
             <select id="photo-format">
               <option value="png" selected>PNG</option>
               <option value="png16">PNG 16-bit</option>
@@ -1048,7 +1048,7 @@
               <option value="tiffhdr">TIFF HDR (32-bit float)</option>
             </select>
           </label>
-          <label title="The color space the saved photo is converted to and tagged with (its profile is saved in the file). The picture is made in sRGB, so a wider space does not add colors beyond sRGB's range; it suits software that works in that space, or editing at 16 bits">Color space
+          <label title="The color space saved photos are converted to; the picture is made in sRGB">Color space
             <select id="photo-colorspace">
               <option value="srgb" selected>sRGB</option>
               <option value="p3">Display P3</option>
@@ -1063,7 +1063,7 @@
         </details>
         <details class="subpanel">
           <summary><h3>Video</h3></summary>
-          <label title="1080p, 1440p and 4K keep the shape of the crop (the number is the short side); social media sizes take the largest centered part of the picture with their shape">Size
+          <label title="Size of the short side; social media sizes crop to their shape">Size
             <select id="video-size">
               <option value="1080" selected>1080p</option>
               <option value="1440">1440p</option>
@@ -1111,7 +1111,7 @@
 
       <div class="render-actions">
 
-        <button id="render-btn" class="wide" title="Renders the picture at the Photo Size with the chosen Upscaling (a downloaded model enlarges it here); with Full sensor on, renders the full sensor still (F turns Full sensor on)" disabled>Render</button>
+        <button id="render-btn" class="wide" title="Renders at the Photo Size with the chosen Upscaling (Full sensor: the full sensor still)" disabled>Render</button>
         <label id="auto-render-row" class="check" title="With Full sensor on, renders the full sensor still again by itself after each change"><input id="auto-render" type="checkbox" disabled> Auto render</label>
         <button id="png-btn" class="wide" disabled>Save PNG</button>
         <button id="webm-btn" class="wide">Export video</button>
@@ -1165,7 +1165,7 @@
       <section class="setting">
         <h3>Camera calibration</h3>
         <ul id="cal-list" class="cal-list"></ul>
-        <label class="row" title="Where each lens's center comes from. The camera's calibration uses its white images; the other measures every lens from the photo at its first full resolution render, which takes longer.">Lens centers
+        <label class="row" title="Where lens centers come from: the camera's calibration, or measured from the photo (slower)">Lens centers
           <select id="cal-lens-source">
             <option value="calibration">Camera calibration (when added)</option>
             <option value="measured">Measured from each photo</option>
@@ -1367,7 +1367,7 @@
       <label title="The angle the print is seen from: drag to tilt it">Tilt
         <input id="lent-preview-tilt" type="range" min="0" max="1000" step="1" value="500">
       </label>
-      <label class="check" title="Shows the picture with only the detail the lenses keep across them (one stripe per lens), as the print shows it; off shows the pictures at full detail"><input id="lent-preview-lenses" type="checkbox" checked> Lens detail</label>
+      <label class="check" title="Shows one stripe per lens, as the print does; off shows full detail"><input id="lent-preview-lenses" type="checkbox" checked> Lens detail</label>
       <menu>
         <button type="button" id="lent-preview-play">Play</button>
         <span class="spacer"></span>
