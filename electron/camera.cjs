@@ -232,19 +232,23 @@ const log = (line) => {
   if (usbLog.length > 400) usbLog.shift();
 };
 
-// macOS keeps the first generation camera's USB interface for its storage driver (libusb may take it only with Apple's device-access entitlement
-// or as root), so there the camera is reached through its SCSI device with IOKit's SCSITask interface (lytro-scsi-mac.cjs), with no special rights.
+// Where macOS keeps the first generation camera's USB interface for its storage driver (seen on Apple Silicon Macs: libusb may then take it only
+// with Apple's device-access entitlement or as root, LIBUSB_ERROR_ACCESS otherwise), the camera is reached through its SCSI device with IOKit's
+// SCSITask interface (lytro-scsi-mac.cjs), with no special rights. Where libusb gets the interface (Intel Macs), nothing changes.
 const macKeepsCamera = (found, err) => process.platform === 'darwin' && found.product === lytroUsb.FIRST_GENERATION_PRODUCT && /LIBUSB_ERROR_ACCESS/.test(err.message);
 
-async function connectUsb(found) {
-  // The first generation camera on Windows and macOS is reached through its
-  // disk or SCSI device, as Lytro Desktop does; otherwise over USB (libusb).
-  if (found.scsi) return process.platform === 'darwin' ? lytroScsiMac.connect(found, log) : lytroScsi.connect(found, log);
+async function connectUsb(found, { macScsi = lytroScsiMac } = {}) {
+  // The first generation camera on Windows is reached through its disk, as
+  // Lytro Desktop does; otherwise over USB (libusb).
+  if (found.scsi) return lytroScsi.connect(found, log);
   try {
     return await lytroUsb.connect(found, log);
   } catch (err) {
     if (!macKeepsCamera(found, err)) throw err;
-    throw new Error(`macOS keeps the first generation camera for its disk driver, and it did not offer the camera's SCSI device either: ${lytroScsiMac.scanStatus()} Please send this message and the camera log, so the camera can be supported; meanwhile the camera's Wi-Fi works (+ Connect over Wi-Fi, under the library).`);
+    log(`macOS keeps the USB interface (${err.message}): trying the camera's SCSI device`);
+    const [scsiCamera] = macScsi.listDevices();
+    if (scsiCamera) return macScsi.connect(scsiCamera, log);
+    throw new Error(`macOS keeps the first generation camera for its disk driver, and it did not offer the camera's SCSI device either: ${macScsi.scanStatus()} Please send this message and the camera log, so the camera can be supported; meanwhile the camera's Wi-Fi works (+ Connect over Wi-Fi, under the library).`);
   }
 }
 
@@ -293,8 +297,8 @@ function withDevice(key, fn) {
 }
 
 async function scanLytroUsb() {
-  const scsiList = process.platform === 'win32' ? lytroScsi.listDevices() : process.platform === 'darwin' ? lytroScsiMac.listDevices() : [];
-  const scsi = scsiList.map((d) => ({ ...d, product: lytroUsb.FIRST_GENERATION_PRODUCT, scsi: true }));
+  // (on macOS the camera is found on USB; its SCSI device is used only when macOS refuses the USB interface: see connectUsb)
+  const scsi = process.platform === 'win32' ? lytroScsi.listDevices().map((d) => ({ ...d, product: lytroUsb.FIRST_GENERATION_PRODUCT, scsi: true })) : [];
   // On Windows the first generation camera is taken through its disk (above):
   // its USB entry is the same camera.
   const present = scsi.concat(lytroUsb.listDevices().filter((d) => !(scsi.length && d.product === lytroUsb.FIRST_GENERATION_PRODUCT)));
