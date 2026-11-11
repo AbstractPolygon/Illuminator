@@ -80,13 +80,16 @@ export function initLenticular({ $, state, engine, cameraParams, eyeParams, with
     const reach = (state.info.radius || 4.5) * (depth / 100);
     // Across the lens left to right, or (tilting up and down) top to bottom.
     const points = viewPositions(n, axis === 'x' ? p.u : p.v, reach).map((t) => (axis === 'x' ? { u: t, v: p.v } : { u: p.u, v: t }));
-    const pivots = withPivotZoom(points.map((q) => pivotFor(q.u, q.v, p.alpha, eyeParams(p, q.u).aperture)));
+    // With the aperture closed each view is a single viewpoint, as the picture shows it (and it can reach farther: see the worker's singleViewEdge); open, each view
+    // looks through a smaller part of the aperture, as the 3D section's eyes do.
+    const viewParams = (q) => (p.aperture > 0 ? { ...eyeParams(p, q.u), v: q.v } : { ...p, u: q.u, v: q.v });
+    const pivots = withPivotZoom(points.map((q) => pivotFor(q.u, q.v, p.alpha, viewParams(q).aperture)));
     const base = { orientation: +$('orientation').value || 1, angle: +$('straighten').value, crop: cropValues() };
     const out = [];
     for (let i = 0; i < n; i++) {
       if (run && run.stopped) throw STOPPED;
       showProgress(`Rendering view ${i + 1} of ${n}`, i / n);
-      const msg = await engine.request('view', { ...eyeParams(p, points[i].u), v: points[i].v }, { onProgress: () => {} });
+      const msg = await engine.request('view', viewParams(points[i]), { onProgress: () => {} });
       if (!msg || !(msg.pixels || msg.bitmap)) throw STOPPED;
       const img = toImageData(msg);
       try {
