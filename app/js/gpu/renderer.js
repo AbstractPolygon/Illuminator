@@ -23,6 +23,7 @@ import { CHROMA_EDGE } from '../core/render.js';
 import { LYTRO_CURVE, LYTRO_HUE, CURVE_START, CURVE_STEP, ENGINE_SPLINE, FIRST_SPLINE, PROPHOTO, PROPHOTO_INV } from '../core/base.js';
 import { PHASE_BINS, latticeTiles, latticeTables, RAY_DEPTH_TOLERANCE, SR_SHARPEN, LENS_CAL, lensCandidates, lensTable, chooseLensOffsets, EDGE_SNAP, SNAP_CANDIDATES, snapCandidates, DEPTH_STEP_TOLERANCE, DITHER_FIX, BACK_PROJECTION_EDGE, depthEdgeMask, RAY_MATCH, depthFilter } from '../core/superres.js';
 import { LAMBDA_TO_ALPHA } from '../core/recipe.js';
+import { GAIN_LOG2_MAX } from '../core/ultrahdr.js';
 
 // Texture unit used only for making and uploading textures.
 const SPARE_UNIT = 15;
@@ -1072,6 +1073,8 @@ precision highp int;
 uniform sampler2D uSrc;
 uniform mat3 uMatrix;
 uniform float uExposure;
+uniform int uGainPass;     // 1: write the HDR gain map instead of the picture (see presentBits16 and core/ultrahdr.js)
+uniform float uGainLog2;   // the most a color can be brighter than white in the gain map, in stops
 uniform int uStage;        // 1: stop after the colour matrix (and lens, flare): the linear picture, for the noise reduction
 uniform int uFirst;        // first generation: clamp to 0..1 (after gain and black offset) before the matrix, Lab contrast spline after
 uniform vec3 uFirstGain;
@@ -1381,6 +1384,11 @@ void main() {
   // In the Lytro Desktop look the sliders act after its curve.
   if (uLookOn == 1 && uLytro == 0) c = applyLook(c);
   if (uMaskCount > 0) c = applyLocal(c, (vec2(p) + 0.5) / vec2(size), float(size.x) / float(size.y));
+  // The gain map: per channel, how far above white the color is (the picture clips there), as log2 over the stops the file holds; 0 up to white.
+  if (uGainPass == 1) {
+    outColor = vec4(log2(clamp(c, vec3(1.0), vec3(exp2(uGainLog2)))) / uGainLog2, 1.0);
+    return;
+  }
   vec3 s = encodeOut(c);
   if (uLookOn == 1 && uLytro == 1) s = pow(max(applyLook(pow(s, vec3(2.2))), vec3(0.0)), vec3(1.0 / 2.2));
   if (uLutAmount > 0.0) {
@@ -4444,7 +4452,7 @@ export class GpuRenderer {
   }
 
   // `toTexture`: only the colour matrix, lens and flare, as linear colour into that RGBA32F texture (for the noise reduction, which runs between this and the finishing present).
-  present(src, w, h, { matrix, exposure, fringe, look = null, veilAmount = 0, lens = null, local = null, lutAmount = 0, lytro = false, sharpen = 0, usm = null, toTexture = null, into = null, bytePass = 0, fine = false }) {
+  present(src, w, h, { matrix, exposure, fringe, look = null, veilAmount = 0, lens = null, local = null, lutAmount = 0, lytro = false, sharpen = 0, usm = null, toTexture = null, into = null, bytePass = 0, fine = false, gainPass = false }) {
     this.trimPool();
     const gl = this.gl;
     const P = this.programs.present;
@@ -4511,6 +4519,8 @@ export class GpuRenderer {
     }
     gl.uniform1i(P.u.uStage, toTexture ? 1 : 0);
     gl.uniform1i(P.u.uBytePass, shot || toTexture ? 0 : bytePass);
+    gl.uniform1i(P.u.uGainPass, gainPass ? 1 : 0);
+    gl.uniform1f(P.u.uGainLog2, GAIN_LOG2_MAX);
     gl.uniform1i(P.u.uLookOn, look ? 1 : 0);
     if (look) {
       gl.uniform4f(P.u.uTone, look.contrast, look.highlights, look.shadows, look.whites);
@@ -4539,6 +4549,25 @@ export class GpuRenderer {
         gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, px);
         return px;
       });
+      // The HDR gain map (opts.gain): the same picture once more with the gain written instead of the color, without sharpening (it is a map of brightness, not detail).
+      let gain = null;
+      if (opts.gain) {
+        this.present(src, w, h, { ...opts, sharpen: 0, usm: null, into: out, bytePass: 0, fine: true, gainPass: true });
+        this.target(out, w, h);
+        gl.pixelStorei(gl.PACK_ALIGNMENT, 1);
+        const px = new Uint8Array(w * h * 4);
+        gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, px);
+        gain = new Uint8Array(w * h * 3);
+        for (let y = 0; y < h; y++) {
+          let from = (h - 1 - y) * w * 4;
+          let o = y * w * 3;
+          for (let x = 0; x < w; x++, from += 4, o += 3) {
+            gain[o] = px[from];
+            gain[o + 1] = px[from + 1];
+            gain[o + 2] = px[from + 2];
+          }
+        }
+      }
       if (gl.getError() !== gl.NO_ERROR) throw new Error('The GPU could not make the 16-bit picture');
       const rgb = new Uint16Array(w * h * 3);
       for (let y = 0; y < h; y++) {
@@ -4551,6 +4580,7 @@ export class GpuRenderer {
           rgb[o + 2] = (bytes[0][i + 2] << 8) | bytes[1][i + 2];
         }
       }
+      if (gain) rgb.gain = gain; // (the page gets it with the picture: worker finishGpu)
       return rgb;
     } finally {
       gl.deleteTexture(out);
