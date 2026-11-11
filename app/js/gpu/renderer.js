@@ -543,6 +543,69 @@ void main() {
   outColor = mix(mix(c00, c10, t.x), mix(c01, c11, t.x), t.y);
 }`;
 
+// A viewpoint past the lens edge (Perspective > Reach): the picture rendered at the edge (uSrc, from viewpoint uEdge) moved on to the asked-for viewpoint (uTotal) by the
+// depth. The same search as core/viewextend.js (see there): along p - t * total, t = depth - ref from the nearest depth in the picture to the farthest, the first place where
+// the depth matches t is the surface seen; at a jump (background no view saw), the background just before it is taken, stretching it over the gap.
+const EXTEND = `#version 300 es
+precision highp float;
+precision highp int;
+uniform sampler2D uSrc;
+uniform sampler2D uDepth;
+uniform vec2 uDepthScale;
+uniform vec2 uTotal;
+uniform vec2 uEdge;
+uniform float uRef;
+uniform vec2 uRange;
+uniform int uSteps;
+out vec4 outColor;
+float depthAt(vec2 q) {
+  ivec2 dsz = textureSize(uDepth, 0);
+  ivec2 dp = clamp(ivec2(floor((q + 0.5) * uDepthScale)), ivec2(0), dsz - 1);
+  return texelFetch(uDepth, dp, 0).r - uRef;
+}
+void main() {
+  vec2 p = gl_FragCoord.xy - 0.5;
+  float t0 = uRange.x - uRef;
+  float t1 = uRange.y - uRef;
+  float stepT = (t1 - t0) / float(uSteps);
+  float tPrev = t0;
+  float gPrev = depthAt(p - t0 * uTotal) - t0;
+  vec2 c = p - t1 * uTotal;
+  float d = depthAt(c);
+  if (gPrev <= 0.0) {
+    c = p - t0 * uTotal;
+    d = depthAt(c);
+  } else {
+    for (int i = 1; i <= 128; i++) {
+      if (i > uSteps) break;
+      float ti = t0 + stepT * float(i);
+      float gi = depthAt(p - ti * uTotal) - ti;
+      if (gi <= 0.0) {
+        float t = tPrev + (gPrev / (gPrev - gi)) * (ti - tPrev);
+        c = p - t * uTotal;
+        d = depthAt(c);
+        if (abs(d - t) > 1.5 * abs(stepT)) {
+          c = p - tPrev * uTotal;
+          d = gPrev + tPrev;
+        }
+        break;
+      }
+      tPrev = ti;
+      gPrev = gi;
+    }
+  }
+  vec2 f = c + d * uEdge;
+  ivec2 size = textureSize(uSrc, 0);
+  ivec2 i0 = ivec2(floor(f));
+  vec2 a = f - vec2(i0);
+  ivec2 hi = size - 1;
+  vec4 c00 = texelFetch(uSrc, clamp(i0, ivec2(0), hi), 0);
+  vec4 c10 = texelFetch(uSrc, clamp(i0 + ivec2(1, 0), ivec2(0), hi), 0);
+  vec4 c01 = texelFetch(uSrc, clamp(i0 + ivec2(0, 1), ivec2(0), hi), 0);
+  vec4 c11 = texelFetch(uSrc, clamp(i0 + ivec2(1, 1), ivec2(0), hi), 0);
+  outColor = mix(mix(c00, c10, a.x), mix(c01, c11, a.x), a.y);
+}`;
+
 const MAX_TAPS = 512;
 
 // Depth of field, step 2: each pixel gathers light from neighbors whose own
@@ -2586,6 +2649,7 @@ export class GpuRenderer {
       dofPrep: program(gl, DOF_PREP),
       dofFeather: program(gl, DOF_FEATHER),
       parallax: program(gl, PARALLAX),
+      extend: program(gl, EXTEND),
       focusScore: program(gl, FOCUS_SCORE),
       focusMask: program(gl, FOCUS_MASK),
       focusSpread: program(gl, FOCUS_SPREAD),
@@ -3160,6 +3224,31 @@ export class GpuRenderer {
     this.bindTex(3, this.parallaxTex);
     gl.uniform2f(P.u.uDepthScale, this.parallaxSize[0] / w, this.parallaxSize[1] / h);
     gl.uniform2f(P.u.uShift, detail * u * (w / this.parallaxSize[0]), detail * v * (h / this.parallaxSize[1]));
+    this.draw();
+    return out;
+  }
+
+  // A viewpoint past the lens edge (see EXTEND): `src` (w x h) was rendered from the edge viewpoint `edge` ([u, v]); `total` is the viewpoint asked for and `ref` the depth that
+  // stays still (the focus, or 0 for a single view); `detail` as in parallaxWarp; `range` the depth map's smallest and largest value, `steps` the search's (see
+  // core/viewextend.js searchSteps). Needs the depth (setDepth).
+  extendView(src, w, h, edge, total, ref, detail, range, steps) {
+    if (!this.depthTex) return src;
+    const gl = this.gl;
+    const out = this.scratch(w, h, 'extend');
+    const P = this.programs.extend;
+    this.target(out, w, h);
+    gl.useProgram(P.p);
+    gl.uniform1i(P.u.uSrc, 1);
+    this.bindTex(1, src);
+    gl.uniform1i(P.u.uDepth, 3);
+    this.bindTex(3, this.depthTex);
+    const [dw, dh] = this.depthSize;
+    gl.uniform2f(P.u.uDepthScale, dw / w, dh / h);
+    gl.uniform2f(P.u.uTotal, detail * total[0] * (w / dw), detail * total[1] * (h / dh));
+    gl.uniform2f(P.u.uEdge, detail * edge[0] * (w / dw), detail * edge[1] * (h / dh));
+    gl.uniform1f(P.u.uRef, ref);
+    gl.uniform2f(P.u.uRange, range[0], range[1]);
+    gl.uniform1i(P.u.uSteps, steps);
     this.draw();
     return out;
   }

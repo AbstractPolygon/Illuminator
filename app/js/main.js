@@ -1212,6 +1212,11 @@ function bokehParams(v = {}) {
   };
 }
 
+// Perspective > Reach: how far the viewpoint can move, as a multiple of the lens's opening (1 = what the camera recorded).
+function viewReach() {
+  return Math.max(1, (+$('view-reach').value || 100) / 100);
+}
+
 function showViewpoint() {
   const r = (state.info && state.info.radius) || 1;
   const { u, v } = state.camera;
@@ -1741,7 +1746,7 @@ function animationRequest() {
   const n = +$('frames').value;
   const path = Array.from({ length: n }, (_, i) => {
     // Amount may be keyframed: frame i is at i / frame rate.
-    const r = state.info.radius * (valueAt(state.anim, 'amount', i / state.fps) ?? +$('amount').value);
+    const r = state.info.radius * viewReach() * (valueAt(state.anim, 'amount', i / state.fps) ?? +$('amount').value);
     const [x, y] = pathPoint($('path').value, i / n);
     return { u: x * r, v: y * r };
   });
@@ -2947,10 +2952,12 @@ canvas.addEventListener('pointerdown', (event) => {
     }
     let u = start.u - (dx / (rect.width / 2)) * r;
     let v = start.v - (dy / (rect.height / 2)) * r;
+    // (out to Perspective > Reach: past the lens's opening the worker moves the picture on by the depth)
+    const reach = r * viewReach();
     const len = Math.hypot(u, v);
-    if (len > r) {
-      u *= r / len;
-      v *= r / len;
+    if (len > reach) {
+      u *= reach / len;
+      v *= reach / len;
     }
     state.camera.u = u;
     state.camera.v = v;
@@ -3077,6 +3084,20 @@ $('pivot').onchange = () => {
   autoKey();
   invalidateAnimation();
   geometryChanged();
+};
+$('view-reach').oninput = () => showSliderValue($('view-reach'));
+$('view-reach').onchange = () => {
+  // A viewpoint past the new reach comes back to it.
+  const reach = ((state.info && state.info.radius) || 1) * viewReach();
+  const len = Math.hypot(state.camera.u, state.camera.v);
+  if (len > reach) {
+    state.camera.u *= reach / len;
+    state.camera.v *= reach / len;
+    showViewpoint();
+    if (state.mode === 'camera' && !state.depthShown && state.info) renderCamera();
+  } else if (stereoShown()) refresh();
+  invalidateAnimation();
+  scheduleSave();
 };
 
 // Shape settings show for the shapes they change: blades for Blades, oval
@@ -4731,9 +4752,9 @@ function showSliderValue(input) {
   else if (input.id === 'tilt-rotation' || input.id === 'bokeh-rotation') out.textContent = `${v}°`;
   else if (input.id === 'straighten') out.textContent = `${v.toFixed(1)}°`;
   else if (input.id === 'ml-angle') out.textContent = `${v}°`;
-  else if (input.id === 'frame-zoom') out.textContent = `${v}%`;
+  else if (input.id === 'frame-zoom' || input.id === 'view-reach' || input.id === 'lent-depth') out.textContent = `${v}%`;
   else if (input.id === 'video-quality') out.textContent = `${v} Mbit/s`;
-  else if (['photo-quality', 'bokeh-blades', 'stereo-baseline', 'lent-depth', 'upscale-sharpen', 'upscale-strength', 'upscale-lobes', 'upscale-denoise', 'upscale-grain', 'depth-model-smooth', 'depth-model-curve', 'lattice-strength', 'lattice-detect'].includes(input.id)) out.textContent = `${v}`;
+  else if (['photo-quality', 'bokeh-blades', 'stereo-baseline', 'upscale-sharpen', 'upscale-strength', 'upscale-lobes', 'upscale-denoise', 'upscale-grain', 'depth-model-smooth', 'depth-model-curve', 'lattice-strength', 'lattice-detect'].includes(input.id)) out.textContent = `${v}`;
   else if (input.id === 'mx-strength' || input.id === 'lut-amount') out.textContent = `${v}%`;
   else if (input.id === 'mx-exposure') out.textContent = `${sign}${Math.abs(v / 100).toFixed(2)} EV`;
   else if (input.id === 'md-near' || input.id === 'md-far') out.textContent = `${sign}${Math.abs(v / 100).toFixed(2)}`;

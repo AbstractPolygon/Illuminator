@@ -15,6 +15,7 @@ const FIELDS = ['lent-lpi', 'lent-dpi', 'lent-pitch', 'lent-width', 'lent-height
 export function initLenticular({ $, state, engine, cameraParams, eyeParams, withPivotZoom, pivotFor, cropValues, drawGeometry, ensureAnimation, frameGeometry, showProgress, hideProgress, showError, baseName, showSliderValue }) {
   const settings = () => ({
     type: $('lent-type').value,
+    tilt: $('lent-tilt').value,
     lpi: $('lent-lpi').value,
     dpi: $('lent-dpi').value,
     pitch: $('lent-pitch').value,
@@ -23,7 +24,9 @@ export function initLenticular({ $, state, engine, cameraParams, eyeParams, with
     depth: +$('lent-depth').value,
     reverse: $('lent-reverse').checked,
   });
-  const axis = (type) => (type === 'flip' ? 'y' : 'x');
+  // (Tilt left and right: upright lenses, strips in columns; up and down: lenses across, strips in rows)
+  const axisOf = (s) => (s.tilt === 'ud' ? 'y' : 'x');
+  const isAnimation = (type) => type === 'anim';
 
   function restore() {
     try {
@@ -46,7 +49,7 @@ export function initLenticular({ $, state, engine, cameraParams, eyeParams, with
   // The line under the settings: how many pictures, and the file's size; or what is wrong with the settings.
   function showInfo() {
     const s = settings();
-    $('lent-depth-row').hidden = s.type !== '3d';
+    $('lent-depth-row').hidden = isAnimation(s.type);
     try {
       const plan = lenticularPlan(s);
       $('lent-info').textContent = `${plan.views} pictures under each lens · ${plan.width} × ${plan.height} px at ${plan.dpi} DPI. Print at 100%, without scaling.`;
@@ -70,17 +73,19 @@ export function initLenticular({ $, state, engine, cameraParams, eyeParams, with
   }
 
   // 3D: n views across the aperture, each through the crop, rotation and its pivot, as canvases (left viewpoint first).
-  async function views3d(n, depth) {
+  async function views3d(n, depth, axis = 'x') {
     if (!(state.info && state.info.hasRaw)) throw new Error('A 3D lenticular print needs a photo with its light field (a raw Lytro photo).');
     const p = cameraParams();
+    // (Movement past 100%: the views beyond the lens's opening are made by the worker from the edge view and the depth map)
     const reach = (state.info.radius || 4.5) * (depth / 100);
-    const us = viewPositions(n, p.u, reach);
-    const pivots = withPivotZoom(us.map((u) => pivotFor(u, p.v, p.alpha, eyeParams(p, u).aperture)));
+    // Across the lens left to right, or (tilting up and down) top to bottom.
+    const points = viewPositions(n, axis === 'x' ? p.u : p.v, reach).map((t) => (axis === 'x' ? { u: t, v: p.v } : { u: p.u, v: t }));
+    const pivots = withPivotZoom(points.map((q) => pivotFor(q.u, q.v, p.alpha, eyeParams(p, q.u).aperture)));
     const base = { orientation: +$('orientation').value || 1, angle: +$('straighten').value, crop: cropValues() };
     const out = [];
     for (let i = 0; i < n; i++) {
       showProgress(`Rendering view ${i + 1} of ${n}`, i / n);
-      const msg = await engine.request('view', eyeParams(p, us[i]), { onProgress: () => {} });
+      const msg = await engine.request('view', { ...eyeParams(p, points[i].u), v: points[i].v }, { onProgress: () => {} });
       if (!msg || !(msg.pixels || msg.bitmap)) throw new Error('Rendering the views was stopped.');
       const img = toImageData(msg);
       try {
@@ -124,8 +129,8 @@ export function initLenticular({ $, state, engine, cameraParams, eyeParams, with
     $('lent-preview-btn').disabled = true;
     try {
       const plan = lenticularPlan(s);
-      const pics = s.type === 'flip' ? await viewsFlip(plan.views) : await views3d(plan.views, s.depth);
-      const a = axis(s.type);
+      const pics = isAnimation(s.type) ? await viewsFlip(plan.views) : await views3d(plan.views, s.depth, axisOf(s));
+      const a = axisOf(s);
       // Shown at most 760 px on its long side.
       const k = Math.min(1, 760 / Math.max(plan.width, plan.height));
       const PW = Math.max(1, Math.round(plan.width * k));
@@ -156,9 +161,9 @@ export function initLenticular({ $, state, engine, cameraParams, eyeParams, with
       const c = $('lent-preview-canvas');
       c.width = PW;
       c.height = PH;
-      $('lent-preview-note').textContent = s.type === 'flip'
-        ? `Animation, as the print is tilted up and down · ${plan.views} pictures · ${lenses} lenses down the ${s.width} × ${s.height} inch print.`
-        : `3D, as the print is tilted left and right · ${plan.views} pictures · ${lenses} lenses across the ${s.width} × ${s.height} inch print. On the print each eye sees a different picture, so the depth itself shows only there.`;
+      $('lent-preview-note').textContent = isAnimation(s.type)
+        ? `Animation, as the print is tilted ${a === 'y' ? 'up and down' : 'left and right'} · ${plan.views} frames sampled from the animation · ${lenses} lenses ${a === 'y' ? 'down' : 'across'} the ${s.width} × ${s.height} inch print.`
+        : `3D, as the print is tilted ${a === 'y' ? 'up and down' : 'left and right'} · ${plan.views} views · ${lenses} lenses ${a === 'y' ? 'down' : 'across'} the ${s.width} × ${s.height} inch print.${a === 'x' ? ' On the print each eye sees a different view, so the depth itself shows only there.' : ''}`;
       $('lent-preview-tilt').value = 500;
       drawPreview();
       hideProgress();
@@ -219,10 +224,10 @@ export function initLenticular({ $, state, engine, cameraParams, eyeParams, with
     $('lent-btn').disabled = true;
     try {
       const plan = lenticularPlan(s);
-      const pics = s.type === 'flip' ? await viewsFlip(plan.views) : await views3d(plan.views, s.depth);
+      const pics = isAnimation(s.type) ? await viewsFlip(plan.views) : await views3d(plan.views, s.depth, axisOf(s));
       const W = plan.width;
       const H = plan.height;
-      const a = axis(s.type);
+      const a = axisOf(s);
       const map = stripMap(a === 'x' ? W : H, plan.views, plan.dpi, plan.pitch, s.reverse);
       const c = new OffscreenCanvas(W, H);
       const g = c.getContext('2d', { willReadFrequently: true });
@@ -240,7 +245,7 @@ export function initLenticular({ $, state, engine, cameraParams, eyeParams, with
       }
       g.putImageData(new ImageData(out, W, H), 0, 0);
       showProgress('Saving the print', 1);
-      await savePng(c, `${baseName()}-lenticular-${s.type === 'flip' ? 'animation' : '3d'}-${plan.lpi}lpi-${plan.dpi}dpi.png`, plan.dpi);
+      await savePng(c, `${baseName()}-lenticular-${isAnimation(s.type) ? 'animation' : '3d'}-${plan.lpi}lpi-${plan.dpi}dpi.png`, plan.dpi);
     } catch (err) {
       showError(err);
     } finally {
@@ -252,7 +257,7 @@ export function initLenticular({ $, state, engine, cameraParams, eyeParams, with
   async function saveTest() {
     const s = settings();
     try {
-      const chart = pitchTest({ ...s, axis: axis(s.type) });
+      const chart = pitchTest({ ...s, axis: axisOf(s) });
       const c = new OffscreenCanvas(chart.width, chart.height);
       const g = c.getContext('2d');
       g.putImageData(new ImageData(chart.data, chart.width, chart.height), 0, 0);
@@ -263,7 +268,7 @@ export function initLenticular({ $, state, engine, cameraParams, eyeParams, with
         g.font = `${Math.round(size)}px sans-serif`;
         g.fillText(l.text, l.x + size * 0.4, l.y + l.h / 2);
       }
-      await savePng(c, `pitch-test-${s.lpi}lpi-${s.dpi}dpi-${axis(s.type) === 'x' ? 'upright' : 'across'}.png`, +s.dpi);
+      await savePng(c, `pitch-test-${s.lpi}lpi-${s.dpi}dpi-${axisOf(s) === 'x' ? 'upright' : 'across'}.png`, +s.dpi);
     } catch (err) {
       showError(err);
     }
@@ -292,6 +297,7 @@ export function initLenticular({ $, state, engine, cameraParams, eyeParams, with
     $(id).addEventListener('change', () => { showInfo(); remember(); });
   }
   $('lent-type').addEventListener('change', showInfo);
+  $('lent-tilt').addEventListener('change', showInfo);
   $('lent-depth').addEventListener('input', () => showSliderValue($('lent-depth')));
   showSliderValue($('lent-depth'));
   // (a photo's edits set the type and depth without events: the depth row follows when the section is opened)

@@ -10,7 +10,8 @@ export function initStereo({ $, state, engine, showProgress, backToCamera, setFu
   }
 
   function eyeOffset() {
-    return (state.info.radius || 4.5) * (+$('stereo-baseline').value / 100);
+    // (times Perspective > Reach)
+    return (state.info.radius || 4.5) * (+$('stereo-baseline').value / 100) * Math.max(1, (+$('view-reach').value || 100) / 100);
   }
 
   // One eye's render settings. At a wide aperture every view would use the

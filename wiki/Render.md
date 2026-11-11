@@ -14,7 +14,7 @@ A stereo pair from two viewpoints across the lens, for photos and videos.
 
 ## Lenticular Print
 
-A print to put under a lenticular lens sheet, which changes as it is tilted: *3D* (views across the lens; tilt left and right) or *Animation* (the Animation section's frames, so a focus sweep refocuses; tilt up and down). Enter the sheet's lenses per inch, the printer's resolution, the print's size in inches and, after printing *Save pitch test* and looking at it through the sheet, the measured pitch. *Save lenticular print* saves a PNG at the printer's resolution, to print at 100% without scaling. See [Exporting](Exporting) for each setting.
+A print to put under a lenticular lens sheet, which changes as it is tilted: *3D* (a still scene that looks three-dimensional, from views across the lens; *Movement* sets how far the viewpoint moves, past the lens's opening up to 300%) or *Animation* (frames sampled evenly from the Animation section's animation, so a focus sweep refocuses), tilted *Left and right* or *Up and down*. Enter the sheet's lenses per inch, the printer's resolution, the print's size in inches and, after printing *Save pitch* and looking at it through the sheet, the measured pitch. *Preview* shows the print as it is tilted. *Save print* saves a PNG at the printer's resolution, to print at 100% without scaling. See [Exporting](Exporting) for each setting.
 
 ## Render Queue
 

@@ -665,6 +665,9 @@
         <details class="subpanel">
           <summary><h3>Perspective</h3></summary>
           <label title="Drag on the picture to move the viewpoint">Viewpoint <output id="viewpoint">Center</output></label>
+          <label title="How far the viewpoint can move, as a share of the lens's opening. Up to 100% uses only what the camera recorded; past it, the picture from the edge is moved on by the depth map, which can smear the edges of near objects and the background they uncover. Applies to dragging the picture, animations, 3D and lenticular prints (a Full sensor render keeps to 100%)">Reach <output data-for="view-reach" for="view-reach">100%</output>
+            <input id="view-reach" type="range" min="100" max="300" step="10" value="100" data-default="100">
+          </label>
           <label class="check" title="Choose the depth that stays still when the viewpoint moves; otherwise it is the focus plane (or, with the aperture closed, the camera's focus)"><input id="pivot-on" type="checkbox"> Custom pivot</label>
           <label title="The depth that stays still when the viewpoint moves">Pivot depth <output data-for="pivot" for="pivot">0</output>
             <input id="pivot" type="range" min="-100" max="100" step="1" value="0" data-default="0" disabled>
@@ -902,10 +905,16 @@
         </details>
         <details class="subpanel" id="lenticular-panel">
           <summary><h3>Lenticular Print</h3></summary>
-          <label title="3D: views across the lens, for a sheet with upright lenses (tilt the print left and right to look around). Animation: the frames of the Animation section (a focus sweep refocuses as the print tilts), for a sheet with its lenses across (tilt up and down)">Print type
+          <label title="3D: a still scene that looks three-dimensional, from views across the lens. Animation: an animation that plays as the print tilts, from as many frames as the print has pictures, sampled evenly from the start to the end of the Animation section's animation (a focus sweep refocuses, a camera move moves)">Print type
             <select id="lent-type">
-              <option value="3d" selected>3D (tilt left and right)</option>
-              <option value="flip">Animation (tilt up and down)</option>
+              <option value="3d" selected>3D</option>
+              <option value="anim">Animation</option>
+            </select>
+          </label>
+          <label title="Which way the print is tilted to see it change, and so which way the sheet's lenses run: left and right for upright lenses (for 3D, each eye then sees a different view); up and down for lenses across (both eyes see the same picture, the usual choice for an animation)">Tilt
+            <select id="lent-tilt">
+              <option value="lr" selected>Left and right</option>
+              <option value="ud">Up and down</option>
             </select>
           </label>
           <label title="The lens sheet's lenses per inch, as printed on the sheet or its box: a standard sheet, or Custom to type another count">Lens sheet
@@ -936,14 +945,16 @@
               <input id="lent-height" type="number" min="0.5" max="60" step="any" value="4">
             </label>
           </div>
-          <label id="lent-depth-row" title="How far apart the outermost viewpoints are, as a share of the lens aperture: more gives more depth, and more doubling out of focus">Depth <output data-for="lent-depth" for="lent-depth">100</output>
-            <input id="lent-depth" type="range" min="20" max="100" step="5" value="100" data-default="100">
+          <label id="lent-depth-row" title="How far apart the outermost viewpoints are, as a share of the lens's opening: more gives more movement and depth, and more doubling out of focus. Past 100%, the views beyond the opening are made from the edge view and the depth map, which can smear the edges of near objects">Movement <output data-for="lent-depth" for="lent-depth">100%</output>
+            <input id="lent-depth" type="range" min="20" max="300" step="10" value="100" data-default="100">
           </label>
           <label class="check" title="Swaps the order of the pictures under each lens: for a 3D print that looks inside out (near things behind far ones) or a flip that runs the wrong way"><input id="lent-reverse" type="checkbox"> Reverse order</label>
           <p id="lent-info" class="hint"></p>
           <button id="lent-preview-btn" class="wide" title="Shows how the print looks through the lens sheet as it is tilted: the pictures in turn, with the detail the lenses keep" disabled>Preview</button>
-          <button id="lent-btn" class="wide" disabled>Save lenticular print</button>
-          <button id="lent-test-btn" class="wide" title="A chart of bands at pitches around the sheet's, to print on the same printer and paper and look at through the sheet: the band that flips evenly between black and white is the measured pitch">Save pitch test</button>
+          <div class="lent-buttons">
+            <button id="lent-btn" title="Saves the print: a PNG at the printer's resolution, to print at 100% without scaling" disabled>Save print</button>
+            <button id="lent-test-btn" title="Saves a pitch test: a chart of bands at pitches around the sheet's, to print on the same printer and paper and look at through the sheet. The band that flips evenly between black and white is the measured pitch">Save pitch</button>
+          </div>
         </details>
         <details class="subpanel">
           <summary><h3>Quality</h3></summary>
