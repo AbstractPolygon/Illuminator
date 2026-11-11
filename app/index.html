@@ -908,8 +908,19 @@
               <option value="flip">Animation (tilt up and down)</option>
             </select>
           </label>
-          <label title="Lenses per inch of the lens sheet, as printed on the sheet or its box (such as 40, 60, 75 or 100)">Lens sheet (LPI)
-            <input id="lent-lpi" type="number" min="10" max="300" step="any" value="60">
+          <label title="The lens sheet's lenses per inch, as printed on the sheet or its box: a standard sheet, or Custom to type another count">Lens sheet
+            <select id="lent-lpi-preset">
+              <option value="20" title="Large-format 3D, animation, flips and displays viewed from approximately 6 feet or more">20 LPI · seen from 6 feet or more</option>
+              <option value="40" title="Large posters, POP displays, flips and 3D viewed from beyond arm’s length">40 LPI · large posters, displays</option>
+              <option value="50" title="Short-run digital work, portraits, medium-sized 3D and multi-frame animation">50 LPI · portraits, medium 3D</option>
+              <option value="62" title="Posters, signage, POP displays, 3D, flips and animation" selected>62 LPI · posters, signage</option>
+              <option value="75" title="General-purpose offset production, promotional graphics, packaging, 3D and animation">75 LPI · offset, packaging</option>
+              <option value="100" title="Small-format premium graphics, fine details, small text, and close-viewed 3D and flip effects">100 LPI · small prints, up close</option>
+              <option value="custom">Custom</option>
+            </select>
+          </label>
+          <label id="lent-lpi-row" title="Lenses per inch of the lens sheet, as printed on the sheet or its box" hidden>Lenses per inch (LPI)
+            <input id="lent-lpi" type="number" min="10" max="300" step="any" value="62">
           </label>
           <label title="The printer's resolution in dots per inch, the one it prints at without scaling (such as 600 or 720 for many inkjets). Pictures under each lens: this divided by the sheet's LPI">Printer (DPI)
             <input id="lent-dpi" type="number" min="100" max="4800" step="1" value="720">

@@ -25,7 +25,7 @@ test('plan: settings that cannot make a print say why', () => {
   assert.throws(() => lenticularPlan({ lpi: 60, dpi: 720, width: 0, height: 4 }), /width and height/);
   assert.throws(() => lenticularPlan({ lpi: 60, dpi: 720, pitch: 70, width: 6, height: 4 }), /far from/);
   assert.throws(() => lenticularPlan({ lpi: 60, dpi: 2400, width: 20, height: 16 }), /more than the app can make/);
-  assert.throws(() => lenticularPlan({ lpi: 10, dpi: 1440, width: 1, height: 1 }), /more than the 64/);
+  assert.throws(() => lenticularPlan({ lpi: 10, dpi: 1440, width: 1, height: 1 }), /more than the 96/);
 });
 
 test('strips: at the nominal pitch every lens holds each picture once, the first picture at the far end', () => {

@@ -12,7 +12,7 @@ import { pngChunk } from './png16.js';
 // The largest print made, in pixels (an RGBA copy of it is held in memory): a side, and the area.
 export const MAX_SIDE = 32000;
 export const MAX_AREA = 60e6;
-export const MAX_VIEWS = 64;
+export const MAX_VIEWS = 96;
 
 // The print's plan: { views, width, height, pitch } from the sheet (lpi), printer (dpi), measured pitch (lpi; empty for the nominal) and print size
 // (inches). Throws with a message a person can act on.
