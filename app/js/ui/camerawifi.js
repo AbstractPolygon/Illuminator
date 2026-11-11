@@ -1,4 +1,4 @@
-// + Camera over Wi-Fi (the sidebar, under the library; desktop app): the first generation camera's Wi-Fi (electron/lytro-wifi.cjs). The person turns Wi-Fi on in the
+// + Connect over Wi-Fi (the sidebar, under the library; desktop app): the first generation camera's Wi-Fi (electron/lytro-wifi.cjs). The person turns Wi-Fi on in the
 // camera and joins its network on this computer; Connect then reaches the camera, and it shows in the Camera section like a camera on USB, with its
 // photos ready to import. The camera is dropped when it stops answering or on Disconnect.
 
