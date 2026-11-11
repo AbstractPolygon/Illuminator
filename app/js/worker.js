@@ -1817,7 +1817,8 @@ async function lytroEdof({ id, job, scale = 3, color = null, masks = null, quiet
       }
     }
     // At 3x and 4x the splat can leave faint lens-lattice peaks (prominence 13 .. 54 at 3x and 4x, none at 2x; the filter's usual cut-off is 25): take out those that stand out from their surroundings. The same detection and strength defaults (50, 75) take the pattern down to ~1% of its band energy at both scales.
-    if (scale >= 3 && !debugFlags().noNotch && state.settings.latticeOn !== false) {
+    // Off unless Lattice filter is ticked: the engine has no such stage, and on b4-1e it took the detail near the focal plane with it (against tnt's picture: MAE 2.82 with it, 1.23 without; edge sharpness 0.84 against 0.96 of the engine's).
+    if (scale >= 3 && !debugFlags().noNotch && state.settings.latticeOn === true) {
       // the lattice's sharp peaks, and what a drifting frequency leaves of it (core/notch.js); Render settings > Quality > Lattice strength and detection
       const strength = state.settings.latticeStrength ?? 0.75;
       const prominence = Math.max(3, 12 - 12 * (state.settings.latticeDetect ?? 0.5));
