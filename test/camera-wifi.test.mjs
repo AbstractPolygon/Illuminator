@@ -203,6 +203,41 @@ test('no camera at the address: a plain message about joining its network', asyn
   await assert.rejects(wifi.connect({ host: '127.0.0.1', port, connectTimeoutMs: 2000 }), /camera's Wi-Fi network/);
 });
 
+test('where to look for a camera on the network joined: the fixed address, then the first address of each private network', () => {
+  const ifaces = {
+    lo: [{ address: '127.0.0.1', netmask: '255.0.0.0', family: 'IPv4', internal: true }],
+    wlan0: [{ address: '192.168.42.17', netmask: '255.255.255.0', family: 'IPv4', internal: false }, { address: 'fe80::1', family: 'IPv6', internal: false }],
+    eth0: [{ address: '10.1.2.3', netmask: '255.255.0.0', family: 'IPv4', internal: false }],
+    tun0: [{ address: '100.64.0.5', netmask: '255.192.0.0', family: 'IPv4', internal: false }],
+  };
+  assert.deepEqual(camera.wifiCandidates(ifaces), ['10.100.1.1', '192.168.42.1', '10.1.0.1']);
+  assert.deepEqual(camera.wifiCandidates({ wlan0: [{ address: '10.100.1.1', netmask: '255.255.255.0', family: 'IPv4', internal: false }] }), ['10.100.1.1'], 'the computer itself is not a candidate');
+});
+
+test('the port probe finds what is open and what is not', async () => {
+  const server = net.createServer((s) => s.destroy());
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const open = server.address().port;
+  const closedServer = net.createServer();
+  await new Promise((resolve) => closedServer.listen(0, '127.0.0.1', resolve));
+  const closed = closedServer.address().port;
+  await new Promise((resolve) => closedServer.close(resolve));
+  try {
+    assert.deepEqual(await camera.probeWifi({ hosts: ['127.0.0.1'], ports: [closed, open], timeoutMs: 1000 }), [{ host: '127.0.0.1', open: [open] }]);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test('Android debugging over the network: adb connect, and a failure reported plainly', async () => {
+  const seen = [];
+  const ok = async (cmd, args) => { seen.push(args); return 'connected to 192.168.42.1:5555\n'; };
+  assert.equal(await camera.adbConnectWifi('192.168.42.1', ok), '192.168.42.1:5555');
+  assert.deepEqual(seen[0], ['connect', '192.168.42.1:5555']);
+  await assert.rejects(camera.adbConnectWifi('192.168.42.1', async () => 'failed to connect to 192.168.42.1:5555'), /did not connect/);
+  await assert.rejects(camera.adbConnectWifi('192.168.42.1', async () => null), /is adb installed/);
+});
+
 test('connected over Wi-Fi, the camera is listed with the others, its photos import as a light field file, and it is dropped when it stops answering', async () => {
   const cam = await fakeWifiCamera(FILES);
   const dir = await fsp.mkdtemp(path.join(os.tmpdir(), 'wifi-import-'));
@@ -235,22 +270,57 @@ test('connected over Wi-Fi, the camera is listed with the others, its photos imp
   }
 });
 
-test('the page may only ask for a camera on a private network address', async () => {
-  const asked = [];
-  const fakeCamera = { ...camera, connectWifi: async (o) => { asked.push(o); return { id: 'lytro:wifi:x', label: 'L', files: [] }; }, disconnectWifi: async () => true };
+test('connect: joins the chosen network with its password, then reaches the camera, trying again while the computer gets an address', async () => {
+  const calls = [];
+  let failures = 2;
+  let probed = [];
+  const fakeCamera = {
+    ...camera,
+    connectWifiAuto: async (o) => {
+      calls.push(['camera', o]);
+      if (failures-- > 0) throw new Error('No camera answered at 10.100.1.1');
+      return { id: 'lytro:wifi:10.100.1.1', label: 'Lytro camera A5120012 (Wi-Fi)', files: [{}, {}] };
+    },
+    probeWifi: async () => probed,
+    adbConnectWifi: async (host) => { calls.push(['adb', host]); return `${host}:5555`; },
+    disconnectWifi: async () => true,
+  };
+  const wifiJoin = {
+    listNetworks: async () => [{ name: 'LYTRO-1234', signal: 80, secure: true, current: false }],
+    joinNetwork: async (name, password) => { calls.push(['join', name, password]); },
+  };
   const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'wifi-ipc-'));
+  let soon = 0;
   const { handlers } = createIpc({
-    fs: require('node:fs'), fsp, path, os, dialog: {}, shell: {}, app: { getPath: (n) => path.join(base, n) }, camera: fakeCamera,
-    getSettings: () => ({ libraryDir: base }), saveSettings: async () => {}, getCameras: () => [], summary: () => [], pollCameras: async () => {}, scanSoon: () => {},
+    fs: require('node:fs'), fsp, path, os, dialog: {}, shell: {}, app: { getPath: (n) => path.join(base, n) }, camera: fakeCamera, wifiJoin, wifiWaitMs: 10000,
+    getSettings: () => ({ libraryDir: base }), saveSettings: async () => {}, getCameras: () => [], summary: () => [], pollCameras: async () => {}, scanSoon: () => { soon++; },
     withWin: (o) => [o], videoMemory: async () => ({}), lfpModule: async () => ({}), memoryReserve: { ram: 0, vram: 0 },
   });
   try {
-    for (const ok of [undefined, '', '10.100.1.1', '192.168.4.1', '172.16.0.9', '172.31.255.1']) await handlers['camera-wifi-connect'](ok);
-    assert.deepEqual(asked, [{}, {}, { host: '10.100.1.1' }, { host: '192.168.4.1' }, { host: '172.16.0.9' }, { host: '172.31.255.1' }]);
-    for (const bad of ['8.8.8.8', 'example.com', '172.32.0.1', '10.0.0.256', '127.0.0.1', '10.100.1.1:22', 'http://10.100.1.1', '::1']) {
-      await assert.rejects(handlers['camera-wifi-connect'](bad), /not an address on a local network/, bad);
-    }
-    assert.equal(asked.length, 6, 'nothing else was tried');
+    assert.deepEqual(await handlers['camera-wifi-networks'](), [{ name: 'LYTRO-1234', signal: 80, secure: true, current: false }]);
+    const got = await handlers['camera-wifi-connect']({ network: 'LYTRO-1234', password: 'secret-pass' });
+    assert.deepEqual(got, { id: 'lytro:wifi:10.100.1.1', label: 'Lytro camera A5120012 (Wi-Fi)', count: 2, via: 'lytro' });
+    assert.deepEqual(calls[0], ['join', 'LYTRO-1234', 'secret-pass']);
+    assert.equal(calls.filter((c) => c[0] === 'camera').length, 3, 'tried again until the camera answered');
+    assert.deepEqual(calls[1], ['camera', {}], 'the page cannot choose an address');
+    assert.equal(soon, 1);
+    // already on the camera's network: no join, one try
+    calls.length = 0;
+    failures = 1;
+    await assert.rejects(handlers['camera-wifi-connect']({ network: 'LYTRO-1234', join: false }), /No camera answered on this network/);
+    assert.deepEqual(calls, [['camera', {}]]);
+    // an ILLUM that does not speak the first generation protocol but offers Android debugging: connected that way
+    calls.length = 0;
+    failures = 99;
+    probed = [{ host: '10.100.1.1', open: [] }, { host: '192.168.42.1', open: [80, 5555] }];
+    const viaAdb = await handlers['camera-wifi-connect']({ network: 'ILLUM-1', join: false });
+    assert.equal(viaAdb.via, 'adb');
+    assert.deepEqual(calls.at(-1), ['adb', '192.168.42.1']);
+    // neither: the open ports are reported
+    probed = [{ host: '192.168.42.1', open: [80, 8080] }];
+    await assert.rejects(handlers['camera-wifi-connect']({ network: 'ILLUM-1', join: false }), /Open ports: 192\.168\.42\.1: 80, 8080/);
+    // nothing chosen
+    await assert.rejects(handlers['camera-wifi-connect']({ network: '' }), /Choose the camera's Wi-Fi network/);
   } finally {
     await fsp.rm(base, { recursive: true, force: true });
   }

@@ -50,16 +50,17 @@ The camera's hot pixel list is used together with the search that *Remove hot pi
 
 *Import from camera…* (desktop app) lists the photos on a connected Lytro camera, with their thumbnails, and imports the ones you pick (*Select all* and *Select none* are next to each other). The ILLUM shows up as a drive. The first generation Lytro is reached the way Lytro Desktop does it, through its disk, so no driver is needed on Windows; its photos are put together from the camera's raw, metadata and thumbnail files. The same photos also show in the *Camera* section above the library when a camera is plugged in.
 
-### Over Wi-Fi (first generation cameras)
+### Over Wi-Fi
 
-A first generation Lytro can send its photos over Wi-Fi, without a cable (desktop app; camera firmware 1.2 or later):
+A Lytro camera can send its photos over Wi-Fi, without a cable (desktop app):
 
-1. On the camera, swipe up on the screen to bring up the taskbar, then tap the Wi-Fi icon. The camera then makes a Wi-Fi network.
-2. On the computer, join the camera's Wi-Fi network. The computer is off the internet while it is joined.
-3. In the sidebar, under the library, click *+ Connect over Wi-Fi…*, then *Connect*.
+1. Turn on the camera's Wi-Fi. **First generation** (firmware 1.2 or later): swipe up on the screen to bring up the taskbar, then tap the Wi-Fi icon. **ILLUM**: *Settings*, *iOS Connect*, set *Access Point* to *On*; the camera shows its network name and password.
+2. In the sidebar, under the library, click *+ Connect over Wi-Fi…*. Choose the camera's network (Lytro networks are listed first; *Refresh* looks again), type its password and click *Connect*. Illuminator joins the network through the computer's own Wi-Fi settings, so the computer is off the internet while it is joined; if the computer is on the camera's network already, no password is needed.
 
-The camera then shows in the *Camera* section and in *Import from camera…* like a camera on USB, labeled *(Wi-Fi)*, and its photos import the same way. *Camera address* is the camera's address on its network, 10.100.1.1 unless the camera says otherwise. While connected, Illuminator asks the camera something every 30 seconds, so the camera does not turn its Wi-Fi off while you choose photos. When the camera stops answering (switched off, out of range, or its Wi-Fi turned off) it leaves the list; *Disconnect* in the same window ends the connection.
+The camera then shows in the *Camera* section and in *Import from camera…* like a camera on USB, labeled *(Wi-Fi)*, and its photos import the same way. While connected, Illuminator asks the camera something every 30 seconds, so it does not turn its Wi-Fi off while you choose photos. When the camera stops answering (switched off, out of range, or its Wi-Fi turned off) it leaves the list; *Disconnect* in the same window ends the connection, and the computer stays on the camera's network until you join another. The password is passed to the computer's Wi-Fi settings and not kept by Illuminator (the computer remembers the network as it does any other).
 
-Copying over Wi-Fi is slower than over USB: a first generation photo is about 16 MB. The ILLUM's Wi-Fi only worked with Lytro's phone app, and how it talks is not known, so the ILLUM is imported over USB or from its card. This was built from what others worked out about the camera (the Lytro Meltdown project and ea's lytroctrl) and tested against a stand-in camera; it has not yet been tried with a real camera.
+Copying over Wi-Fi is slower than over USB: a first generation photo is about 16 MB, an ILLUM photo about 55 MB.
+
+How Illuminator reaches the camera: first with the first generation camera's protocol (as worked out by the Lytro Meltdown project and ea's lytroctrl), at the camera's address and at the first address of the network joined; the ILLUM may speak it too, as Lytro's phone app served both cameras. If the camera does not answer it but offers Android debugging over the network (the ILLUM runs Android), Illuminator connects that way (adb must be installed), and the camera shows as it does on USB debugging. If neither works, the message lists the network ports the camera has open: please send it, so the camera can be supported. None of this has been tried with a real camera yet; it was tested against a stand-in camera.
 
 First generation photos get Lytro Desktop's automatic level (an exposure found from the picture and the camera's ISO) and its color steps: the color is limited to the sensor's range before the color matrix, then a contrast curve is applied. *Look → Flat* turns this off.

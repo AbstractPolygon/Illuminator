@@ -12,7 +12,7 @@
 
 **The first generation camera does not show (Windows).** It is read through its disk, which needs the camera switched on and its USB cable connected; the *Import from camera…* dialog's diagnostics list the disks it saw. If its thumbnails look like color noise, send the camera log, which says how the thumbnail files are stored.
 
-**The camera is not found over Wi-Fi.** Check that the camera's Wi-Fi is on and that the computer is joined to the camera's network (not your usual one): *No camera answered at 10.100.1.1* means nothing was found at that address. The camera turns its Wi-Fi off after a while without use, so connect soon after turning it on. A VPN or a firewall that blocks local connections can also stop it. The ILLUM cannot be reached over Wi-Fi.
+**The camera is not found over Wi-Fi.** Check that the camera's Wi-Fi is on (first generation: the Wi-Fi icon in the taskbar; ILLUM: *Settings*, *iOS Connect*, *Access Point* on) and that the network chosen is the camera's, with the password the camera shows. The camera turns its Wi-Fi off after a while without use, so connect soon after turning it on. A VPN or a firewall that blocks local connections can also stop it. If the message lists open ports, the camera was reached but spoke in a way Illuminator does not know yet: please send the message.
 
 **Depth measuring is slow.** With a real graphics card the depth is measured on it; when a step falls back to the processor, or only a software renderer is found, a note appears over the picture. Choosing *Depth method → Illuminator* is the quickest measurement.
 

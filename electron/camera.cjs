@@ -8,9 +8,11 @@
 //   - Android debugging (hold AEL + Lytro while switching on), the route
 //     Lytro's own power tools used (the ILLUM runs Android; USB vendor
 //     0x24CF is in its adb_usb.ini); needs adb installed; kind 'adb'.
-//   - the first generation camera over Wi-Fi (lytro-wifi.cjs), once the
-//     computer has joined the camera's network and the person asked to
-//     connect (connectWifi); kind 'lytro', like the camera on USB.
+//   - over Wi-Fi (lytro-wifi.cjs), once the computer has joined the
+//     camera's network and the person asked to connect: the first generation
+//     camera's protocol (connectWifiAuto; kind 'lytro', like the camera on
+//     USB), tried on the ILLUM too, which may speak it; failing that, Android
+//     debugging over the network where the camera offers it (kind 'adb').
 
 const fs = require('node:fs');
 const fsp = require('node:fs/promises');
@@ -19,6 +21,7 @@ const path = require('node:path');
 const { execFile, spawn } = require('node:child_process');
 const { pipeline } = require('node:stream/promises');
 const { pathToFileURL } = require('node:url');
+const net = require('node:net');
 const lytroUsb = require('./lytro-usb.cjs');
 const lytroScsi = require('./lytro-scsi-win.cjs');
 const { LytroCamera } = require('./lytro-protocol.cjs');
@@ -321,11 +324,11 @@ function usbDiagnostics() {
 const wifiCameras = new Map();
 const WIFI_KEEP_ALIVE_MS = 30000;
 
-async function connectWifi({ host = lytroWifi.DEFAULT_HOST, port = lytroWifi.DEFAULT_PORT, connect = lytroWifi.connect, keepAliveMs = WIFI_KEEP_ALIVE_MS } = {}) {
+async function connectWifi({ host = lytroWifi.DEFAULT_HOST, port = lytroWifi.DEFAULT_PORT, connect = lytroWifi.connect, keepAliveMs = WIFI_KEEP_ALIVE_MS, connectTimeoutMs } = {}) {
   const id = `lytro:wifi:${host}`;
   const old = wifiCameras.get(id);
   if (old) await disconnectWifi(id);
-  const opened = await connect({ host, port }, log);
+  const opened = await connect({ host, port, ...(connectTimeoutMs ? { connectTimeoutMs } : {}) }, log);
   try {
     const info = await opened.camera.hardwareInfo();
     log(`wifi hardware info: ${JSON.stringify(info)}`);
@@ -372,6 +375,77 @@ async function disconnectWifi(id) {
 }
 
 const wifiEntries = () => [...wifiCameras.values()].map((h) => h.entry);
+
+// Where a camera may be on the network the computer has joined: the first generation camera's fixed address, then the first address of each
+// private network this computer is on (a camera's own network hands out addresses and is reached at the network's first one, e.g. 192.168.42.1).
+function wifiCandidates(ifaces = os.networkInterfaces()) {
+  const out = [lytroWifi.DEFAULT_HOST];
+  for (const list of Object.values(ifaces || {})) {
+    for (const a of list || []) {
+      if (!a || a.internal || (a.family !== 'IPv4' && a.family !== 4)) continue;
+      const ip = String(a.address).split('.').map(Number);
+      const mask = String(a.netmask || '255.255.255.0').split('.').map(Number);
+      if (ip.length !== 4 || mask.length !== 4) continue;
+      const priv = ip[0] === 10 || (ip[0] === 172 && ip[1] >= 16 && ip[1] <= 31) || (ip[0] === 192 && ip[1] === 168);
+      if (!priv) continue;
+      const net = ip.map((v, i) => v & mask[i]);
+      net[3] += 1;
+      const host = net.join('.');
+      if (host !== a.address && !out.includes(host)) out.push(host);
+    }
+  }
+  return out;
+}
+
+// Tries the first generation camera's protocol at each candidate address in turn: the camera's entry, or throws the last failure.
+async function connectWifiAuto({ candidates = wifiCandidates(), connectTimeoutMs = 3000, ...options } = {}) {
+  let last = null;
+  for (const host of candidates) {
+    try {
+      return await connectWifi({ ...options, host, connectTimeoutMs });
+    } catch (err) {
+      last = err;
+      log(`wifi: nothing at ${host} (${err.message})`);
+    }
+  }
+  throw last || new Error('No camera answered.');
+}
+
+// The ports worth knowing about on a camera that did not answer the first generation protocol: Android debugging (5555), web servers, the
+// first generation's command port, file transfer and streaming. [{ host, open: [port] }]
+const WIFI_PROBE_PORTS = [5555, 5678, 80, 8080, 8000, 8888, 443, 21, 22, 23, 554, 7000, 9000];
+function portOpen(host, port, timeoutMs) {
+  return new Promise((resolve) => {
+    const s = net.createConnection({ host, port });
+    const done = (ok) => {
+      clearTimeout(timer);
+      s.destroy();
+      resolve(ok);
+    };
+    const timer = setTimeout(() => done(false), timeoutMs);
+    s.once('connect', () => done(true));
+    s.once('error', () => done(false));
+  });
+}
+async function probeWifi({ hosts = wifiCandidates(), ports = WIFI_PROBE_PORTS, timeoutMs = 1200 } = {}) {
+  const out = [];
+  for (const host of hosts) {
+    const open = [];
+    await Promise.all(ports.map(async (port) => { if (await portOpen(host, port, timeoutMs)) open.push(port); }));
+    open.sort((a, b) => a - b);
+    out.push({ host, open });
+    log(`wifi probe ${host}: ${open.length ? open.join(', ') : 'nothing open'}`);
+  }
+  return out;
+}
+
+// Android debugging over the network (the ILLUM runs Android): `adb connect host:5555`; the camera then shows through scanAdb like one on USB.
+async function adbConnectWifi(host, exec = run) {
+  const out = await exec(adbCommand(), ['connect', `${host}:5555`], 10000);
+  log(`adb connect ${host}:5555: ${String(out || '').trim()}`);
+  if (!out || !/connected to/i.test(out) || /fail|unable|refused/i.test(out)) throw new Error(`Android debugging at ${host} did not connect${out ? `: ${String(out).trim()}` : ' (is adb installed?)'}`);
+  return `${host}:5555`;
+}
 
 // Saves the first generation camera's calibration files (C:\\T1CALIB\\MOD_xxxx)
 // to <destDir>/cameras/<serial>/T1CALIB. Returns the folder.
@@ -674,7 +748,8 @@ async function downloadLytroPicture(entry, file) {
 
 async function downloadLytroPictureNow(entry, file, pic, cam) {
   const firstGeneration = entry.product === lytroUsb.FIRST_GENERATION_PRODUCT;
-  if (!firstGeneration) {
+  // (over Wi-Fi the camera may be an ILLUM speaking the same protocol: its single .LFR file is tried first, as on USB)
+  if (!firstGeneration || entry.wifi) {
     try {
       return { name: `${pic.folder}_${pic.name}.LFR`, data: await cam.download('file', LytroCamera.pathOf(pic, 'LFR')) };
     } catch (err) {
@@ -790,4 +865,4 @@ async function fileReader(file) {
   };
 }
 
-module.exports = { connectWifi, disconnectWifi, safeSerial, cameraFolder, lytroThumbnail, thumbnailPicture, decodeRawThumbnail, pullUsbCalibration, pullDriveCalibration, driveInfo, pullAdbCalibration, usbProblems, usbDiagnostics, assembleLfp, LYTRO_USB_VENDOR, isLytroUsb, listCameras, importFiles, scanVolume, volumeRoots, parseLsLong, fileReader, LIGHT_FIELD };
+module.exports = { connectWifi, connectWifiAuto, wifiCandidates, probeWifi, adbConnectWifi, WIFI_PROBE_PORTS, disconnectWifi, safeSerial, cameraFolder, lytroThumbnail, thumbnailPicture, decodeRawThumbnail, pullUsbCalibration, pullDriveCalibration, driveInfo, pullAdbCalibration, usbProblems, usbDiagnostics, assembleLfp, LYTRO_USB_VENDOR, isLytroUsb, listCameras, importFiles, scanVolume, volumeRoots, parseLsLong, fileReader, LIGHT_FIELD };
