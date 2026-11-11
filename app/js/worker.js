@@ -1060,7 +1060,7 @@ async function frames({ id, job, path, alpha = 0, aperture = 0, dof = 0, bokeh, 
     if (state.gpu) {
       const split = splitView(f.u, f.v, !(f.aperture > 0));
       const at = split ? { ...f, u: split.u, v: split.v } : f;
-      let tex = f.aperture > 0 ? state.gpu.refocusTo(f.alpha, apertureOptions(at)) : await singleView(id, at.u, at.v);
+      let tex = f.aperture > 0 ? state.gpu.refocusTo(f.alpha, apertureOptions(at)) : await singleView(id, at.u, at.v, f.dof);
       tex = await extendGpu(id, tex, outW, outH, split, f.aperture > 0 ? f.alpha : 0);
       const unseen = holes ? await holesFor(id, split, f.aperture > 0 ? f.alpha : 0) : null;
       await presentGpu(id, tex, outW, outH, { alpha: f.alpha, dof: f.dof, bokeh: f.bokeh, color: f.color, pxPerUnit: viewPxPerUnit(), parallax: true, masks: { focus: f.alpha, overrides: f.masks, view: viewOf(at.u, at.v) } }, { id, type: 'frame', index: i, ...(unseen ? { holes: unseen } : {}) });
@@ -1069,7 +1069,7 @@ async function frames({ id, job, path, alpha = 0, aperture = 0, dof = 0, bokeh, 
     }
     const split = splitView(f.u, f.v, !(f.aperture > 0));
     const at = split ? { ...f, u: split.u, v: split.v } : f;
-    let rgb = f.aperture > 0 ? refocusRGB(f.alpha, apertureOptions(at)) : await singleView(id, at.u, at.v);
+    let rgb = f.aperture > 0 ? refocusRGB(f.alpha, apertureOptions(at)) : await singleView(id, at.u, at.v, f.dof);
     rgb = await extendCpu(id, rgb, outW, outH, split, f.aperture > 0 ? f.alpha : 0);
     rgb = await applyParallax(id, rgb, outW, outH, at.u, at.v);
     frameMessage(id, i, await withDepthOfField(id, rgb, outW, outH, f.alpha, f.dof, 1, f.bokeh), { focus: f.alpha, overrides: f.masks, view: viewOf(at.u, at.v) }, colorState(f.color), holes ? await holesFor(id, split, f.aperture > 0 ? f.alpha : 0) : null);
@@ -1080,10 +1080,13 @@ async function frames({ id, job, path, alpha = 0, aperture = 0, dof = 0, bokeh, 
 
 // The picture seen from viewpoint (u, v) through a pinhole: one view, or
 // with multi-view denoising on, every refocus view merged into it (see
-// core/mvdenoise.js). A GPU texture on the GPU, linear RGB otherwise.
-async function singleView(id, u, v) {
+// core/mvdenoise.js). The merge shifts each view by the depth, so where the
+// depth is off it softens the picture: a fully in focus picture (no depth of
+// field blur, `dof` 0) is the plain view. A GPU texture on the GPU, linear
+// RGB otherwise.
+async function singleView(id, u, v, dof = 1) {
   const mv = state.settings.mvDenoise;
-  if (mv && mv.on && mv.blend > 0 && (await ensureViewDepth(id))) {
+  if (dof > 0 && mv && mv.on && mv.blend > 0 && (await ensureViewDepth(id))) {
     const m = state.centerMeans;
     const sigma = mergeSigma(0.2126 * m[0] + 0.7152 * m[1] + 0.0722 * m[2]);
     if (state.gpu) return state.gpu.mergedViewTex(u, v, { sigma, blend: mv.blend });
@@ -1920,7 +1923,7 @@ async function view({ id, u, v, alpha = 0, aperture = 0, dof = 0, bokeh, draft =
       if (!(await ensureRefocusViews(id))) return { cancelled: true };
       tex = state.gpu.refocusTo(alpha, apertureOptions({ u, v, aperture }));
     } else {
-      tex = await singleView(id, u, v);
+      tex = await singleView(id, u, v, dof);
     }
     tex = await extendGpu(id, tex, outW, outH, split, aperture > 0 ? alpha : 0);
     await presentGpu(id, tex, outW, outH, { alpha, dof, bokeh, pxPerUnit: viewPxPerUnit(), parallax: true, masks, keep: key, draft, mode }, message);
@@ -1933,7 +1936,7 @@ async function view({ id, u, v, alpha = 0, aperture = 0, dof = 0, bokeh, draft =
     if (!(await ensureRefocusViews(id))) return { cancelled: true };
     rgb = refocusRGB(alpha, apertureOptions({ u, v, aperture }));
   } else {
-    rgb = await singleView(id, u, v);
+    rgb = await singleView(id, u, v, dof);
   }
   rgb = await extendCpu(id, rgb, state.sampler.outW, state.sampler.outH, split, aperture > 0 ? alpha : 0);
   rgb = await applyParallax(id, rgb, state.sampler.outW, state.sampler.outH, u, v);
