@@ -70,7 +70,7 @@ With *Full sensor* on, a change of focus (or of the blur, the bokeh or the color
 Photo and Video are the last two subsections of *Render Settings*. Below Render Settings, always shown: *Render*, *Auto render*, *Save PNG* and *Export video*.
 
 - *Size:* how much saved photos and 3D images are enlarged: *Native* (as rendered), 1.5×, 2×, 3× or 4×, with the [Upscaling](#upscaling) settings. Each option shows the size in pixels it gives.
-- *File format:* *PNG* (lossless, bigger files), *PNG 16-bit*, *JPEG* (much smaller files) or *JPEG HDR* (a JPEG that also keeps the highlights brighter than white) or *TIFF HDR* (a 32-bit float TIFF in linear light); both HDR formats are always sRGB, see Exporting. For the JPEGs, *JPEG quality* (50 to 100, 92 by default) sets how much detail is kept.
+- *File format:* *PNG* (lossless, bigger files), *PNG 16-bit*, *JPEG* (much smaller files) or *JPEG HDR* (a JPEG that also keeps the full range of light, for HDR screens) or *TIFF HDR* (a 32-bit float TIFF in linear light); both HDR formats are always sRGB, see Exporting. For the JPEGs, *JPEG quality* (50 to 100, 92 by default) sets how much detail is kept.
 - *Color space:* *sRGB* (the default), *Display P3*, *Adobe RGB (1998)*, *Rec. 2020* or *ProPhoto RGB*. The saved photo is converted to that space and its profile is saved in the file (PNG, 16-bit PNG and JPEG), so other software reads the colors right. The picture is made in sRGB, so a wider space does not add colors beyond sRGB's range; it suits software or displays that work in that space, and editing at 16 bits (*PNG 16-bit*) keeps the most precision. Quick export has the same setting.
 - *Save PNG* (or *Save JPEG*), below the Render button, saves the picture as shown, at that size.
 

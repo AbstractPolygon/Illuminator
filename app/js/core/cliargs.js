@@ -19,7 +19,7 @@ Options for render:
                               (default: next to each photo)
   --format png|png16|jpeg|jpeghdr|tiffhdr
                               file format (default: from the --out file name, else png);
-                              jpeghdr is a JPEG that also holds the highlights above white;
+                              jpeghdr is a JPEG that also keeps the full range of light;
                               tiffhdr is a 32-bit float TIFF in linear light (both always sRGB)
   --quality <50-100>          JPEG quality
   --color-space <name>        srgb (default), p3, adobe, rec2020 or prophoto
