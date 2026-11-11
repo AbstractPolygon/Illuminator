@@ -65,6 +65,7 @@
       <ul id="album-list" class="albums"></ul>
       <button id="album-new" type="button" class="link-button">+ New album</button>
       <button id="library-import" type="button" class="link-button" title="Brings in the photos, edits and albums of a Lytro Desktop library">+ Import Lytro library…</button>
+      <button id="camera-wifi-btn" type="button" class="link-button" title="Copies photos from a first generation Lytro camera over its Wi-Fi, without a cable" hidden>+ Camera over Wi-Fi…</button>
       <h2>Looks</h2>
       <ul id="look-list" class="albums"></ul>
       <button id="look-save" type="button" class="link-button" title="Keeps the open photo's tone, color, sharpening and local adjustments as a look to put on other photos" disabled>+ Save look…</button>
@@ -1287,6 +1288,26 @@
         <a class="button" href="https://github.com/AbstractPolygon/Illuminator" target="_blank" rel="noopener">View on GitHub</a>
         <span class="spacer"></span>
         <button value="close" class="primary">Close</button>
+      </menu>
+    </form>
+  </dialog>
+
+  <dialog id="camera-wifi-dialog">
+    <form method="dialog">
+      <h2>Connect to a camera over Wi-Fi</h2>
+      <p class="hint">For first generation Lytro cameras (firmware 1.2 or later). The ILLUM cannot be reached this way; plug it in with its USB cable instead.</p>
+      <ol class="hint camera-wifi-steps">
+        <li>On the camera, turn Wi-Fi on in its settings.</li>
+        <li>On this computer, join the camera's Wi-Fi network, with the password the camera shows. The computer is off the internet while it is joined.</li>
+        <li>Press Connect. Keep the camera on and near the computer while photos are copied.</li>
+      </ol>
+      <label title="The camera's address on its network: 10.100.1.1 unless it says otherwise">Camera address <input id="camera-wifi-address" type="text" value="10.100.1.1" inputmode="decimal" autocomplete="off" spellcheck="false"></label>
+      <p id="camera-wifi-status" class="hint" role="status" aria-live="polite"></p>
+      <menu>
+        <button type="button" id="camera-wifi-disconnect" hidden>Disconnect</button>
+        <span class="spacer"></span>
+        <button value="cancel">Close</button>
+        <button type="button" id="camera-wifi-connect" class="primary">Connect</button>
       </menu>
     </form>
   </dialog>

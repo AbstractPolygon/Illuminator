@@ -846,3 +846,11 @@ label.lut-amount { margin-top: 14px; }
 .queue-none { max-width: 60ch; }
 .queue-foot { display: flex; gap: 8px; }
 @media (max-width: 760px) { .queue-card { grid-template-columns: 80px minmax(0, 1fr); } .queue-thumb { width: 80px; height: 56px; } .queue-actions { grid-column: 1 / -1; } }
+
+/* File > Connect to Camera over Wi-Fi */
+#camera-wifi-dialog { max-width: 520px; }
+.camera-wifi-steps { margin: 8px 0 12px; padding-left: 20px; display: grid; gap: 4px; }
+#camera-wifi-dialog label { display: flex; align-items: center; gap: 8px; }
+#camera-wifi-address { width: 12em; }
+#camera-wifi-status { min-height: 1.4em; }
+#camera-wifi-status.error { color: #e5736b; }

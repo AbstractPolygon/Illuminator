@@ -18,6 +18,8 @@ contextBridge.exposeInMainWorld('lytroNative', {
   readRange: (path, offset, length) => ipcRenderer.invoke('read-range', path, offset, length),
   listCameras: () => ipcRenderer.invoke('list-cameras'),
   cameraProblems: () => ipcRenderer.invoke('camera-problems'),
+  connectCameraWifi: (host) => ipcRenderer.invoke('camera-wifi-connect', host),
+  disconnectCameraWifi: (id) => ipcRenderer.invoke('camera-wifi-disconnect', id),
   cameraThumbnail: (cameraId, fileId) => ipcRenderer.invoke('camera-thumbnail', cameraId, fileId),
   libraryDir: () => ipcRenderer.invoke('library-dir'),
   systemMemory: () => ipcRenderer.invoke('system-memory'),
