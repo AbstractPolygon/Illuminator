@@ -50,4 +50,16 @@ The camera's hot pixel list is used together with the search that *Remove hot pi
 
 *Import from camera…* (desktop app) lists the photos on a connected Lytro camera, with their thumbnails, and imports the ones you pick (*Select all* and *Select none* are next to each other). The ILLUM shows up as a drive. The first generation Lytro is reached the way Lytro Desktop does it, through its disk, so no driver is needed on Windows; its photos are put together from the camera's raw, metadata and thumbnail files. The same photos also show in the *Camera* section above the library when a camera is plugged in.
 
+### Over Wi-Fi (first generation cameras)
+
+A first generation Lytro can send its photos over Wi-Fi, without a cable (desktop app; camera firmware 1.2 or later):
+
+1. On the camera, turn Wi-Fi on.
+2. On the computer, join the camera's Wi-Fi network, with the password the camera shows. The computer is off the internet while it is joined.
+3. In the sidebar, under the library, click *+ Camera over Wi-Fi…*, then *Connect*.
+
+The camera then shows in the *Camera* section and in *Import from camera…* like a camera on USB, labeled *(Wi-Fi)*, and its photos import the same way. *Camera address* is the camera's address on its network, 10.100.1.1 unless the camera says otherwise. While connected, Illuminator asks the camera something every 30 seconds, so the camera does not turn its Wi-Fi off while you choose photos. When the camera stops answering (switched off, out of range, or its Wi-Fi turned off) it leaves the list; *Disconnect* in the same window ends the connection.
+
+Copying over Wi-Fi is slower than over USB: a first generation photo is about 16 MB. The ILLUM's Wi-Fi only worked with Lytro's phone app, and how it talks is not known, so the ILLUM is imported over USB or from its card. This was built from what others worked out about the camera (the Lytro Meltdown project and ea's lytroctrl) and tested against a stand-in camera; it has not yet been tried with a real camera.
+
 First generation photos get Lytro Desktop's automatic level (an exposure found from the picture and the camera's ISO) and its color steps: the color is limited to the sensor's range before the color matrix, then a contrast curve is applied. *Look → Flat* turns this off.

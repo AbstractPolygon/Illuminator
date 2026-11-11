@@ -114,6 +114,15 @@ function createIpc(deps) {
   let tempCounter = 0;
   const tempName = (target) => `${target}.${process.pid}-${++tempCounter}-${Math.random().toString(36).slice(2, 8)}.part`;
 
+  // A dotted IPv4 address in a private range (10/8, 172.16/12, 192.168/16): where a camera's own Wi-Fi network puts it.
+  function privateIpv4(text) {
+    const m = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(text);
+    if (!m) return false;
+    const [a, b, c, d] = m.slice(1).map(Number);
+    if ([a, b, c, d].some((n) => n > 255)) return false;
+    return a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168);
+  }
+
   function findCamera(id) {
     const c = getCameras().find((x) => x.id === id);
     if (!c) throw new Error('That camera is no longer connected.');
@@ -183,6 +192,21 @@ function createIpc(deps) {
 
     // The page saw a Lytro plugged in over USB (app/js/main.js, WebUSB).
     'camera-usb-connected': () => scanSoon(),
+
+    // The first generation camera over Wi-Fi (electron/lytro-wifi.cjs): the person has joined the camera's network; the address is the camera's
+    // (10.100.1.1 unless given), and only an address on a private network is taken, so the page cannot have the app reach out anywhere else.
+    'camera-wifi-connect': async (host) => {
+      const address = host == null || host === '' ? undefined : String(host).trim();
+      if (address !== undefined && !privateIpv4(address)) throw new Error(`${address} is not an address on a local network (such as 10.100.1.1).`);
+      const entry = await camera.connectWifi(address ? { host: address } : {});
+      scanSoon();
+      return { id: entry.id, label: entry.label, count: entry.files.length };
+    },
+    'camera-wifi-disconnect': async (id) => {
+      const done = await camera.disconnectWifi(String(id || ''));
+      scanSoon();
+      return done;
+    },
 
     // Why a Lytro on USB could not be used, and the protocol log.
     'camera-problems': () => ({ problems: camera.usbProblems(), log: camera.usbDiagnostics() }),

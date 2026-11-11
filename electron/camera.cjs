@@ -8,6 +8,9 @@
 //   - Android debugging (hold AEL + Lytro while switching on), the route
 //     Lytro's own power tools used (the ILLUM runs Android; USB vendor
 //     0x24CF is in its adb_usb.ini); needs adb installed; kind 'adb'.
+//   - the first generation camera over Wi-Fi (lytro-wifi.cjs), once the
+//     computer has joined the camera's network and the person asked to
+//     connect (connectWifi); kind 'lytro', like the camera on USB.
 
 const fs = require('node:fs');
 const fsp = require('node:fs/promises');
@@ -19,6 +22,7 @@ const { pathToFileURL } = require('node:url');
 const lytroUsb = require('./lytro-usb.cjs');
 const lytroScsi = require('./lytro-scsi-win.cjs');
 const { LytroCamera } = require('./lytro-protocol.cjs');
+const lytroWifi = require('./lytro-wifi.cjs');
 
 const LIGHT_FIELD = /\.(lfr|lfp)$/i;
 // Lytro, Inc.'s USB vendor ID (usb.ids), shared by its cameras.
@@ -310,6 +314,65 @@ function usbDiagnostics() {
   return usbLog.join('\n');
 }
 
+// ---------------------------------------------------------------- the first generation camera over Wi-Fi
+// Connected on request (the person joins the camera's network first), kept until disconnected or until the camera stops answering:
+// id -> { entry, close, timer }. The camera turns its Wi-Fi off after a while without requests, so an idle connection asks for the hardware
+// info now and then, as lytroctrl does (keep_alive, every 30 seconds).
+const wifiCameras = new Map();
+const WIFI_KEEP_ALIVE_MS = 30000;
+
+async function connectWifi({ host = lytroWifi.DEFAULT_HOST, port = lytroWifi.DEFAULT_PORT, connect = lytroWifi.connect, keepAliveMs = WIFI_KEEP_ALIVE_MS } = {}) {
+  const id = `lytro:wifi:${host}`;
+  const old = wifiCameras.get(id);
+  if (old) await disconnectWifi(id);
+  const opened = await connect({ host, port }, log);
+  try {
+    const info = await opened.camera.hardwareInfo();
+    log(`wifi hardware info: ${JSON.stringify(info)}`);
+    const pictures = await opened.camera.pictureList();
+    log(`wifi: ${pictures.length} pictures`);
+    const entry = {
+      id,
+      kind: 'lytro',
+      label: `Lytro camera${info.serial ? ` ${info.serial}` : ''} (Wi-Fi)`,
+      info,
+      product: opened.product,
+      camera: opened.camera,
+      pictures,
+      wifi: true,
+      files: pictures.map((p) => ({ id: p.id, name: p.name, folder: p.folder, size: 0 })),
+    };
+    const held = { entry, close: opened.close, timer: null };
+    // Keeps the camera awake; a camera that no longer answers is dropped (turned off, out of range, or its Wi-Fi turned off).
+    // (it waits in the camera's queue behind a download, which keeps the camera awake by itself)
+    held.timer = setInterval(() => {
+      withCamera(entry, () => entry.camera.hardwareInfo()).catch((err) => {
+        log(`wifi: the camera stopped answering (${err.message})`);
+        disconnectWifi(id).catch(() => {});
+      });
+    }, keepAliveMs);
+    if (held.timer.unref) held.timer.unref();
+    wifiCameras.set(id, held);
+    return entry;
+  } catch (err) {
+    await Promise.resolve(opened.close()).catch(() => {});
+    log(`wifi failed: ${err.message}`);
+    throw err;
+  }
+}
+
+async function disconnectWifi(id) {
+  const held = wifiCameras.get(id);
+  if (!held) return false;
+  wifiCameras.delete(id);
+  clearInterval(held.timer);
+  await Promise.resolve(held.close()).catch(() => {});
+  log(`wifi: disconnected from ${id}`);
+  return true;
+}
+
+const wifiEntries = () => [...wifiCameras.values()].map((h) => h.entry);
+
 // Saves the first generation camera's calibration files (C:\\T1CALIB\\MOD_xxxx)
 // to <destDir>/cameras/<serial>/T1CALIB. Returns the folder.
 async function pullUsbCalibration(entry, destDir, onFile = () => {}) {
@@ -355,7 +418,7 @@ async function listCameras({ roots, adb = true, lytro = true } = {}) {
     return found;
   });
   const usbFound = lytro ? await guarded('USB', scanLytroUsb) : [];
-  return usbFound.concat(drives, adb ? await guarded('adb', scanAdb) : []);
+  return usbFound.concat(wifiEntries(), drives, adb ? await guarded('adb', scanAdb) : []);
 }
 
 // A PNG of 8 bit RGB pixels (a first generation camera's thumbnail may be raw).
@@ -727,4 +790,4 @@ async function fileReader(file) {
   };
 }
 
-module.exports = { safeSerial, cameraFolder, lytroThumbnail, thumbnailPicture, decodeRawThumbnail, pullUsbCalibration, pullDriveCalibration, driveInfo, pullAdbCalibration, usbProblems, usbDiagnostics, assembleLfp, LYTRO_USB_VENDOR, isLytroUsb, listCameras, importFiles, scanVolume, volumeRoots, parseLsLong, fileReader, LIGHT_FIELD };
+module.exports = { connectWifi, disconnectWifi, safeSerial, cameraFolder, lytroThumbnail, thumbnailPicture, decodeRawThumbnail, pullUsbCalibration, pullDriveCalibration, driveInfo, pullAdbCalibration, usbProblems, usbDiagnostics, assembleLfp, LYTRO_USB_VENDOR, isLytroUsb, listCameras, importFiles, scanVolume, volumeRoots, parseLsLong, fileReader, LIGHT_FIELD };

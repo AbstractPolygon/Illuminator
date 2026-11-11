@@ -44,6 +44,7 @@ import { initCurvesView } from './ui/curvesview.js';
 import { initExport } from './ui/export.js';
 import { initCameraImport } from './ui/cameraimport.js';
 import { initCameraSection } from './ui/camerasection.js';
+import { initCameraWifi } from './ui/camerawifi.js';
 import { initLut } from './ui/lut.js';
 import { initWhiteBalancePicker } from './ui/whitebalance.js';
 import { initColorMatrix } from './ui/colormatrix.js';
@@ -3992,6 +3993,12 @@ $('library-import').onclick = () => importFolder();
 let checkForUpdateNow = () => {};
 // Photos opened from outside the page (double-clicked in the file manager, or sent to a second instance).
 if (native && native.onOpenPaths) native.onOpenPaths((files) => openPicked(files.map((f) => new NativeFile(f))));
+// + Camera over Wi-Fi (the sidebar, under the library; desktop app, first generation cameras).
+const cameraWifi = native && native.connectCameraWifi && CAMERA_IMPORT ? initCameraWifi({ $, native, importFromCamera: () => importFromCamera() }) : null;
+if (cameraWifi) {
+  $('camera-wifi-btn').hidden = false;
+  $('camera-wifi-btn').onclick = () => cameraWifi.open();
+}
 if (native && native.onMenu) {
   native.onMenu((id) => {
     if (id === 'undo' || id === 'redo') {
@@ -4903,10 +4910,12 @@ if (native && CAMERA_IMPORT) {
     lastCams = cams;
     showCameras();
     refreshProblems();
+    if (cameraWifi) cameraWifi.camerasChanged(cams);
   }).catch(() => {});
   native.onCamerasChanged((cams) => {
     lastCams = cams;
     showCameras();
+    if (cameraWifi) cameraWifi.camerasChanged(cams);
   });
   if (navigator.usb) {
     const isLytro = (d) => d.vendorId === LYTRO_USB_VENDOR;

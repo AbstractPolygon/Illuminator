@@ -11,7 +11,8 @@
 //                             raw picture
 //   C4 00 01 <offset u32>     read: the loaded item, from the offset
 //
-// A transport gives read(cdb, size) -> Buffer and write(cdb, buffer).
+// A transport gives read(cdb, size) -> Buffer and write(cdb, buffer); one
+// that says `sequential` (Wi-Fi) is read part after part from the start.
 // Nothing here is known to work on the ILLUM; electron/camera.cjs checks the
 // camera's answers before trusting it.
 
@@ -67,11 +68,27 @@ class LytroCamera {
     const size = (await this.query(0, 4)).readUInt32LE(0);
     this.log(`load ${type}${name ? ` ${name}` : ''}: ${size} bytes`);
     if (!size) throw new Error(`The camera has no ${name || type}`);
-    // In packets of 64 KB, each asked for by its offset, as Lyli does (a
-    // camera answers big single reads less reliably).
     const parts = [];
     let total = 0;
     let empty = 0;
+    // Over Wi-Fi (electron/lytro-wifi.cjs) the camera hands the item out from its start, a part per `C4 00 00`, as lytroctrl reads it.
+    if (this.t.sequential) {
+      while (total < size) {
+        const part = await this.t.read(command(0xc4, 0), Math.min(0xffff, size - total));
+        if (!part.length) {
+          if (++empty >= MAX_EMPTY_READS) break;
+          continue;
+        }
+        empty = 0;
+        parts.push(part);
+        total += part.length;
+      }
+      if (total < size) throw new Error(`The camera sent only ${total} of ${size} bytes of ${name || type}`);
+      return Buffer.concat(parts).subarray(0, size);
+    }
+    // In packets of 64 KB, each asked for by its offset, as Lyli does (a
+    // camera answers big single reads less reliably).
+
     for (let offset = 0; offset < size;) {
       const want = Math.min(PACKET, size - offset);
       const read = Buffer.alloc(16);
