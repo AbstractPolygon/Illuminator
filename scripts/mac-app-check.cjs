@@ -4,7 +4,7 @@
 // fails if either cannot be loaded or used.
 const path = require('node:path');
 
-const asar = process.argv[2];
+const asar = path.resolve(process.argv[2]);
 const usb = require(path.join(asar, 'node_modules', 'usb'));
 const mac = require(path.join(asar, 'electron', 'lytro-scsi-mac.cjs'));
 const devices = usb.getDeviceList();
