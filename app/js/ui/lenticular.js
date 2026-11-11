@@ -171,7 +171,24 @@ export function initLenticular({ $, state, engine, cameraParams, eyeParams, with
     }
   }
 
+  // Lens sheet: a standard sheet fills in its LPI; Custom shows the field to type another. On opening, the saved count picks its sheet in the list.
+  function showPreset() {
+    const preset = $('lent-lpi-preset');
+    const lpi = String(+$('lent-lpi').value);
+    preset.value = [...preset.options].some((o) => o.value === lpi) ? lpi : 'custom';
+    $('lent-lpi-row').hidden = preset.value !== 'custom';
+  }
+  $('lent-lpi-preset').addEventListener('change', () => {
+    const v = $('lent-lpi-preset').value;
+    if (v !== 'custom') $('lent-lpi').value = v;
+    $('lent-lpi-row').hidden = v !== 'custom';
+    if (v === 'custom') $('lent-lpi').focus();
+    showInfo();
+    remember();
+  });
+
   restore();
+  showPreset();
   for (const id of FIELDS) {
     $(id).addEventListener('input', () => { showInfo(); remember(); });
     $(id).addEventListener('change', () => { showInfo(); remember(); });
