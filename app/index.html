@@ -941,6 +941,7 @@
           </label>
           <label class="check" title="Swaps the order of the pictures under each lens: for a 3D print that looks inside out (near things behind far ones) or a flip that runs the wrong way"><input id="lent-reverse" type="checkbox"> Reverse order</label>
           <p id="lent-info" class="hint"></p>
+          <button id="lent-preview-btn" class="wide" title="Shows how the print looks through the lens sheet as it is tilted: the pictures in turn, with the detail the lenses keep" disabled>Preview</button>
           <button id="lent-btn" class="wide" disabled>Save lenticular print</button>
           <button id="lent-test-btn" class="wide" title="A chart of bands at pitches around the sheet's, to print on the same printer and paper and look at through the sheet: the band that flips evenly between black and white is the measured pitch">Save pitch test</button>
         </details>
@@ -1332,6 +1333,23 @@
         <a class="button" href="https://github.com/AbstractPolygon/Illuminator" target="_blank" rel="noopener">View on GitHub</a>
         <span class="spacer"></span>
         <button value="close" class="primary">Close</button>
+      </menu>
+    </form>
+  </dialog>
+
+  <dialog id="lent-preview-dialog">
+    <form method="dialog">
+      <h2>Lenticular preview</h2>
+      <p class="hint" id="lent-preview-note"></p>
+      <div class="lent-preview-stage"><canvas id="lent-preview-canvas"></canvas></div>
+      <label title="The angle the print is seen from: drag to tilt it">Tilt
+        <input id="lent-preview-tilt" type="range" min="0" max="1000" step="1" value="500">
+      </label>
+      <label class="check" title="Shows the picture with only the detail the lenses keep across them (one stripe per lens), as the print shows it; off shows the pictures at full detail"><input id="lent-preview-lenses" type="checkbox" checked> Lens detail</label>
+      <menu>
+        <button type="button" id="lent-preview-play">Play</button>
+        <span class="spacer"></span>
+        <button value="cancel">Close</button>
       </menu>
     </form>
   </dialog>

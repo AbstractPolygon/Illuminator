@@ -115,6 +115,104 @@ export function initLenticular({ $, state, engine, cameraParams, eyeParams, with
     download(new Blob([png], { type: 'image/png' }), name);
   }
 
+  // Preview: the print as it looks through the sheet. Tilt picks the picture seen (between two pictures, both, as a lens shows them in passing); Lens
+  // detail keeps one stripe per lens across the lenses, the detail the print has that way. Play rocks the print back and forth.
+  const preview = { pics: null, lensPics: null, playing: 0, t: 0.5, n: 0 };
+  async function openPreview() {
+    if (!state.info) return;
+    const s = settings();
+    $('lent-preview-btn').disabled = true;
+    try {
+      const plan = lenticularPlan(s);
+      const pics = s.type === 'flip' ? await viewsFlip(plan.views) : await views3d(plan.views, s.depth);
+      const a = axis(s.type);
+      // Shown at most 760 px on its long side.
+      const k = Math.min(1, 760 / Math.max(plan.width, plan.height));
+      const PW = Math.max(1, Math.round(plan.width * k));
+      const PH = Math.max(1, Math.round(plan.height * k));
+      const lenses = Math.max(1, Math.round(((a === 'x' ? plan.width : plan.height) / plan.dpi) * plan.pitch));
+      const order = s.reverse ? pics.slice().reverse() : pics;
+      preview.pics = [];
+      preview.lensPics = [];
+      for (const pic of order) {
+        const r = coverRect(pic.width, pic.height, PW, PH);
+        const full = Object.assign(document.createElement('canvas'), { width: PW, height: PH });
+        const fg = full.getContext('2d');
+        fg.imageSmoothingQuality = 'high';
+        fg.drawImage(pic, r.sx, r.sy, r.sw, r.sh, 0, 0, PW, PH);
+        // One sample per lens across the lenses, drawn back as stripes.
+        const few = Object.assign(document.createElement('canvas'), { width: a === 'x' ? lenses : PW, height: a === 'x' ? PH : lenses });
+        const wg = few.getContext('2d');
+        wg.imageSmoothingQuality = 'high';
+        wg.drawImage(pic, r.sx, r.sy, r.sw, r.sh, 0, 0, few.width, few.height);
+        const striped = Object.assign(document.createElement('canvas'), { width: PW, height: PH });
+        const sg = striped.getContext('2d');
+        sg.imageSmoothingEnabled = false;
+        sg.drawImage(few, 0, 0, PW, PH);
+        preview.pics.push(full);
+        preview.lensPics.push(striped);
+      }
+      preview.n = order.length;
+      const c = $('lent-preview-canvas');
+      c.width = PW;
+      c.height = PH;
+      $('lent-preview-note').textContent = s.type === 'flip'
+        ? `Animation, as the print is tilted up and down · ${plan.views} pictures · ${lenses} lenses down the ${s.width} × ${s.height} inch print.`
+        : `3D, as the print is tilted left and right · ${plan.views} pictures · ${lenses} lenses across the ${s.width} × ${s.height} inch print. On the print each eye sees a different picture, so the depth itself shows only there.`;
+      $('lent-preview-tilt').value = 500;
+      drawPreview();
+      hideProgress();
+      $('lent-preview-dialog').showModal();
+    } catch (err) {
+      hideProgress();
+      showError(err);
+    } finally {
+      $('lent-preview-btn').disabled = !state.info;
+    }
+  }
+  function drawPreview() {
+    if (!preview.pics) return;
+    const list = $('lent-preview-lenses').checked ? preview.lensPics : preview.pics;
+    const t = (+$('lent-preview-tilt').value / 1000) * (preview.n - 1);
+    const i = Math.min(preview.n - 1, Math.floor(t));
+    const f = t - i;
+    const g = $('lent-preview-canvas').getContext('2d');
+    g.globalAlpha = 1;
+    g.drawImage(list[i], 0, 0);
+    if (f > 0 && i + 1 < preview.n) {
+      g.globalAlpha = f;
+      g.drawImage(list[i + 1], 0, 0);
+      g.globalAlpha = 1;
+    }
+  }
+  function stopPlay() {
+    if (preview.playing) cancelAnimationFrame(preview.playing);
+    preview.playing = 0;
+    $('lent-preview-play').textContent = 'Play';
+  }
+  function play() {
+    if (preview.playing) return stopPlay();
+    $('lent-preview-play').textContent = 'Stop';
+    const start = performance.now() - (+$('lent-preview-tilt').value / 1000) * 1500;
+    const step = (now) => {
+      // Back and forth across the whole tilt every 3 seconds.
+      const p = ((now - start) / 1500) % 2;
+      $('lent-preview-tilt').value = Math.round((p <= 1 ? p : 2 - p) * 1000);
+      drawPreview();
+      preview.playing = requestAnimationFrame(step);
+    };
+    preview.playing = requestAnimationFrame(step);
+  }
+  $('lent-preview-btn').onclick = openPreview;
+  $('lent-preview-tilt').addEventListener('input', () => { stopPlay(); drawPreview(); });
+  $('lent-preview-lenses').addEventListener('change', drawPreview);
+  $('lent-preview-play').onclick = play;
+  $('lent-preview-dialog').addEventListener('close', () => {
+    stopPlay();
+    preview.pics = null;
+    preview.lensPics = null;
+  });
+
   async function savePrint() {
     if (!state.info) return;
     const s = settings();
