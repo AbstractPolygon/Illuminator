@@ -24,7 +24,6 @@ const { pathToFileURL } = require('node:url');
 const net = require('node:net');
 const lytroUsb = require('./lytro-usb.cjs');
 const lytroScsi = require('./lytro-scsi-win.cjs');
-const lytroUsbMac = require('./lytro-usb-mac.cjs');
 const { LytroCamera } = require('./lytro-protocol.cjs');
 const lytroWifi = require('./lytro-wifi.cjs');
 
@@ -232,10 +231,9 @@ const log = (line) => {
   if (usbLog.length > 400) usbLog.shift();
 };
 
-// macOS keeps the first generation camera for its storage driver unless the app has administrator rights (lytro-usb-mac.cjs): the password is
-// asked for once each time the camera is plugged in (device keys asked for; a key leaves when its camera is unplugged).
-const helperAsked = new Set();
-const needsMacHelper = (found, err) => process.platform === 'darwin' && found.product === lytroUsb.FIRST_GENERATION_PRODUCT && /LIBUSB_ERROR_ACCESS/.test(err.message) && !(process.getuid && process.getuid() === 0);
+// macOS keeps the first generation camera for its storage driver: libusb may take it only with Apple's device-access entitlement or as root
+// (LIBUSB_ERROR_ACCESS otherwise), and the app runs as neither. Say so, and what does work: the camera's Wi-Fi.
+const macKeepsCamera = (found, err) => process.platform === 'darwin' && found.product === lytroUsb.FIRST_GENERATION_PRODUCT && /LIBUSB_ERROR_ACCESS/.test(err.message);
 
 async function connectUsb(found) {
   // The first generation camera on Windows is reached through its disk, as
@@ -244,11 +242,8 @@ async function connectUsb(found) {
   try {
     return await lytroUsb.connect(found, log);
   } catch (err) {
-    if (!needsMacHelper(found, err)) throw err;
-    if (helperAsked.has(found.key)) throw new Error('macOS needs your administrator password to reach the first generation camera over USB. Unplug the camera and plug it in again to be asked again.');
-    helperAsked.add(found.key);
-    log(`macOS keeps the camera for its storage driver (${err.message}): starting the helper`);
-    return lytroUsbMac.connectWithHelper(found, log);
+    if (!macKeepsCamera(found, err)) throw err;
+    throw new Error(`macOS keeps the first generation camera for its own disk driver, so Illuminator cannot reach it over USB (${err.message}). Import over the camera's Wi-Fi instead: + Connect over Wi-Fi, under the library.`);
   }
 }
 
@@ -304,7 +299,6 @@ async function scanLytroUsb() {
   const keys = new Set(present.map((d) => d.key));
   for (const key of [...usbCameras.keys()]) {
     if (keys.has(key)) continue;
-    helperAsked.delete(key);
     await withDevice(key, async () => {
       const c = usbCameras.get(key);
       if (!c) return;
