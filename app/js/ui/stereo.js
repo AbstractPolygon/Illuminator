@@ -2,6 +2,7 @@
 import { toImageData } from '../engine.js';
 import { geometry } from '../core/geometry.js';
 import { showInVr, vrSupported } from '../vr.js';
+import { fillPicture, hasHoles } from '../core/fillmodel.js';
 
 export function initStereo({ $, state, engine, showProgress, backToCamera, setFullRes, refresh, cameraParams, withPivotZoom, pivotFor, cropValues, drawGeometry, canRender, savePhoto, baseName, showError, hideProgress, showSliderValue }) {
   // Show 3D: the live picture in the chosen 3D type.
@@ -79,9 +80,16 @@ export function initStereo({ $, state, engine, showProgress, backToCamera, setFu
     const shots = [];
     for (const u of eyes) {
       showProgress('Rendering 3D', shots.length / 2);
-      const msg = await engine.request('view', eyeParams(p, u), { onProgress: () => {} });
+      // (Camera > Perspective > Fill with AI: the parts past the lens's opening no view saw, painted by MI-GAN)
+      const fill = $('view-fill').checked && !$('view-fill').disabled;
+      const msg = await engine.request('view', { ...eyeParams(p, u), holes: fill }, { onProgress: () => {} });
       if (!msg || !(msg.pixels || msg.bitmap)) throw new Error('3D rendering was cancelled.');
-      shots.push(toImageData(msg));
+      if (fill && hasHoles(msg.holes)) {
+        showProgress('Filling with AI', shots.length / 2);
+        const img = toImageData(msg);
+        shots.push(await fillPicture(img, msg.holes));
+        if (!(img instanceof ImageData) && img.close) img.close();
+      } else shots.push(toImageData(msg));
     }
     const pivots = withPivotZoom(eyes.map((u) => pivotFor(u, p.v, p.alpha, eyeParams(p, u).aperture)));
     const base = { orientation: +$('orientation').value || 1, angle: +$('straighten').value, crop: cropValues() };

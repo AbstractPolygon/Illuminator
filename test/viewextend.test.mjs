@@ -2,7 +2,7 @@
 // opening and moved on to the edge is about twice as close to the real edge view as the half view itself). Here, on a synthetic scene of known depth.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { withExtension, reachProfile, reachToward } from '../app/js/core/viewextend.js';
+import { withExtension, reachProfile, reachToward, uncoveredMask, depthRange } from '../app/js/core/viewextend.js';
 
 // A scene: a background with a gradient at depth 0 and a square nearer, at depth -1 (near is the smaller depth), seen from viewpoint u (k = 1 pixel per unit of depth per unit of u).
 function scene(w, h, u, k = 1) {
@@ -82,4 +82,22 @@ test('reach: as far as the lens images stay bright enough in each direction, les
   // A dimmer lens edge than the level counts as too dark; the floor is the base radius.
   const dim = reachProfile({ bins, rMax, gain: gain.map((g) => (g ? 4 : 0)) }, 2, 0);
   assert.equal(reachToward(dim, 1, 0), 2);
+});
+
+test('the uncovered mask: background no view saw beside a near object, and the scene brought in at the border', () => {
+  const w = 50;
+  const h = 50;
+  const edge = scene(w, h, 3);
+  const mask = uncoveredMask(w, h, edge.depth, w, h, [3, 0], [8, 0], 0, 1, depthRange(edge.depth));
+  // The square goes from 17..27 (viewpoint 3) to 12..22 (viewpoint 8): 22..27 on its rows was behind it in every view.
+  const row = (y) => Array.from({ length: w }, (_, x) => mask[y * w + x]);
+  const r = row(25);
+  for (let x = 23; x < 27; x++) assert.equal(r[x], 1, `uncovered at ${x}`);
+  for (const x of [5, 15, 35, 45]) assert.equal(r[x], 0, `seen at ${x}`);
+  // Away from the square nothing is uncovered (the background does not move: its depth is the reference).
+  assert.equal(row(5).reduce((a, b) => a + b, 0), 0);
+  // Moving the background (reference at the square's depth): the far side of the picture brings in what was outside it.
+  const moved = uncoveredMask(w, h, edge.depth, w, h, [3, 0], [8, 0], -1, 1, depthRange(edge.depth));
+  assert.equal(moved[5 * w + 0], 1, 'left border brought in');
+  assert.equal(moved[5 * w + 25], 0);
 });

@@ -36,6 +36,7 @@ import { preColorKey } from './core/precolorkey.js';
 import { colorSettings as buildColorSettings, renderSettings as buildRenderSettings, FRINGES } from './settingsmap.js';
 import { initStereo } from './ui/stereo.js';
 import { initLenticular } from './ui/lenticular.js';
+import { FILL_MODEL, fillModelState, downloadFillModel, removeFillModel } from './core/fillmodel.js';
 import { initFrameRate } from './ui/framerate.js';
 import { initUpdates, updateCheckOn } from './ui/updates.js';
 import { initLocalAdjustments } from './ui/localadjust.js';
@@ -3389,6 +3390,62 @@ async function refreshDepthModels() {
   showDepthBlend();
 }
 refreshDepthModels().catch(() => {});
+
+// Settings > Fill model (core/fillmodel.js): ticking downloads MI-GAN, unticking deletes it; while it is downloaded, Camera > Perspective > Fill with AI can be turned on.
+let fillModelBusy = false;
+async function refreshFillModel() {
+  const list = $('fill-model-list');
+  if (!list.children.length) {
+    const row = document.createElement('label');
+    row.className = 'check model-row';
+    const box = Object.assign(document.createElement('input'), { type: 'checkbox' });
+    box.dataset.model = FILL_MODEL.id;
+    const text = document.createElement('span');
+    text.textContent = `${FILL_MODEL.name}, ${FILL_MODEL.note} (${Math.round(FILL_MODEL.size / 1e6)} MB)`;
+    const status = Object.assign(document.createElement('span'), { className: 'hint model-state' });
+    row.append(box, text, status);
+    list.append(row);
+    box.onchange = async () => {
+      if (fillModelBusy) {
+        box.checked = !box.checked;
+        return;
+      }
+      fillModelBusy = true;
+      box.disabled = true;
+      try {
+        if (box.checked) {
+          status.textContent = 'Downloading… 0%';
+          await downloadFillModel((p) => { status.textContent = `Downloading… ${Math.round(p * 100)}%`; });
+        } else {
+          await removeFillModel();
+        }
+        status.textContent = '';
+      } catch (err) {
+        box.checked = false;
+        status.textContent = err && err.message ? err.message : String(err);
+      }
+      fillModelBusy = false;
+      await refreshFillModel();
+    };
+  }
+  const have = (await fillModelState()) === 'ready';
+  const box = list.querySelector(`input[data-model="${FILL_MODEL.id}"]`);
+  box.checked = have;
+  box.disabled = false;
+  $('view-fill').disabled = !have;
+  // (a preference kept in this browser, not a photo's edit)
+  let wanted = false;
+  try {
+    wanted = localStorage.getItem('illuminator.viewFill') === '1';
+  } catch {}
+  $('view-fill').checked = have && wanted;
+}
+$('view-fill').addEventListener('change', () => {
+  try {
+    localStorage.setItem('illuminator.viewFill', $('view-fill').checked ? '1' : '0');
+  } catch {}
+});
+refreshFillModel().catch(() => {});
 
 async function refreshUpscaleModels() {
   const select = $('upscale-method');

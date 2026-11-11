@@ -56,7 +56,7 @@ import { parseMasks, activeMasks, packMasks, resolveMasks, hasSpatial, applySpat
 import { GpuRenderer } from './gpu/renderer.js';
 import { lytroSplatGpu } from './gpu/lytroengine.js';
 import { debugFlags, hook, setHook } from './core/debugflags.js';
-import { withExtension, depthRange, searchSteps, reachProfile, reachToward } from './core/viewextend.js';
+import { withExtension, depthRange, searchSteps, reachProfile, reachToward, uncoveredMask } from './core/viewextend.js';
 import { preColorKey, baseKept } from './core/precolorkey.js';
 import { helperCount, renderViews } from './viewpool.js';
 import { depthHelperCount, createDepthPool } from './depthpool.js';
@@ -177,6 +177,14 @@ async function extendGpu(id, tex, w, h, split, ref) {
 async function extendCpu(id, rgb, w, h, split, ref) {
   if (!split || !(await ensureViewDepth(id))) return rgb;
   return withExtension(rgb, w, h, state.depth.alpha, state.sampler.outW, state.sampler.outH, [split.u, split.v], split.total, ref, state.settings.detail, viewDepthRange());
+}
+
+// The pixels of a picture moved on past the lens edge that no view saw (core/viewextend.js uncoveredMask), for Fill with AI, which paints them in the page: sent with the
+// picture when the request asks for `holes`. Null when nothing was moved on.
+async function holesFor(id, split, ref) {
+  if (!split || !(await ensureViewDepth(id))) return null;
+  const { outW, outH } = state.sampler;
+  return uncoveredMask(outW, outH, state.depth.alpha, outW, outH, [split.u, split.v], split.total, ref, state.settings.detail, viewDepthRange());
 }
 
 // Highlight views: eight on the darker outer ring of each lens image
@@ -725,9 +733,9 @@ function viewPxPerUnit() {
   return 14 * state.settings.detail;
 }
 
-function frameMessage(id, index, rgb, ctx, cs = state) {
+function frameMessage(id, index, rgb, ctx, cs = state, holes = null) {
   const pixels = toPixels(rgb, state.sampler.outW, state.sampler.outH, ctx, cs);
-  post({ id, type: 'frame', index, width: state.sampler.outW, height: state.sampler.outH, pixels: pixels.buffer }, [pixels.buffer]);
+  post({ id, type: 'frame', index, width: state.sampler.outW, height: state.sampler.outH, pixels: pixels.buffer, ...(holes ? { holes } : {}) }, [pixels.buffer]);
 }
 
 // Each photo's sampler (and its lens vignetting, the other part of opening that depends only on the photo) is kept with that photo, the last few photos' in memory, so a photo
@@ -1039,7 +1047,7 @@ async function open({ id, bytes, synthetic, userDepth = null, depthCache = null,
 // Animation frames along `path`: [{ u, v }] with the shared focus, aperture
 // and blur, or with any of them per frame ({ u, v, alpha, aperture, dof },
 // for keyframed animations).
-async function frames({ id, job, path, alpha = 0, aperture = 0, dof = 0, bokeh }) {
+async function frames({ id, job, path, alpha = 0, aperture = 0, dof = 0, bokeh, holes = false }) {
   const list = path.map((f) => ({ u: f.u, v: f.v, alpha: f.alpha ?? alpha, aperture: f.aperture ?? aperture, dof: f.dof ?? dof, bokeh: f.bokeh ?? bokeh, masks: f.masks || null, color: f.color || null }));
   if (state.pp) return processedFrames({ id, job, kind: 'frames', list });
   requireRaw();
@@ -1054,7 +1062,8 @@ async function frames({ id, job, path, alpha = 0, aperture = 0, dof = 0, bokeh }
       const at = split ? { ...f, u: split.u, v: split.v } : f;
       let tex = f.aperture > 0 ? state.gpu.refocusTo(f.alpha, apertureOptions(at)) : await singleView(id, at.u, at.v);
       tex = await extendGpu(id, tex, outW, outH, split, f.aperture > 0 ? f.alpha : 0);
-      await presentGpu(id, tex, outW, outH, { alpha: f.alpha, dof: f.dof, bokeh: f.bokeh, color: f.color, pxPerUnit: viewPxPerUnit(), parallax: true, masks: { focus: f.alpha, overrides: f.masks, view: viewOf(at.u, at.v) } }, { id, type: 'frame', index: i });
+      const unseen = holes ? await holesFor(id, split, f.aperture > 0 ? f.alpha : 0) : null;
+      await presentGpu(id, tex, outW, outH, { alpha: f.alpha, dof: f.dof, bokeh: f.bokeh, color: f.color, pxPerUnit: viewPxPerUnit(), parallax: true, masks: { focus: f.alpha, overrides: f.masks, view: viewOf(at.u, at.v) } }, { id, type: 'frame', index: i, ...(unseen ? { holes: unseen } : {}) });
       await tick();
       continue;
     }
@@ -1063,7 +1072,7 @@ async function frames({ id, job, path, alpha = 0, aperture = 0, dof = 0, bokeh }
     let rgb = f.aperture > 0 ? refocusRGB(f.alpha, apertureOptions(at)) : await singleView(id, at.u, at.v);
     rgb = await extendCpu(id, rgb, outW, outH, split, f.aperture > 0 ? f.alpha : 0);
     rgb = await applyParallax(id, rgb, outW, outH, at.u, at.v);
-    frameMessage(id, i, await withDepthOfField(id, rgb, outW, outH, f.alpha, f.dof, 1, f.bokeh), { focus: f.alpha, overrides: f.masks, view: viewOf(at.u, at.v) }, colorState(f.color));
+    frameMessage(id, i, await withDepthOfField(id, rgb, outW, outH, f.alpha, f.dof, 1, f.bokeh), { focus: f.alpha, overrides: f.masks, view: viewOf(at.u, at.v) }, colorState(f.color), holes ? await holesFor(id, split, f.aperture > 0 ? f.alpha : 0) : null);
     await tick();
   }
   return { done: true };
@@ -1877,7 +1886,7 @@ function schedulePrefetch() {
   }, 1500);
 }
 
-async function view({ id, u, v, alpha = 0, aperture = 0, dof = 0, bokeh, draft = false, deferNr = false, final = false }) {
+async function view({ id, u, v, alpha = 0, aperture = 0, dof = 0, bokeh, draft = false, deferNr = false, final = false, holes = false }) {
   if (state.pp) return processedView({ id, u, v, alpha, aperture, dof, bokeh });
   requireRaw();
   // (past the lens edge: rendered at the edge, then moved on by the depth)
@@ -1895,6 +1904,10 @@ async function view({ id, u, v, alpha = 0, aperture = 0, dof = 0, bokeh, draft =
     const key = JSON.stringify([state.gen, asked, alpha, aperture, dof, dof > 0 && draft, bokeh || null, state.settings.mvDenoise, state.detail, packed && packed.spatial ? packed : null]);
     // The GPU time of each view, for the photo info (where available).
     const message = { id, type: 'result', gpuMs: state.gpu.gpuMs() };
+    if (holes) {
+      const unseen = await holesFor(id, split, aperture > 0 ? alpha : 0);
+      if (unseen) message.holes = unseen;
+    }
     const mode = draft ? 'draft' : final ? 'final' : deferNr ? 'defer' : undefined;
     state.gpu.beginTiming();
     if (state.kept && state.kept.key === key) {
@@ -1927,7 +1940,8 @@ async function view({ id, u, v, alpha = 0, aperture = 0, dof = 0, bokeh, draft =
   rgb = await withDepthOfField(id, rgb, state.sampler.outW, state.sampler.outH, alpha, dof, 1, bokeh);
   const skipNr = draft || deferNr;
   const pixels = toPixels(rgb, state.sampler.outW, state.sampler.outH, { focus: alpha, view: viewOf(u, v) }, state, false, false, skipNr);
-  post({ id, type: 'result', width: state.sampler.outW, height: state.sampler.outH, pixels: pixels.buffer, nrDeferred: deferNr && !draft && engineNrOn(state, state.sampler.outW) }, [pixels.buffer]);
+  const unseen = holes ? await holesFor(id, split, aperture > 0 ? alpha : 0) : null;
+  post({ id, type: 'result', width: state.sampler.outW, height: state.sampler.outH, pixels: pixels.buffer, nrDeferred: deferNr && !draft && engineNrOn(state, state.sampler.outW), ...(unseen ? { holes: unseen } : {}) }, [pixels.buffer]);
   return undefined;
 }
 
