@@ -18,6 +18,9 @@ const notFound = (err) => err && (err.code === 'ENOENT' || err.code === 'ENOTDIR
 //  videoMemory(), lfpModule(), memoryReserve { ram, vram }
 function createIpc(deps) {
   const { fs, fsp, path, os, dialog, shell, app, camera, getSettings, saveSettings, getCameras, summary, pollCameras, scanSoon, withWin, videoMemory, lfpModule } = deps;
+  // Joining the camera's Wi-Fi network (a stand-in in tests), and how long to keep trying the camera after joining.
+  const wifiJoin = deps.wifiJoin || require('./wifijoin.cjs');
+  const wifiWaitMs = deps.wifiWaitMs ?? 25000;
   const platform = deps.platform || process.platform;
   const reserve = deps.memoryReserve || { ram: 0, vram: 0 };
   const settings = () => getSettings();
@@ -114,15 +117,6 @@ function createIpc(deps) {
   let tempCounter = 0;
   const tempName = (target) => `${target}.${process.pid}-${++tempCounter}-${Math.random().toString(36).slice(2, 8)}.part`;
 
-  // A dotted IPv4 address in a private range (10/8, 172.16/12, 192.168/16): where a camera's own Wi-Fi network puts it.
-  function privateIpv4(text) {
-    const m = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(text);
-    if (!m) return false;
-    const [a, b, c, d] = m.slice(1).map(Number);
-    if ([a, b, c, d].some((n) => n > 255)) return false;
-    return a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168);
-  }
-
   function findCamera(id) {
     const c = getCameras().find((x) => x.id === id);
     if (!c) throw new Error('That camera is no longer connected.');
@@ -193,14 +187,43 @@ function createIpc(deps) {
     // The page saw a Lytro plugged in over USB (app/js/main.js, WebUSB).
     'camera-usb-connected': () => scanSoon(),
 
-    // The first generation camera over Wi-Fi (electron/lytro-wifi.cjs): the person has joined the camera's network; the address is the camera's
-    // (10.100.1.1 unless given), and only an address on a private network is taken, so the page cannot have the app reach out anywhere else.
-    'camera-wifi-connect': async (host) => {
-      const address = host == null || host === '' ? undefined : String(host).trim();
-      if (address !== undefined && !privateIpv4(address)) throw new Error(`${address} is not an address on a local network (such as 10.100.1.1).`);
-      const entry = await camera.connectWifi(address ? { host: address } : {});
-      scanSoon();
-      return { id: entry.id, label: entry.label, count: entry.files.length };
+    // The first generation camera over Wi-Fi (electron/lytro-wifi.cjs). The nearby Wi-Fi networks, to choose the camera's (electron/wifijoin.cjs).
+    'camera-wifi-networks': async () => wifiJoin.listNetworks(),
+    // Joins the camera's network with its password (unless `join` is false: the computer is on it already), then reaches the camera, trying again
+    // for a while as the computer gets an address on the new network. The password goes to the system's Wi-Fi tool only. Three ways, in turn:
+    //   the first generation camera's protocol, at its fixed address and at the first address of the network joined (the ILLUM may speak it too);
+    //   Android debugging over the network, where the camera offers it (the ILLUM runs Android): the camera then shows as on USB debugging;
+    //   neither: the ports the camera has open are reported, for working out how it talks.
+    'camera-wifi-connect': async ({ network = '', password = '', join = true } = {}) => {
+      if (join) {
+        if (!network) throw new Error('Choose the camera\'s Wi-Fi network.');
+        await wifiJoin.joinNetwork(String(network), String(password));
+      }
+      let entry = null;
+      for (const until = Date.now() + (join ? wifiWaitMs : 0); ;) {
+        try {
+          entry = await camera.connectWifiAuto({});
+          break;
+        } catch {
+          if (Date.now() >= until) break;
+          await new Promise((r) => setTimeout(r, 1500));
+        }
+      }
+      if (entry) {
+        scanSoon();
+        return { id: entry.id, label: entry.label, count: entry.files.length, via: 'lytro' };
+      }
+      const probed = await camera.probeWifi({});
+      const adb = probed.find((p) => p.open.includes(5555));
+      if (adb) {
+        await camera.adbConnectWifi(adb.host);
+        scanSoon();
+        return { id: `adb:${adb.host}:5555`, label: 'Lytro camera (Android debugging over Wi-Fi)', count: null, via: 'adb' };
+      }
+      const seen = probed.filter((p) => p.open.length).map((p) => `${p.host}: ${p.open.join(', ')}`);
+      throw new Error(seen.length
+        ? `This computer is on the camera's network, but the camera did not answer the way Illuminator knows. Open ports: ${seen.join('; ')}. Please send this message, so the camera can be supported.`
+        : 'No camera answered on this network. Is the camera\'s Wi-Fi on, and is this computer joined to the camera\'s network?');
     },
     'camera-wifi-disconnect': async (id) => {
       const done = await camera.disconnectWifi(String(id || ''));

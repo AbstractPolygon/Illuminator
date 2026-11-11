@@ -1295,13 +1295,18 @@
   <dialog id="camera-wifi-dialog">
     <form method="dialog">
       <h2>Connect to a camera over Wi-Fi</h2>
-      <p class="hint">For first generation Lytro cameras (firmware 1.2 or later). The ILLUM cannot be reached this way; plug it in with its USB cable instead.</p>
+      <p class="hint">For first generation Lytro cameras (firmware 1.2 or later) and the ILLUM. The ILLUM over Wi-Fi is new and not yet known to work: if it does not connect, the message says what the camera answered.</p>
       <ol class="hint camera-wifi-steps">
-        <li>On the camera, swipe up on the screen to bring up the taskbar, then tap the Wi-Fi icon.</li>
-        <li>On this computer, join the camera's Wi-Fi network. The computer is off the internet while it is joined.</li>
+        <li>Turn on the camera's Wi-Fi. First generation: swipe up on the screen to bring up the taskbar, then tap the Wi-Fi icon. ILLUM: Settings, iOS Connect, set Access Point to On; the camera shows its network name and password.</li>
+        <li>Choose the camera's network below and type its password. This computer then joins it, and is off the internet while it is joined.</li>
         <li>Press Connect. Keep the camera on and near the computer while photos are copied.</li>
       </ol>
-      <label title="The camera's address on its network: 10.100.1.1 unless it says otherwise">Camera address <input id="camera-wifi-address" type="text" value="10.100.1.1" inputmode="decimal" autocomplete="off" spellcheck="false"></label>
+      <div class="camera-wifi-fields">
+        <label for="camera-wifi-network">Camera's network</label>
+        <span class="camera-wifi-pick"><select id="camera-wifi-network"></select><button type="button" id="camera-wifi-refresh" title="Looks for Wi-Fi networks again">Refresh</button></span>
+        <label for="camera-wifi-password">Password</label>
+        <input id="camera-wifi-password" type="password" autocomplete="off" spellcheck="false" maxlength="63">
+      </div>
       <p id="camera-wifi-status" class="hint" role="status" aria-live="polite"></p>
       <menu>
         <button type="button" id="camera-wifi-disconnect" hidden>Disconnect</button>
