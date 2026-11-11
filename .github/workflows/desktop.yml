@@ -62,8 +62,25 @@ jobs:
       - name: Build
         run: npx electron-builder ${{ matrix.args }} --publish never
         env:
-          # No signing certificate: build unsigned.
+          # No signing certificate: no Developer ID signature. The macOS app still gets an ad-hoc one (build/mac-adhoc-sign.cjs), without which
+          # Apple Silicon calls it damaged and refuses to open it.
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+
+      - name: Check the macOS apps' signatures
+        if: matrix.name == 'macos'
+        run: |
+          for app in dist/mac*/*.app; do
+            echo "$app"
+            codesign --verify --deep --strict --verbose=2 "$app"
+            codesign -dv "$app" 2>&1 | grep -E 'Signature=adhoc|Identifier='
+          done
+          # The disk images hold the same signed apps: mount each and check the app inside.
+          for dmg in dist/*.dmg; do
+            mnt=$(mktemp -d)
+            hdiutil attach "$dmg" -nobrowse -readonly -mountpoint "$mnt" > /dev/null
+            codesign --verify --deep --strict "$mnt"/*.app && echo "$dmg: app signature valid"
+            hdiutil detach "$mnt" > /dev/null
+          done
 
       - name: Check the MSI installer's desktop option
         if: matrix.name == 'windows'
@@ -194,7 +211,7 @@ jobs:
           - **Linux:** \`Illuminator-${version}-linux-amd64.deb\` (Debian, Ubuntu) or \`Illuminator-${version}-linux-x86_64.AppImage\` (other distributions)
           - **Web:** \`Illuminator-${version}-web.zip\`, to unzip onto any static web server
 
-          The installers are not code signed. On Windows, choose *More info → Run anyway* if SmartScreen warns. On macOS, right-click the app and choose *Open* the first time. On Linux, make the AppImage executable (\`chmod +x\`) before running it.
+          The installers are not code signed. On Windows, choose *More info → Run anyway* if SmartScreen warns. On macOS, open the app once; if macOS says it cannot check it, open System Settings → Privacy & Security and choose *Open Anyway*. On Linux, make the AppImage executable (\`chmod +x\`) before running it.
           NOTES
           files=(dist/*.exe dist/*.msi dist/*.dmg dist/*.AppImage dist/*.deb dist/*.zip)
           # Run again for a version already released: replace its files and notes.

@@ -42,6 +42,7 @@
         "name": "Lytro light field photo"
       }
     ],
+    "afterPack": "build/mac-adhoc-sign.cjs",
     "mac": {
       "category": "public.app-category.photography",
       "target": [
