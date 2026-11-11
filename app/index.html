@@ -665,7 +665,7 @@
         <details class="subpanel">
           <summary><h3>Perspective</h3></summary>
           <label title="Drag on the picture to move the viewpoint">Viewpoint <output id="viewpoint">Center</output></label>
-          <label title="How far the viewpoint can move, as a share of the lens's opening. Up to 100% uses only what the camera recorded; past it, the picture from the edge is moved on by the depth map, which can smear the edges of near objects and the background they uncover. Applies to dragging the picture, animations, 3D and lenticular prints (a Full sensor render keeps to 100%)">Reach <output data-for="view-reach" for="view-reach">100%</output>
+          <label title="How far the viewpoint can move, as a share of the lens's opening. Up to 100% uses only what the camera recorded; with the aperture closed (f/22, as the picture opens), real views go farther, as far as the lens images stay bright enough, often 120 to 150% depending on the photo and the direction. Past that, the picture from the edge is moved on by the depth map, which can smear the edges of near objects and the background they uncover. Applies to dragging the picture, animations, 3D and lenticular prints (a Full sensor render keeps to 100%)">Reach <output data-for="view-reach" for="view-reach">100%</output>
             <input id="view-reach" type="range" min="100" max="300" step="10" value="100" data-default="100">
           </label>
           <label class="check" title="Choose the depth that stays still when the viewpoint moves; otherwise it is the focus plane (or, with the aperture closed, the camera's focus)"><input id="pivot-on" type="checkbox"> Custom pivot</label>

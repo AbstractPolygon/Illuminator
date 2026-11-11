@@ -56,7 +56,7 @@ import { parseMasks, activeMasks, packMasks, resolveMasks, hasSpatial, applySpat
 import { GpuRenderer } from './gpu/renderer.js';
 import { lytroSplatGpu } from './gpu/lytroengine.js';
 import { debugFlags, hook, setHook } from './core/debugflags.js';
-import { withExtension, depthRange, searchSteps } from './core/viewextend.js';
+import { withExtension, depthRange, searchSteps, reachProfile, reachToward } from './core/viewextend.js';
 import { preColorKey, baseKept } from './core/precolorkey.js';
 import { helperCount, renderViews } from './viewpool.js';
 import { depthHelperCount, createDepthPool } from './depthpool.js';
@@ -145,9 +145,20 @@ function apertureRadius() {
 function viewEdge() {
   return apertureRadius() * (debugFlags().reachLimit || 1);
 }
-function splitView(u = 0, v = 0) {
-  const R = viewEdge();
+// A single view (no aperture: one viewpoint, not a refocus over many) can go farther: as far as the lens images stay bright enough in that direction, measured for each
+// photo from its vignetting (core/viewextend.js reachProfile). A refocused picture is made from the views within the aperture radius, so it stops there.
+function singleViewEdge(u, v) {
+  if (!state.lf || !state.lf.raw) return viewEdge();
+  if (!state.vignetting) state.vignetting = estimateVignetting(state.lf.raw, state.lf.cam, state.dev, state.lf.grid);
+  if (!state.reachProfile || state.reachProfile.of !== state.vignetting) {
+    state.reachProfile = { of: state.vignetting, profile: reachProfile(state.vignetting, apertureRadius(), state.lf.grid.rotation || 0) };
+  }
+  return reachToward(state.reachProfile.profile, u, v) * (debugFlags().reachLimit || 1);
+}
+function splitView(u = 0, v = 0, single = false) {
   const len = Math.hypot(u, v);
+  if (!(len > 0)) return null;
+  const R = single ? singleViewEdge(u, v) : viewEdge();
   if (!(R > 0) || !(len > R * 1.0001)) return null;
   const k = R / len;
   return { u: u * k, v: v * k, total: [u, v] };
@@ -1039,7 +1050,7 @@ async function frames({ id, job, path, alpha = 0, aperture = 0, dof = 0, bokeh }
     if (state.jobs.frames !== job) return { cancelled: true };
     const f = list[i];
     if (state.gpu) {
-      const split = splitView(f.u, f.v);
+      const split = splitView(f.u, f.v, !(f.aperture > 0));
       const at = split ? { ...f, u: split.u, v: split.v } : f;
       let tex = f.aperture > 0 ? state.gpu.refocusTo(f.alpha, apertureOptions(at)) : await singleView(id, at.u, at.v);
       tex = await extendGpu(id, tex, outW, outH, split, f.aperture > 0 ? f.alpha : 0);
@@ -1047,7 +1058,7 @@ async function frames({ id, job, path, alpha = 0, aperture = 0, dof = 0, bokeh }
       await tick();
       continue;
     }
-    const split = splitView(f.u, f.v);
+    const split = splitView(f.u, f.v, !(f.aperture > 0));
     const at = split ? { ...f, u: split.u, v: split.v } : f;
     let rgb = f.aperture > 0 ? refocusRGB(f.alpha, apertureOptions(at)) : await singleView(id, at.u, at.v);
     rgb = await extendCpu(id, rgb, outW, outH, split, f.aperture > 0 ? f.alpha : 0);
@@ -1871,7 +1882,7 @@ async function view({ id, u, v, alpha = 0, aperture = 0, dof = 0, bokeh, draft =
   requireRaw();
   // (past the lens edge: rendered at the edge, then moved on by the depth)
   const asked = [u, v];
-  const split = splitView(u, v);
+  const split = splitView(u, v, !(aperture > 0));
   if (split) ({ u, v } = split);
   if (state.gpu) {
     const { outW, outH } = state.sampler;

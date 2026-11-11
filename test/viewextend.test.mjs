@@ -2,7 +2,7 @@
 // opening and moved on to the edge is about twice as close to the real edge view as the half view itself). Here, on a synthetic scene of known depth.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { withExtension } from '../app/js/core/viewextend.js';
+import { withExtension, reachProfile, reachToward } from '../app/js/core/viewextend.js';
 
 // A scene: a background with a gradient at depth 0 and a square nearer, at depth -1 (near is the smaller depth), seen from viewpoint u (k = 1 pixel per unit of depth per unit of u).
 function scene(w, h, u, k = 1) {
@@ -59,4 +59,27 @@ test('the reference depth stays still, and no move past the edge changes nothing
   for (const x of [20, 24, 27]) assert.equal(out[(25 * w + x) * 3 + 2], 1, `square still at ${x}`);
   // The background (depth 0, one unit farther than the reference) comes from 4 pixels to the left: red x / w.
   assert.ok(Math.abs(out[(5 * w + 10) * 3] - 6 / w) < 1e-6);
+});
+
+test('reach: as far as the lens images stay bright enough in each direction, less a margin, never short of the aperture radius', () => {
+  const bins = 17;
+  const rMax = 7;
+  const gain = new Float32Array(bins * bins * 3);
+  // Bright (half as bright as the center, gain 2) out to radius 5 to the right, 3 elsewhere; dark (gain 0) beyond.
+  for (let bv = 0; bv < bins; bv++) {
+    for (let bu = 0; bu < bins; bu++) {
+      const x = ((bu + 0.5) / bins) * 2 * rMax - rMax;
+      const y = ((bv + 0.5) / bins) * 2 * rMax - rMax;
+      const lim = x > 0 && Math.abs(y) < 1 ? 5 : 3;
+      for (let c = 0; c < 3; c++) gain[(bv * bins + bu) * 3 + c] = Math.hypot(x, y) < lim ? 2 : 0;
+    }
+  }
+  const p = reachProfile({ bins, rMax, gain }, 2, 0);
+  const right = reachToward(p, 1, 0);
+  const up = reachToward(p, 0, 1);
+  assert.ok(right > 4 && right < 5, `right ${right}`);
+  assert.ok(up > 2 && up < 3, `up ${up}`);
+  // A dimmer lens edge than the level counts as too dark; the floor is the base radius.
+  const dim = reachProfile({ bins, rMax, gain: gain.map((g) => (g ? 4 : 0)) }, 2, 0);
+  assert.equal(reachToward(dim, 1, 0), 2);
 });

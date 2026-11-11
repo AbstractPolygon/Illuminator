@@ -95,3 +95,54 @@ export function withExtension(rgb, w, h, depth, dw, dh, edge, total, ref, detail
   }
   return out;
 }
+
+// How far a single view can go in each direction before the lens images give out (Perspective > Reach): from the vignetting map (core/superres.js estimateVignetting:
+// each channel's gain over offsets within the lens, 0 where too dark), the farthest offset along each of `dirs` directions where every channel is still at least `level` of
+// the lens center's brightness, less `margin` sensor pixels for the sampling's footprint, and never less than `base` (the aperture radius the app has always used). The
+// views are in the lens grid's frame, the map in the sensor's: `rotation` is the grid's. Returns { dirs, radius: Float32Array } in sensor pixels.
+export const REACH_LEVEL = 0.4;
+export function reachProfile(vg, base, rotation = 0, { level = REACH_LEVEL, margin = 0.5, dirs = 72 } = {}) {
+  const { bins, rMax, gain } = vg;
+  const tiles = (vg.tilesX || 1) * (vg.tilesY || 1);
+  const mid = Math.floor((vg.tilesY || 1) / 2) * (vg.tilesX || 1) + Math.floor((vg.tilesX || 1) / 2);
+  const offset = (tiles > 1 ? mid : 0) * bins * bins * 3;
+  const bright = (x, y) => {
+    const bu = Math.floor(((x / rMax + 1) / 2) * bins);
+    const bv = Math.floor(((y / rMax + 1) / 2) * bins);
+    if (bu < 0 || bv < 0 || bu >= bins || bv >= bins) return 0;
+    let m = Infinity;
+    for (let c = 0; c < 3; c++) {
+      const g = gain[offset + (bv * bins + bu) * 3 + c];
+      m = Math.min(m, g > 0 ? 1 / g : 0);
+    }
+    return m;
+  };
+  const cos = Math.cos(rotation);
+  const sin = Math.sin(rotation);
+  const radius = new Float32Array(dirs);
+  for (let k = 0; k < dirs; k++) {
+    const a = (2 * Math.PI * k) / dirs;
+    const ux = Math.cos(a);
+    const uy = Math.sin(a);
+    let good = 0;
+    for (let r = 0; r <= rMax; r += 0.1) {
+      const u = ux * r;
+      const v = uy * r;
+      if (bright(cos * u - sin * v, sin * u + cos * v) < level) break;
+      good = r;
+    }
+    radius[k] = Math.max(base, good - margin);
+  }
+  return { dirs, radius };
+}
+
+// The reach toward (u, v) (interpolated between the profile's directions).
+export function reachToward(profile, u, v) {
+  const { dirs, radius } = profile;
+  let a = Math.atan2(v, u);
+  if (a < 0) a += 2 * Math.PI;
+  const f = (a / (2 * Math.PI)) * dirs;
+  const i = Math.floor(f) % dirs;
+  const t = f - Math.floor(f);
+  return radius[i] * (1 - t) + radius[(i + 1) % dirs] * t;
+}
