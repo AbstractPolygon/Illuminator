@@ -20,7 +20,7 @@ function crc32(bytes) {
   return (c ^ 0xffffffff) >>> 0;
 }
 
-function chunk(type, data) {
+export function pngChunk(type, data) {
   const out = new Uint8Array(12 + data.length);
   const view = new DataView(out.buffer);
   view.setUint32(0, data.length);
@@ -59,10 +59,10 @@ export async function encodePng16(rgb, width, height, profile = 'srgb') {
   header[9] = 2; // truecolor
   const parts = [
     Uint8Array.of(137, 80, 78, 71, 13, 10, 26, 10),
-    chunk('IHDR', header),
-    ...(profile && profile !== 'srgb' ? [await pngProfileChunk(profile)] : [chunk('sRGB', Uint8Array.of(0))]),
-    chunk('IDAT', await deflate(raw)),
-    chunk('IEND', new Uint8Array(0)),
+    pngChunk('IHDR', header),
+    ...(profile && profile !== 'srgb' ? [await pngProfileChunk(profile)] : [pngChunk('sRGB', Uint8Array.of(0))]),
+    pngChunk('IDAT', await deflate(raw)),
+    pngChunk('IEND', new Uint8Array(0)),
   ];
   const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
   let at = 0;

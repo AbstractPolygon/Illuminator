@@ -597,5 +597,5 @@ export function initExport({ state, $, canvas, ctx, layoutCanvas, showsCamera, s
       $('webm-btn').disabled = false;
     }
   }
-  return { baseName, shownScale, showAtPhotoSize, savePhoto, showPhotoFormat, savePng, showVideoCodecs, readParams, showUpscaleControls, frameList, exportVideo };
+  return { baseName, shownScale, showAtPhotoSize, savePhoto, showPhotoFormat, savePng, showVideoCodecs, readParams, showUpscaleControls, frameList, frameGeometry, exportVideo };
 }

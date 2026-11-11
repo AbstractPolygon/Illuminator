@@ -1,6 +1,6 @@
 # Render
 
-The *Render Settings* section of the sidebar (3D, Quality, Upscaling, Photo and Video) and the Render, Save and Export buttons below it. Render Settings shows in the Camera view, not the Lenslets view.
+The *Render Settings* section of the sidebar (3D, Lenticular Print, Quality, Upscaling, Photo and Video) and the Render, Save and Export buttons below it. Render Settings shows in the Camera view, not the Lenslets view.
 
 ## 3D
 
@@ -11,6 +11,10 @@ A stereo pair from two viewpoints across the lens, for photos and videos.
 - *Baseline:* how far apart the two viewpoints are.
 - *Save 3D image* saves the pair as an image, in the Photo *File format*. With *Show 3D* on, *Export video* makes a 3D video in the same 3D type.
 - *View in VR* (in a headset's web browser, such as the Meta Quest Browser, with the browser version) shows the 3D picture on a large screen in front of you; press a controller trigger to leave.
+
+## Lenticular Print
+
+A print to put under a lenticular lens sheet, which changes as it is tilted: *3D* (views across the lens; tilt left and right) or *Animation* (the Animation section's frames, so a focus sweep refocuses; tilt up and down). Enter the sheet's lenses per inch, the printer's resolution, the print's size in inches and, after printing *Save pitch test* and looking at it through the sheet, the measured pitch. *Save lenticular print* saves a PNG at the printer's resolution, to print at 100% without scaling. See [Exporting](Exporting) for each setting.
 
 ## Render Queue
 

@@ -900,6 +900,39 @@
           <button id="stereo-btn" class="wide" disabled>Save 3D image</button>
           <button id="vr-btn" class="wide" title="Shows the 3D picture in a VR headset (in its web browser, such as the Meta Quest Browser)" hidden>View in VR</button>
         </details>
+        <details class="subpanel" id="lenticular-panel">
+          <summary><h3>Lenticular Print</h3></summary>
+          <label title="3D: views across the lens, for a sheet with upright lenses (tilt the print left and right to look around). Animation: the frames of the Animation section (a focus sweep refocuses as the print tilts), for a sheet with its lenses across (tilt up and down)">Print type
+            <select id="lent-type">
+              <option value="3d" selected>3D (tilt left and right)</option>
+              <option value="flip">Animation (tilt up and down)</option>
+            </select>
+          </label>
+          <label title="Lenses per inch of the lens sheet, as printed on the sheet or its box (such as 40, 60, 75 or 100)">Lens sheet (LPI)
+            <input id="lent-lpi" type="number" min="10" max="300" step="any" value="60">
+          </label>
+          <label title="The printer's resolution in dots per inch, the one it prints at without scaling (such as 600 or 720 for many inkjets). Pictures under each lens: this divided by the sheet's LPI">Printer (DPI)
+            <input id="lent-dpi" type="number" min="100" max="4800" step="1" value="720">
+          </label>
+          <label title="The sheet's real pitch for this printer and paper: print the pitch test, look at it through the sheet, and enter the value of the band that flips evenly between black and white. Empty: the sheet's LPI">Measured pitch (LPI)
+            <input id="lent-pitch" type="number" min="10" max="300" step="any" placeholder="Same as the sheet">
+          </label>
+          <div class="row2">
+            <label title="Width of the print in inches; the picture fills it, centered">Width (in)
+              <input id="lent-width" type="number" min="0.5" max="60" step="any" value="6">
+            </label>
+            <label title="Height of the print in inches; the picture fills it, centered">Height (in)
+              <input id="lent-height" type="number" min="0.5" max="60" step="any" value="4">
+            </label>
+          </div>
+          <label id="lent-depth-row" title="How far apart the outermost viewpoints are, as a share of the lens aperture: more gives more depth, and more doubling out of focus">Depth <output data-for="lent-depth" for="lent-depth">100</output>
+            <input id="lent-depth" type="range" min="20" max="100" step="5" value="100" data-default="100">
+          </label>
+          <label class="check" title="Swaps the order of the pictures under each lens: for a 3D print that looks inside out (near things behind far ones) or a flip that runs the wrong way"><input id="lent-reverse" type="checkbox"> Reverse order</label>
+          <p id="lent-info" class="hint"></p>
+          <button id="lent-btn" class="wide" disabled>Save lenticular print</button>
+          <button id="lent-test-btn" class="wide" title="A chart of bands at pitches around the sheet's, to print on the same printer and paper and look at through the sheet: the band that flips evenly between black and white is the measured pitch">Save pitch test</button>
+        </details>
         <details class="subpanel">
           <summary><h3>Quality</h3></summary>
           <label title="Size of the picture made from the lenses, for photos and every video frame">Resolution
