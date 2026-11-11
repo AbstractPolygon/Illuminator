@@ -6,8 +6,9 @@ import { download } from '../platform.js';
 import { fitsMemory, exportRam, memoryProblem, superResVram } from '../core/memorybudget.js';
 import { aiUpscale, denoiseRgb16 } from '../core/aiupscale.js';
 import { encodePng16 } from '../core/png16.js';
-import { buildUltraHdr } from '../core/ultrahdr.js';
-import { convertRgba8, convertRgb16, tagPng, tagJpeg } from '../core/colorspace.js';
+import { buildUltraHdr, hdrLinearRgb } from '../core/ultrahdr.js';
+import { encodeTiffFloat } from '../core/tiff.js';
+import { convertRgba8, convertRgb16, tagPng, tagJpeg, iccProfile } from '../core/colorspace.js';
 import { VIDEO_FORMATS, videoType, VIDEO_CODECS, videoFrame, chooseVideoType, videoBitrate } from '../core/video-format.js';
 import { MIN_VIDEO_FRAMES, playOrder, recordFrames, cancelControl } from '../core/videoexport.js';
 import { toImageData } from '../engine.js';
@@ -62,12 +63,15 @@ export function initExport({ state, $, canvas, ctx, layoutCanvas, showsCamera, s
     return upscaleImage(source, Math.round(source.width * k), Math.round(source.height * k), upscaleSettings());
   }
 
+  // The formats that keep the highlights above white (they need the highlight map from the graphics card).
+  const isHdrFormat = (f) => f === 'jpeghdr' || f === 'tiffhdr';
+
   // Photo > File format: PNG, or JPEG at its quality.
   function savePhoto(source, name) {
     const model = methodModel($('upscale-method').value);
     const k = +$('photo-size').value || 1;
     // 16-bit PNG, and enlarging with an upscaling model, start from the picture made again at 16 bits (below).
-    if ((($('photo-format').value === 'png16') || ($('photo-format').value === 'jpeghdr') || (model && k > 1)) && source === canvas && showsCamera() && !stereoShown() && state.info) {
+    if ((($('photo-format').value === 'png16') || isHdrFormat($('photo-format').value) || (model && k > 1)) && source === canvas && showsCamera() && !stereoShown() && state.info) {
       savePhotoRendered(name, model, k);
       return;
     }
@@ -149,9 +153,9 @@ export function initExport({ state, $, canvas, ctx, layoutCanvas, showsCamera, s
 
   async function savePhotoRendered(name, model, k) {
     const format = $('photo-format').value;
-    const hdr = format === 'jpeghdr';
+    const hdr = isHdrFormat(format);
     const eightBit = (why) => {
-      showNotice(format === 'png16' ? 'Saved at 8 bits per channel' : format === 'jpeghdr' ? 'Saved as an ordinary JPEG' : 'Saved without the upscaling model', why);
+      showNotice(format === 'png16' ? 'Saved at 8 bits per channel' : format === 'jpeghdr' ? 'Saved as an ordinary JPEG' : format === 'tiffhdr' ? 'Saved as an ordinary PNG' : 'Saved without the upscaling model', why);
       saveAs8Bit(canvas, name);
     };
     try {
@@ -226,6 +230,18 @@ export function initExport({ state, $, canvas, ctx, layoutCanvas, showsCamera, s
         }
         if (big) ({ rgb, width, height } = big);
       }
+      if (format === 'tiffhdr') {
+        // The HDR picture as linear light, 32-bit floats: the saved picture times the highlight map (all in sRGB colors), with the linear sRGB profile.
+        // (12 bytes a pixel for the floats, and as much again for the compressed strips)
+        if (!fitsMemory('ram', width * height * 24 + 64 * 1024 ** 2)) {
+          showNotice('Not saved', memoryProblem('ram', width * height * 24 + 64 * 1024 ** 2, `Saving ${width}×${height} as a 32-bit TIFF`, 'Lower the Photo Size or raise the limit.'));
+          return;
+        }
+        const light = hdrLinearRgb(rgb, width, height, gain, gainW, gainH);
+        const tiff = await encodeTiffFloat(light, width, height, { icc: iccProfile('srgb', { linear: true }) });
+        await download(new Blob([tiff], { type: 'image/tiff' }), `${name}.tif`);
+        return;
+      }
       if (hdr) {
         // The ordinary picture in sRGB (the highlight map is worked out in sRGB colors), and the map of what is brighter than white: one file (core/ultrahdr.js).
         const file = await encodeHdrJpeg(rgb, width, height, gain, gainW, gainH);
@@ -264,9 +280,9 @@ export function initExport({ state, $, canvas, ctx, layoutCanvas, showsCamera, s
     const format = $('photo-format').value;
     const jpeg = format === 'jpeg' || format === 'jpeghdr';
     $('photo-quality-row').hidden = !jpeg;
-    // (the HDR JPEG is always sRGB: its highlight map is worked out in sRGB colors)
-    $('photo-colorspace').disabled = format === 'jpeghdr';
-    $('png-btn').textContent = format === 'jpeghdr' ? 'Save HDR JPEG' : jpeg ? 'Save JPEG' : format === 'png16' ? 'Save 16-bit PNG' : 'Save PNG';
+    // (the HDR files are always sRGB: their highlight map is worked out in sRGB colors)
+    $('photo-colorspace').disabled = isHdrFormat(format);
+    $('png-btn').textContent = format === 'jpeghdr' ? 'Save HDR JPEG' : format === 'tiffhdr' ? 'Save HDR TIFF' : jpeg ? 'Save JPEG' : format === 'png16' ? 'Save 16-bit PNG' : 'Save PNG';
   }
   $('photo-format').addEventListener('change', showPhotoFormat);
   $('photo-quality').oninput = () => showSliderValue($('photo-quality'));

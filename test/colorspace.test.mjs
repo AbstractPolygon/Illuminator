@@ -121,3 +121,25 @@ test('a JPEG gets the profile in an APP2 segment after the JFIF header, replacin
   }
   assert.equal(tagJpeg(jpeg, 'srgb'), jpeg);
 });
+
+test('the linear profile has a straight curve and the same colorants', () => {
+  const tag = (profile, sig) => {
+    const v = new DataView(profile.buffer, profile.byteOffset);
+    for (let i = 0; i < v.getUint32(128); i++) {
+      const row = 132 + 12 * i;
+      if (String.fromCharCode(...profile.subarray(row, row + 4)) === sig) return profile.subarray(v.getUint32(row + 4), v.getUint32(row + 4) + v.getUint32(row + 8));
+    }
+    return null;
+  };
+  const normal = iccProfile('srgb');
+  const linear = iccProfile('srgb', { linear: true });
+  assert.deepEqual([...tag(linear, 'rXYZ')], [...tag(normal, 'rXYZ')], 'same colorants');
+  // a 'curv' with one entry: gamma 1.0 is 256 / 256 (u8Fixed8)
+  const curve = tag(linear, 'rTRC');
+  assert.equal(String.fromCharCode(...curve.subarray(0, 4)), 'curv');
+  const cv = new DataView(curve.buffer, curve.byteOffset);
+  assert.equal(cv.getUint32(8), 1);
+  assert.equal(cv.getUint16(12), 256);
+  assert.equal(String.fromCharCode(...tag(normal, 'rTRC').subarray(0, 4)), 'para', 'the usual profile keeps the sRGB curve');
+  assert.match(String.fromCharCode(...tag(linear, 'desc').subarray(12, 60)), /linear/);
+});

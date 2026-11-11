@@ -105,6 +105,11 @@ test('values above white are clipped in the picture and kept in the gain map, an
         c.getContext('2d').putImageData(data, 0, 0);
         return new Uint8Array(await (await c.convertToBlob({ type: 'image/jpeg', quality: 0.95 })).arrayBuffer());
       };
+      // The light the HDR TIFF would hold, from the same 16-bit picture and gain map: plain sRGB here, so it must come back as the values that went in
+      const { hdrLinearRgb } = await import('/js/core/ultrahdr.js');
+      const light = hdrLinearRgb(withGain, w, h, withGain.gain, w, h);
+      const at = (x) => [...light.subarray(3 * x, 3 * x + 3)];
+      out.light = { first: at(0), mid: at(Math.round((w - 1) / 2)), last: at(w - 1) };
       const file = buildUltraHdr(await jpeg(base), await jpeg(map));
       const parts = readUltraHdr(file);
       const decode = async (bytes) => {
@@ -140,6 +145,13 @@ test('values above white are clipped in the picture and kept in the gain map, an
       assert.ok(gainAt[gainAt.length - 1] > 0, `${exact ? 'engine' : 'Lytro'} curve: gain at its brightest pixel`);
       assert.ok(gainAt[gainAt.length - 1] >= gainAt[gainAt.length - 8], 'the gain rises toward the brightest pixels');
     }
+    // the light for the TIFF: red 0 / 3.05 / 6, green 0.5 and blue 2, to within what a 16-bit picture and an 8-bit map in stops hold
+    const near = (got, want, rel, what) => assert.ok(Math.abs(got - want) <= rel * Math.max(want, 0.01), `${what}: ${got} for ${want}`);
+    near(res.light.first[1], 0.5, 0.01, 'green');
+    near(res.light.first[2], 2, 0.01, 'blue 2');
+    near(res.light.mid[0], (6 * 32) / 63, 0.01, 'red at pixel 32 of 63'); // 3.0476
+    near(res.light.last[0], 6, 0.01, 'red 6');
+    assert.ok(res.light.last[0] > 5.9 && res.light.last[2] > 1.98);
     // the file: the browser decodes it as an ordinary picture, and each part as a picture of 64 x 32
     assert.deepEqual(res.fileDecodes, { whole: [64, 32], primary: [64, 32], gain: [64, 32] });
   } finally {

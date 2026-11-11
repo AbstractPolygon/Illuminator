@@ -172,3 +172,56 @@ export function gainByte(linear) {
   if (!(linear > 1)) return 0;
   return Math.round(255 * Math.min(1, Math.log2(linear) / GAIN_LOG2_MAX));
 }
+
+// ---------------------------------------------------------------- the HDR picture as linear light (for the HDR TIFF)
+let DECODE = null;
+// sRGB value (16 bits) -> linear light, as a table.
+function decodeTable() {
+  if (DECODE) return DECODE;
+  DECODE = new Float32Array(65536);
+  for (let i = 0; i < 65536; i++) {
+    const v = i / 65535;
+    DECODE[i] = v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+  }
+  return DECODE;
+}
+
+// The HDR picture in linear light, white = 1 (values above 1 are the highlights), as Float32Array RGB: the saved picture `rgb` (16-bit sRGB, width x height) times its gain map `gain`
+// (8-bit, three channels, gainW x gainH: smaller than the picture is fine, it is read in between its pixels).
+export function hdrLinearRgb(rgb, width, height, gain, gainW, gainH) {
+  if (rgb.length !== width * height * 3) throw new Error('hdrLinearRgb: the picture does not match its size');
+  if (gain.length !== gainW * gainH * 3) throw new Error('hdrLinearRgb: the gain map does not match its size');
+  const table = decodeTable();
+  const out = new Float32Array(rgb.length);
+  const boost = new Float32Array(256); // 2 ^ (gain * stops)
+  for (let g = 0; g < 256; g++) boost[g] = Math.pow(2, (g / 255) * GAIN_LOG2_MAX);
+  const same = gainW === width && gainH === height;
+  const sx = gainW / width;
+  const sy = gainH / height;
+  for (let y = 0; y < height; y++) {
+    // (the gain map's pixel centers: the picture pixel (x, y) is at ((x + 0.5) * sx - 0.5, ...) in the map)
+    const fy = Math.min(gainH - 1, Math.max(0, (y + 0.5) * sy - 0.5));
+    const y0 = Math.floor(fy);
+    const y1 = Math.min(gainH - 1, y0 + 1);
+    const wy = fy - y0;
+    for (let x = 0; x < width; x++) {
+      const o = (y * width + x) * 3;
+      if (same) {
+        for (let c = 0; c < 3; c++) out[o + c] = table[rgb[o + c]] * boost[gain[o + c]];
+        continue;
+      }
+      const fx = Math.min(gainW - 1, Math.max(0, (x + 0.5) * sx - 0.5));
+      const x0 = Math.floor(fx);
+      const x1 = Math.min(gainW - 1, x0 + 1);
+      const wx = fx - x0;
+      for (let c = 0; c < 3; c++) {
+        // (interpolated in the stops, which is how the map is read by a viewer too)
+        const a = gain[(y0 * gainW + x0) * 3 + c] * (1 - wx) + gain[(y0 * gainW + x1) * 3 + c] * wx;
+        const b = gain[(y1 * gainW + x0) * 3 + c] * (1 - wx) + gain[(y1 * gainW + x1) * 3 + c] * wx;
+        const g = a * (1 - wy) + b * wy;
+        out[o + c] = table[rgb[o + c]] * Math.pow(2, (g / 255) * GAIN_LOG2_MAX);
+      }
+    }
+  }
+  return out;
+}

@@ -3,8 +3,8 @@
 import { COLOR_SPACE_IDS } from './colorspace.js';
 
 export const COMMANDS = ['render', 'info', 'controls', 'version', 'help'];
-const FORMATS = ['png', 'png16', 'jpeg', 'jpeghdr'];
-const EXT = { png: 'png', png16: 'png', jpeg: 'jpg', jpeghdr: 'jpg' };
+const FORMATS = ['png', 'png16', 'jpeg', 'jpeghdr', 'tiffhdr'];
+const EXT = { png: 'png', png16: 'png', jpeg: 'jpg', jpeghdr: 'jpg', tiffhdr: 'tif' };
 const SIZES = ['1', '1.5', '2', '3', '4'];
 
 export const USAGE = `Illuminator command line
@@ -17,9 +17,10 @@ export const USAGE = `Illuminator command line
 Options for render:
   -o, --out <file|folder>     where to save: a file name for one photo, a folder for several
                               (default: next to each photo)
-  --format png|png16|jpeg|jpeghdr
+  --format png|png16|jpeg|jpeghdr|tiffhdr
                               file format (default: from the --out file name, else png);
-                              jpeghdr is a JPEG that also holds the highlights above white (always sRGB)
+                              jpeghdr is a JPEG that also holds the highlights above white;
+                              tiffhdr is a 32-bit float TIFF in linear light (both always sRGB)
   --quality <50-100>          JPEG quality
   --color-space <name>        srgb (default), p3, adobe, rec2020 or prophoto
   --size <1|1.5|2|3|4>        enlarge by this much (Photo Size)
@@ -44,7 +45,7 @@ const numericOptions = new Set(['--quality', '--size', '--f-number', '--focus', 
 const NUMBER = /^[-+]?(\d+\.?\d*|\.\d+)(e[-+]?\d+)?$/i;
 // Number() takes '' as 0 and ' ' too, and 'Infinity'; only a plain decimal counts.
 const isNum = (s) => NUMBER.test(String(s).trim());
-const IMAGE_EXT = /\.(png|jpe?g)$/i;
+const IMAGE_EXT = /\.(png|jpe?g|tiff?)$/i;
 
 const needsValue = new Set(['-o', '--out', '--format', '--quality', '--color-space', '--size', '--f-number', '--focus', '--view', '--set', '--edits', '--scale', '--passes', '--script', '--timeout', '--exit-file']);
 
@@ -144,7 +145,7 @@ function validate(job) {
   }
   if (o.out && files.length > 1 && IMAGE_EXT.test(o.out)) bad('--out is a file name, but there are several photos: give a folder');
   if (o.out && o.format && IMAGE_EXT.test(o.out) && FORMATS.includes(o.format)) {
-    const ext = o.out.match(IMAGE_EXT)[1].toLowerCase().replace('jpeg', 'jpg');
+    const ext = o.out.match(IMAGE_EXT)[1].toLowerCase().replace('jpeg', 'jpg').replace('tiff', 'tif');
     if (ext !== EXT[o.format]) bad(`--out ${o.out} is a .${ext} file but --format ${o.format} makes .${EXT[o.format]} files: change one of them`);
   }
 }
@@ -153,6 +154,7 @@ function validate(job) {
 export function formatFor(options) {
   if (options.format) return options.format;
   if (options.out && /\.jpe?g$/i.test(options.out)) return 'jpeg';
+  if (options.out && /\.tiff?$/i.test(options.out)) return 'tiffhdr';
   return 'png';
 }
 

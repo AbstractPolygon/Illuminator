@@ -4,7 +4,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { buildUltraHdr, readUltraHdr, applyGain, gainByte, GAIN_LOG2_MAX } from '../app/js/core/ultrahdr.js';
+import { buildUltraHdr, readUltraHdr, applyGain, gainByte, hdrLinearRgb, GAIN_LOG2_MAX } from '../app/js/core/ultrahdr.js';
 
 const fixture = (name) => new Uint8Array(fs.readFileSync(fileURLToPath(new URL(`./fixtures/${name}`, import.meta.url))));
 const base = fixture('hdr-base.jpg');
@@ -77,4 +77,30 @@ test('the gain formula: nothing changes up to white, and a highlight comes back 
     assert.ok(Math.abs(back - hdr) / hdr < 0.01, `${hdr} came back as ${back}`);
   }
   assert.equal(applyGain(1, 255, meta), 8);
+});
+
+test('the HDR picture in linear light: the saved picture decoded, times the gain', () => {
+  // two pixels: mid gray with no gain, and white (65535) with 1 stop of gain on red, 2 on green, none on blue
+  const rgb = new Uint16Array([37000, 37000, 37000, 65535, 65535, 65535]);
+  const stop = (n) => Math.round((255 * n) / GAIN_LOG2_MAX);
+  const gain = new Uint8Array([0, 0, 0, stop(1), stop(2), 0]);
+  const lin = hdrLinearRgb(rgb, 2, 1, gain, 2, 1);
+  const srgbToLinear = (v) => (v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4));
+  assert.ok(Math.abs(lin[0] - srgbToLinear(37000 / 65535)) < 1e-6, 'no gain: just decoded');
+  assert.ok(Math.abs(lin[3] - 2) < 0.01, `red, one stop: ${lin[3]}`);
+  assert.ok(Math.abs(lin[4] - 4) < 0.02, `green, two stops: ${lin[4]}`);
+  assert.equal(lin[5], 1, 'blue: white');
+});
+
+test('a gain map smaller than the picture is read in between its pixels', () => {
+  const w = 4;
+  const rgb = new Uint16Array(w * 3).fill(65535);
+  // a 2 pixel gain map going from 0 to 3 stops: the picture's four pixels step between
+  const gain = new Uint8Array([0, 0, 0, 255, 255, 255]);
+  const lin = hdrLinearRgb(rgb, w, 1, gain, 2, 1);
+  const stops = [0, 1, 2, 3].map((x) => Math.log2(lin[3 * x]));
+  assert.ok(stops[0] < 0.01 && stops[3] > 2.99, `ends ${stops}`);
+  assert.ok(stops[1] > stops[0] && stops[2] > stops[1] && stops[2] < stops[3], `rises ${stops}`);
+  assert.throws(() => hdrLinearRgb(rgb, w, 1, gain, 3, 1), /does not match/);
+  assert.throws(() => hdrLinearRgb(rgb.subarray(0, 3), w, 1, gain, 2, 1), /does not match/);
 });

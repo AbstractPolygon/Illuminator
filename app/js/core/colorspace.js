@@ -194,9 +194,11 @@ function curveTag(space) {
 }
 
 // A matrix/TRC display profile (ICC v2.1) for the space, as bytes.
-export function iccProfile(id) {
-  const space = COLOR_SPACES[id];
-  if (!space) throw new Error(`Unknown color space ${id}`);
+// `linear`: the same primaries with a straight (gamma 1) curve, for pictures that hold light as it is (the HDR TIFF).
+export function iccProfile(id, { linear = false } = {}) {
+  const base = COLOR_SPACES[id];
+  if (!base) throw new Error(`Unknown color space ${id}`);
+  const space = linear ? { ...base, curve: 1, description: `${base.description} (linear)` } : base;
   const m = colorantsD50(id);
   const curve = curveTag(space);
   const tags = [

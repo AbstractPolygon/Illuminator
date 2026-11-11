@@ -52,6 +52,16 @@ test('output files', () => {
   assert.equal(outputPath('/in/IMG_1.lfr', { out: '/out/pic.jpg' }, { ...p, many: false }), '/out/pic.jpg');
   assert.equal(outputPath('/in/IMG_1.lfr', { out: '/out', format: 'jpeg' }, { ...p, many: true }), '/out/IMG_1.jpg');
   assert.equal(outputPath('/in/IMG_1.lfr', { format: 'png16' }, { ...p, many: true }), '/in/IMG_1.png');
+  // the HDR formats
+  assert.equal(formatFor({ out: 'x.tif' }), 'tiffhdr');
+  assert.equal(formatFor({ out: 'x.TIFF' }), 'tiffhdr');
+  assert.equal(outputPath('/in/IMG_1.lfr', { format: 'tiffhdr' }, { ...p, many: true }), '/in/IMG_1.tif');
+  assert.equal(outputPath('/in/IMG_1.lfr', { format: 'jpeghdr', out: '/out', }, { ...p, many: true }), '/out/IMG_1.jpg');
+  assert.equal(outputPath('/in/IMG_1.lfr', { out: '/out/hdr.tiff' }, { ...p, many: false }), '/out/hdr.tiff');
+  assert.deepEqual(parseCli(['render', 'a.lfr', '--format', 'tiffhdr', '-o', 'a.tif']).errors, []);
+  assert.deepEqual(parseCli(['render', 'a.lfr', '--format', 'tiffhdr', '-o', 'a.tiff']).errors, []);
+  assert.match(parseCli(['render', 'a.lfr', '--format', 'tiffhdr', '-o', 'a.png']).errors.join(), /makes \.tif files/);
+  assert.match(parseCli(['render', 'a.lfr', 'b.lfr', '-o', 'x.tif']).errors.join(), /file name, but there are several/);
 });
 
 test('values given as text become the control\'s kind, and only saved settings can be set', async () => {
