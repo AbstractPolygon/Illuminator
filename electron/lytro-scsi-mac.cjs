@@ -374,4 +374,7 @@ async function connect({ candidate }, log = () => {}, api = macApi()) {
   };
 }
 
-module.exports = { prototypes, comCall, comQueryInterface, taskOps, listDevices, connect, scanStatus, MacScsiTransport, UUID, uuidBytes, MMC, TASK_DEVICE, TASK, IUNKNOWN, DATA_IN, DATA_OUT, DATA_NONE, USER_CLIENT_DEVICE, AUTHORING_DEVICE, IO_RETURN_BUSY };
+// What the last scan saw and why it may have failed (for the camera log and the build's check on real Macs).
+const probe = () => ({ loadError, seen: lastScan.seen });
+
+module.exports = { probe, prototypes, comCall, comQueryInterface, taskOps, listDevices, connect, scanStatus, MacScsiTransport, UUID, uuidBytes, MMC, TASK_DEVICE, TASK, IUNKNOWN, DATA_IN, DATA_OUT, DATA_NONE, USER_CLIENT_DEVICE, AUTHORING_DEVICE, IO_RETURN_BUSY };

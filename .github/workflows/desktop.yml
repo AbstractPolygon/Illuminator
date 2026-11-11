@@ -82,6 +82,21 @@ jobs:
             hdiutil detach "$mnt" > /dev/null
           done
 
+      - name: Run the macOS apps (Apple Silicon, and Intel under Rosetta)
+        if: matrix.name == 'macos'
+        run: |
+          # Rosetta runs the Intel app on this Apple Silicon machine.
+          softwareupdate --install-rosetta --agree-to-license > /dev/null 2>&1 || true
+          for app in dist/mac*/*.app; do
+            bin="$app/Contents/MacOS/$(defaults read "$(pwd)/$app/Contents/Info" CFBundleExecutable)"
+            echo "== $app ($(lipo -archs "$bin"))"
+            # The app starts (its signature is accepted) and its command line answers.
+            "$bin" --cli controls > /tmp/controls.json
+            test -s /tmp/controls.json
+            # Its own USB library and IOKit route to the first generation camera load and work for its architecture.
+            ELECTRON_RUN_AS_NODE=1 "$bin" scripts/mac-app-check.cjs "$app/Contents/Resources/app.asar"
+          done
+
       - name: Check the MSI installer's desktop option
         if: matrix.name == 'windows'
         shell: pwsh

@@ -12,7 +12,7 @@ export default [
     languageOptions: { ecmaVersion: 'latest', sourceType: 'module', globals: { ...globals.node, OffscreenCanvas: 'readonly', ImageData: 'readonly' } },
   },
   {
-    files: ['electron/**/*.cjs', 'build/**/*.cjs', 'electron/**/*.js'],
+    files: ['electron/**/*.cjs', 'build/**/*.cjs', 'electron/**/*.js', 'scripts/**/*.cjs'],
     languageOptions: { ecmaVersion: 'latest', sourceType: 'commonjs', globals: { ...globals.node } },
   },
   {
