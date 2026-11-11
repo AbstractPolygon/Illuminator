@@ -2454,6 +2454,7 @@ function setMode(mode) {
   $('quick-export-btn').disabled = !state.info;
   $('stereo-btn').disabled = !(state.info && state.info.hasRaw) || !camera;
   $('lent-btn').disabled = !state.info || !camera;
+  $('lent-preview-btn').disabled = !state.info || !camera;
   $('vr-btn').disabled = !(state.info && state.info.hasRaw) || !camera;
   $('stereo-on').disabled = !(state.info && state.info.hasRaw) || !camera;
   if (!state.info) return;
