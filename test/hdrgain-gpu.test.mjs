@@ -63,6 +63,27 @@ test('values above white are clipped in the picture and kept in the gain map, an
       out.mid = row(Math.round((w - 1) / 2)); // red 3.0
       out.last = row(w - 1); // red 6.0
       out.lastRow = [...withGain.gain.subarray(3 * (h - 1) * w + 3 * (w - 1), 3 * (h - 1) * w + 3 * w)];
+      // Tone curves that roll the highlights off before they clip (the Lytro Desktop look, both of its curves): the gain is 0 wherever the picture is clearly below the curve's white,
+      // and positive at the brightest pixels. (A gray ramp from 1/128 to 8 in even steps of stops, so some pixels reach the white and some do not.)
+      const ramp = new Float32Array(w * h * 4);
+      for (let i = 0; i < w * h; i++) {
+        const v = Math.pow(2, -7 + (10 * (i % w)) / (w - 1)); // from 1/128 to 8, an even step in stops
+        ramp.set([v, v, v, 1], i * 4);
+      }
+      const rampTex = gpu.texture(w, h, gl.RGBA32F);
+      gl.bindTexture(gl.TEXTURE_2D, rampTex);
+      gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, w, h, gl.RGBA, gl.FLOAT, ramp);
+      out.curves = [];
+      for (const look of [{ saturation: 1 }, { saturation: 1, exact: true }]) {
+        const curved = gpu.presentBits16(rampTex, w, h, { matrix: opts.matrix, exposure: 1, lytro: look, gain: true });
+        const level = [];
+        const gainAt = [];
+        for (let x = 0; x < w; x++) {
+          level.push(Math.max(curved[3 * x], curved[3 * x + 1], curved[3 * x + 2]) / 65535);
+          gainAt.push(Math.max(curved.gain[3 * x], curved.gain[3 * x + 1], curved.gain[3 * x + 2]));
+        }
+        out.curves.push({ exact: !!look.exact, level, gainAt });
+      }
       out.error = gl.getError();
       // The whole file with the browser's JPEG encoder
       const base = new ImageData(w, h);
@@ -110,6 +131,15 @@ test('values above white are clipped in the picture and kept in the gain map, an
     // red 6.0: log2(6)/3
     assert.ok(Math.abs(res.last.gain[0] - (255 * Math.log2(6)) / 3) <= 3, `red gain ${res.last.gain[0]}`);
     assert.deepEqual(res.lastRow, res.last.gain, 'rows are in the same order as the picture');
+    // with each tone curve: no gain below 80% of the curve's white (the knee is at 90%) (its value at the brightest pixel), some gain at the brightest pixels, and more the brighter the pixel
+    for (const { exact, level, gainAt } of res.curves) {
+      const white = level[level.length - 1];
+      const below = gainAt.filter((_, i) => level[i] < 0.8 * white);
+      assert.ok(below.length > 10 && below.length < gainAt.length - 3, `${exact ? 'engine' : 'Lytro'} curve: the ramp has pixels below and at white (${below.length} of ${gainAt.length} below)`);
+      assert.ok(below.every((g) => g === 0), `${exact ? 'engine' : 'Lytro'} curve: no gain below its white: ${below.slice(0, 5)}`);
+      assert.ok(gainAt[gainAt.length - 1] > 0, `${exact ? 'engine' : 'Lytro'} curve: gain at its brightest pixel`);
+      assert.ok(gainAt[gainAt.length - 1] >= gainAt[gainAt.length - 8], 'the gain rises toward the brightest pixels');
+    }
     // the file: the browser decodes it as an ordinary picture, and each part as a picture of 64 x 32
     assert.deepEqual(res.fileDecodes, { whole: [64, 32], primary: [64, 32], gain: [64, 32] });
   } finally {
