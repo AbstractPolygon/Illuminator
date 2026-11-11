@@ -668,6 +668,7 @@
           <label title="How far the viewpoint can move, as a share of the lens's opening. Up to 100% uses only what the camera recorded; with the aperture closed (f/22, as the picture opens), real views go farther, as far as the lens images stay bright enough, often 120 to 150% depending on the photo and the direction. Past that, the picture from the edge is moved on by the depth map, which can smear the edges of near objects and the background they uncover. Applies to dragging the picture, animations, 3D and lenticular prints (a Full sensor render keeps to 100%)">Reach <output data-for="view-reach" for="view-reach">100%</output>
             <input id="view-reach" type="range" min="100" max="300" step="10" value="100" data-default="100">
           </label>
+          <label class="check" id="view-fill-row" title="Where a viewpoint past what the camera recorded uncovers what no view saw (behind near objects, and at the picture's edges), MI-GAN paints it from the picture around it instead of stretching the background beside it. Used when saving lenticular prints (and their preview) and 3D images; dragging the picture keeps the quick fill. Needs the fill model (Settings > Fill model). It invents what it paints: good on foliage, sky and walls, less so on people or text"><input id="view-fill" type="checkbox" disabled> Fill with AI</label>
           <label class="check" title="Choose the depth that stays still when the viewpoint moves; otherwise it is the focus plane (or, with the aperture closed, the camera's focus)"><input id="pivot-on" type="checkbox"> Custom pivot</label>
           <label title="The depth that stays still when the viewpoint moves">Pivot depth <output data-for="pivot" for="pivot">0</output>
             <input id="pivot" type="range" min="-100" max="100" step="1" value="0" data-default="0" disabled>
@@ -1143,6 +1144,11 @@
         <p class="hint">Downloaded models appear under Camera &gt; Depth &gt; Depth method. They see the picture as a whole and give clean object edges; the measured depth gives their scale.</p>
         <div id="depth-models-list" class="models-list"></div>
       </section>
+      <section class="setting" id="fill-model-setting">
+        <h3>Fill model</h3>
+        <p class="hint">Turns on Camera &gt; Perspective &gt; Fill with AI: where a viewpoint past the lens's opening uncovers what no view saw, the model paints it from the picture around it, in saved lenticular prints and 3D images.</p>
+        <div id="fill-model-list" class="models-list"></div>
+      </section>
       <section class="setting" id="models-setting">
         <h3>Upscaling models</h3>
         <div id="models-list" class="models-list"></div>
@@ -1333,6 +1339,11 @@
               <li><a href="https://github.com/isl-org/MiDaS" target="_blank" rel="noopener">MiDaS v2.1 Small</a></li>
             </ul>
             <p class="hint about-copyright">Copyright © 2019 Intel ISL. Licensed under the <a href="https://github.com/isl-org/MiDaS/blob/master/LICENSE" target="_blank" rel="noopener">MIT License</a>. ONNX version by <a href="https://huggingface.co/Heliosoph/midas-small-onnx" target="_blank" rel="noopener">Heliosoph</a>.</p>
+            <h3 class="credit-extra">Fill model <span class="hint">— optional download</span></h3>
+            <ul class="links">
+              <li><a href="https://github.com/Picsart-AI-Research/MI-GAN" target="_blank" rel="noopener">MI-GAN</a></li>
+            </ul>
+            <p class="hint about-copyright">Copyright © 2024 Picsart AI Research (PAIR). Licensed under the <a href="https://github.com/Picsart-AI-Research/MI-GAN/blob/main/LICENSE" target="_blank" rel="noopener">MIT License</a>. ONNX version by <a href="https://huggingface.co/andraniksargsyan/migan" target="_blank" rel="noopener">Andranik Sargsyan</a>.</p>
             <h3 class="credit-extra">Film looks</h3>
         <ul class="links">
           <li><a href="https://github.com/YahiaAngelo/Film-Luts" target="_blank" rel="noopener">G'MIC Film LUTs Collection</a></li>

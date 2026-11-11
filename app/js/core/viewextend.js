@@ -146,3 +146,57 @@ export function reachToward(profile, u, v) {
   const t = f - Math.floor(f);
   return radius[i] * (1 - t) + radius[(i + 1) % dirs] * t;
 }
+
+// Which pixels of a picture moved on past the lens edge (withExtension, same arguments but the picture) show what no view saw: where the search meets a jump in depth
+// (background uncovered behind a near object), and where the point it lands on lies outside the picture (the scene's edge brought in). 1 = not seen. The quick fill
+// stretches these; Camera > Perspective > Fill with AI paints them (core/fillmodel.js).
+export function uncoveredMask(w, h, depth, dw, dh, edge, total, ref, detail, range = depthRange(depth)) {
+  const sx = dw / w;
+  const sy = dh / h;
+  const tx = detail * total[0] * (w / dw);
+  const ty = detail * total[1] * (h / dh);
+  const ex = detail * edge[0] * (w / dw);
+  const ey = detail * edge[1] * (h / dh);
+  const depthAt = (x, y) => {
+    const dx = Math.min(dw - 1, Math.max(0, Math.floor((x + 0.5) * sx)));
+    const dy = Math.min(dh - 1, Math.max(0, Math.floor((y + 0.5) * sy)));
+    return depth[dy * dw + dx] - ref;
+  };
+  const t0 = range[0] - ref;
+  const t1 = range[1] - ref;
+  const n = searchSteps(range, ref, total, detail);
+  const step = (t1 - t0) / n;
+  const out = new Uint8Array(w * h);
+  const outside = (x, y) => x < -0.5 || y < -0.5 || x > w - 0.5 || y > h - 0.5;
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      let tPrev = t0;
+      let gPrev = depthAt(x - t0 * tx, y - t0 * ty) - t0;
+      let cx = x - t1 * tx;
+      let cy = y - t1 * ty;
+      let jump = false;
+      if (gPrev <= 0) {
+        cx = x - t0 * tx;
+        cy = y - t0 * ty;
+      } else {
+        for (let i = 1; i <= n; i++) {
+          const ti = t0 + step * i;
+          const gi = depthAt(x - ti * tx, y - ti * ty) - ti;
+          if (gi <= 0) {
+            const t = tPrev + (gPrev / (gPrev - gi)) * (ti - tPrev);
+            cx = x - t * tx;
+            cy = y - t * ty;
+            jump = Math.abs(depthAt(cx, cy) - t) > 1.5 * Math.abs(step);
+            break;
+          }
+          tPrev = ti;
+          gPrev = gi;
+        }
+      }
+      const d = depthAt(cx, cy);
+      // (the point in the center view, and where the edge picture has it: either outside the picture is a part of the scene no view held)
+      if (jump || outside(cx, cy) || outside(cx + d * ex, cy + d * ey)) out[y * w + x] = 1;
+    }
+  }
+  return out;
+}

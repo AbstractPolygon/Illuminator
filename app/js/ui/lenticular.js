@@ -7,6 +7,7 @@ import { lenticularPlan, stripMap, lensMap, lensCount, interlaceLensInto, coverR
 import { geometry } from '../core/geometry.js';
 import { toImageData } from '../engine.js';
 import { download } from '../platform.js';
+import { fillPicture, hasHoles } from '../core/fillmodel.js';
 
 const STORE = 'illuminator.lenticular';
 // (the print type and depth are the photo's, saved with its edits; these are the sheet's, the printer's and the print's)
@@ -72,6 +73,16 @@ export function initLenticular({ $, state, engine, cameraParams, eyeParams, with
     return c;
   }
 
+  // Camera > Perspective > Fill with AI: the parts of a view past the lens's opening that no view saw, painted by MI-GAN (core/fillmodel.js) instead of the quick fill.
+  const aiFill = () => $('view-fill').checked && !$('view-fill').disabled;
+  async function filled(img, holes, i, n) {
+    if (!aiFill() || !hasHoles(holes)) return img;
+    showProgress(`Filling view ${i + 1} of ${n} with AI`, i / n);
+    const out = await fillPicture(img, holes);
+    if (!(img instanceof ImageData) && img.close) img.close();
+    return out;
+  }
+
   // 3D: n views across the aperture, each through the crop, rotation and its pivot, as canvases (left viewpoint first).
   async function views3d(n, depth, axis = 'x') {
     if (!(state.info && state.info.hasRaw)) throw new Error('A 3D lenticular print needs a photo with its light field (a raw Lytro photo).');
@@ -89,9 +100,9 @@ export function initLenticular({ $, state, engine, cameraParams, eyeParams, with
     for (let i = 0; i < n; i++) {
       if (run && run.stopped) throw STOPPED;
       showProgress(`Rendering view ${i + 1} of ${n}`, i / n);
-      const msg = await engine.request('view', viewParams(points[i]), { onProgress: () => {} });
+      const msg = await engine.request('view', { ...viewParams(points[i]), holes: aiFill() }, { onProgress: () => {} });
       if (!msg || !(msg.pixels || msg.bitmap)) throw STOPPED;
-      const img = toImageData(msg);
+      const img = await filled(toImageData(msg), msg.holes, i, n);
       try {
         out.push(shaped(img, geometry(img.width, img.height, { ...base, ...(pivots[i] || {}) })));
       } finally {
@@ -112,9 +123,11 @@ export function initLenticular({ $, state, engine, cameraParams, eyeParams, with
     const shots = new Array(unique.length);
     let done = 0;
     showProgress('Rendering the animation frames', 0);
-    const { promise } = engine.job('frames', 'frames', { path: unique.map((i) => list[i]) }, {
+    const holes = new Array(unique.length);
+    const { promise } = engine.job('frames', 'frames', { path: unique.map((i) => list[i]), holes: aiFill() }, {
       onProgress: () => {},
       onFrame: async (msg) => {
+        holes[msg.index] = msg.holes || null;
         shots[msg.index] = msg.bitmap || (await createImageBitmap(toImageData(msg)));
         done++;
         showProgress(`Rendering frame ${done} of ${unique.length}`, done / unique.length);
@@ -126,12 +139,14 @@ export function initLenticular({ $, state, engine, cameraParams, eyeParams, with
     if (run && run.stopped) throw STOPPED;
     if (shots.some((x) => !x)) throw new Error('Rendering the animation frames was stopped.');
     const base = { orientation: +$('orientation').value || 1, angle: +$('straighten').value, crop: cropValues() };
-    const made = new Map(unique.map((i, k) => {
-      const img = shots[k];
-      const pic = shaped(img, geometry(img.width, img.height, { ...base, ...(pivots[i] || {}) }));
+    const made = new Map();
+    for (let k = 0; k < unique.length; k++) {
+      if (run && run.stopped) throw STOPPED;
+      const i = unique[k];
+      const img = await filled(shots[k], holes[k], k, unique.length);
+      made.set(i, shaped(img, geometry(img.width, img.height, { ...base, ...(pivots[i] || {}) })));
       if (img.close) img.close();
-      return [i, pic];
-    }));
+    }
     return picks.map((i) => made.get(i));
   }
 
