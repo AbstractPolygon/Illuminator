@@ -6,6 +6,11 @@
   the page itself): read the newest version and merge before publishing (a publish is refused when a newer one
   exists). In the repo, gallery images live in `site/gallery/` (the artifact embeds them as data URIs) and the
   version number is the `{{version}}` placeholder (the artifact shows the latest released number).
+- **The owner's edits in the website artifact go to the real webpage at once.** Whenever the website artifact is republished from the page
+  (the session is woken for it), read the new version and carry its changes into `site/index.html` with
+  `node scripts/pages/site-sync.mjs BEFORE.html AFTER.html` (BEFORE is the previous version, AFTER the new one; Artifact read saves each),
+  bring changed "What's new" bullets into `docs/release-notes/<version>.md` so the next release does not undo them, then commit and push
+  (pushing deploys the site). Anything the script reports as not placed is done by hand.
 - **Other hosted pages, kept current with every change:** the app test page
   https://claude.ai/artifact/7iMs8Ui6dosv8Ao9CRk7iG and the plan https://claude.ai/artifact/GrYsxNJiktg2vkgxsg5zWK.
 - **Releases:** deploy the web app (pages.yml) before the desktop builds (desktop.yml).
