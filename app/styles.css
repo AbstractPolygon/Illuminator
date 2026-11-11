@@ -856,3 +856,10 @@ label.lut-amount { margin-top: 14px; }
 #camera-wifi-password { width: 100%; }
 #camera-wifi-status { min-height: 1.4em; }
 #camera-wifi-status.error { color: #e5736b; }
+
+/* Lenticular Print (Render Settings): number fields full width, the print size side by side. */
+#lenticular-panel .num { display: flex; width: 100%; margin-top: 4px; }
+#lenticular-panel input[type=number] { display: block; width: 100%; background: #262a31; border: 1px solid var(--line); border-radius: 6px; padding: 4px 6px; color: inherit; font: inherit; box-sizing: border-box; }
+#lenticular-panel .row2 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; }
+#lenticular-panel .hint { margin: 4px 0; }
+#lent-info.error { color: #e5736b; }
