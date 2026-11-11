@@ -24,6 +24,7 @@ const { pathToFileURL } = require('node:url');
 const net = require('node:net');
 const lytroUsb = require('./lytro-usb.cjs');
 const lytroScsi = require('./lytro-scsi-win.cjs');
+const lytroUsbMac = require('./lytro-usb-mac.cjs');
 const { LytroCamera } = require('./lytro-protocol.cjs');
 const lytroWifi = require('./lytro-wifi.cjs');
 
@@ -231,12 +232,30 @@ const log = (line) => {
   if (usbLog.length > 400) usbLog.shift();
 };
 
+// macOS keeps the first generation camera for its storage driver unless the app has administrator rights (lytro-usb-mac.cjs): the password is
+// asked for once each time the camera is plugged in (device keys asked for; a key leaves when its camera is unplugged).
+const helperAsked = new Set();
+const needsMacHelper = (found, err) => process.platform === 'darwin' && found.product === lytroUsb.FIRST_GENERATION_PRODUCT && /LIBUSB_ERROR_ACCESS/.test(err.message) && !(process.getuid && process.getuid() === 0);
+
+async function connectUsb(found) {
+  // The first generation camera on Windows is reached through its disk, as
+  // Lytro Desktop does; otherwise over USB (libusb).
+  if (found.scsi) return lytroScsi.connect(found, log);
+  try {
+    return await lytroUsb.connect(found, log);
+  } catch (err) {
+    if (!needsMacHelper(found, err)) throw err;
+    if (helperAsked.has(found.key)) throw new Error('macOS needs your administrator password to reach the first generation camera over USB. Unplug the camera and plug it in again to be asked again.');
+    helperAsked.add(found.key);
+    log(`macOS keeps the camera for its storage driver (${err.message}): starting the helper`);
+    return lytroUsbMac.connectWithHelper(found, log);
+  }
+}
+
 async function openUsbCamera(found) {
   let opened = null;
   try {
-    // The first generation camera on Windows is reached through its disk, as
-    // Lytro Desktop does; otherwise over USB (libusb).
-    opened = found.scsi ? await lytroScsi.connect(found, log) : await lytroUsb.connect(found, log);
+    opened = await connectUsb(found);
     const { camera, close, product } = opened;
     const info = await camera.hardwareInfo();
     log(`hardware info: ${JSON.stringify(info)}`);
@@ -285,6 +304,7 @@ async function scanLytroUsb() {
   const keys = new Set(present.map((d) => d.key));
   for (const key of [...usbCameras.keys()]) {
     if (keys.has(key)) continue;
+    helperAsked.delete(key);
     await withDevice(key, async () => {
       const c = usbCameras.get(key);
       if (!c) return;
