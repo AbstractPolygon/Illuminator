@@ -1,6 +1,6 @@
 # Code signing
 
-The installers are not signed, so Windows shows SmartScreen ("More info > Run anyway") and macOS asks for right-click > Open the first time. Signing needs certificates that cost money
+The installers are not signed, so Windows shows SmartScreen ("More info > Run anyway") and macOS asks for Open Anyway (System Settings > Privacy & Security) the first time. The macOS app carries an ad-hoc signature (build/mac-adhoc-sign.cjs): without one Apple Silicon calls the app damaged. Signing needs certificates that cost money
 and secrets that only the project owner can create, so it is not set up. This is what each platform needs and the change to make once they exist.
 
 ## Windows
