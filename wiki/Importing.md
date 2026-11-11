@@ -48,7 +48,7 @@ The camera's hot pixel list is used together with the search that *Remove hot pi
 
 ## From a camera
 
-*Import from camera…* (desktop app) lists the photos on a connected Lytro camera, with their thumbnails, and imports the ones you pick (*Select all* and *Select none* are next to each other). The ILLUM shows up as a drive. The first generation Lytro is reached the way Lytro Desktop does it, through its disk, so no driver is needed on Windows. On macOS the system keeps that camera for its own disk driver, so the first time it is plugged in Illuminator asks for your administrator password (macOS's own dialog): a small helper with those rights takes the camera from the driver and passes the camera's commands to the app, and gives the camera back when it is unplugged or the app closes. If you cancel, unplug the camera and plug it in again to be asked again. Its photos are put together from the camera's raw, metadata and thumbnail files. The same photos also show in the *Camera* section above the library when a camera is plugged in.
+*Import from camera…* (desktop app) lists the photos on a connected Lytro camera, with their thumbnails, and imports the ones you pick (*Select all* and *Select none* are next to each other). The ILLUM shows up as a drive. The first generation Lytro is reached the way Lytro Desktop does it, through its disk, so no driver is needed on Windows. On macOS the system keeps that camera for its own disk driver and the app cannot reach it over USB: import it over its Wi-Fi instead (below). Its photos are put together from the camera's raw, metadata and thumbnail files. The same photos also show in the *Camera* section above the library when a camera is plugged in.
 
 ### Over Wi-Fi
 
