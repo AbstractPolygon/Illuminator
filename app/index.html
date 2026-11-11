@@ -911,6 +911,9 @@
               <option value="anim">Animation</option>
             </select>
           </label>
+          <label id="lent-depth-row" title="How far apart the outermost viewpoints are, as a share of the lens's opening: more gives more movement and depth, and more doubling out of focus. Past 100%, the views beyond the opening are made from the edge view and the depth map, which can smear the edges of near objects">Movement <output data-for="lent-depth" for="lent-depth">100%</output>
+            <input id="lent-depth" type="range" min="20" max="300" step="10" value="100" data-default="100">
+          </label>
           <label title="Which way the print is tilted to see it change, and so which way the sheet's lenses run: left and right for upright lenses (for 3D, each eye then sees a different view); up and down for lenses across (both eyes see the same picture, the usual choice for an animation)">Tilt
             <select id="lent-tilt">
               <option value="lr" selected>Left and right</option>
@@ -945,15 +948,12 @@
               <input id="lent-height" type="number" min="0.5" max="60" step="any" value="4">
             </label>
           </div>
-          <label id="lent-depth-row" title="How far apart the outermost viewpoints are, as a share of the lens's opening: more gives more movement and depth, and more doubling out of focus. Past 100%, the views beyond the opening are made from the edge view and the depth map, which can smear the edges of near objects">Movement <output data-for="lent-depth" for="lent-depth">100%</output>
-            <input id="lent-depth" type="range" min="20" max="300" step="10" value="100" data-default="100">
-          </label>
           <label class="check" title="Swaps the order of the pictures under each lens: for a 3D print that looks inside out (near things behind far ones) or a flip that runs the wrong way"><input id="lent-reverse" type="checkbox"> Reverse order</label>
           <p id="lent-info" class="hint"></p>
           <button id="lent-preview-btn" class="wide" title="Shows how the print looks through the lens sheet as it is tilted: the pictures in turn, with the detail the lenses keep" disabled>Preview</button>
           <div class="lent-buttons">
-            <button id="lent-btn" title="Saves the print: a PNG at the printer's resolution, to print at 100% without scaling" disabled>Save print</button>
             <button id="lent-test-btn" title="Saves a pitch test: a chart of bands at pitches around the sheet's, to print on the same printer and paper and look at through the sheet. The band that flips evenly between black and white is the measured pitch">Save pitch</button>
+            <button id="lent-btn" title="Saves the print: a PNG at the printer's resolution, to print at 100% without scaling" disabled>Save print</button>
           </div>
         </details>
         <details class="subpanel">

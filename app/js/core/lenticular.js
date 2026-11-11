@@ -74,6 +74,45 @@ export function interlaceInto(out, view, width, height, map, k, axis = 'x') {
   }
 }
 
+// Which lens each printer dot along the lens direction lies under (the measured pitch decides).
+export function lensMap(length, dpi, pitch) {
+  const map = new Uint32Array(length);
+  const step = pitch / dpi;
+  for (let x = 0; x < length; x++) map[x] = Math.floor((x + 0.5) * step);
+  return map;
+}
+
+// The number of lenses across `length` printer dots (the last one may be cut).
+export function lensCount(length, dpi, pitch) {
+  return Math.floor((length - 0.5) * (pitch / dpi)) + 1;
+}
+
+// As interlaceInto, but picture k comes at one column (or row) per lens: `view` is lenses x height ('x') or width x lenses ('y'), the picture scaled to that size. Under
+// each lens a picture has one strip (two at most, where the pitch does not divide the printer's dots evenly), so this keeps all the detail the print can show, and costs
+// a picture's readback of 1 / pictures-per-lens of the print instead of the whole print.
+export function interlaceLensInto(out, view, width, height, map, lens, lenses, k, axis = 'x') {
+  if (axis === 'x') {
+    for (let x = 0; x < width; x++) {
+      if (map[x] !== k) continue;
+      const j = Math.min(lenses - 1, lens[x]);
+      for (let y = 0, i = x * 4, s = j * 4; y < height; y++, i += width * 4, s += lenses * 4) {
+        out[i] = view[s];
+        out[i + 1] = view[s + 1];
+        out[i + 2] = view[s + 2];
+        out[i + 3] = 255;
+      }
+    }
+  } else {
+    const row = width * 4;
+    for (let y = 0; y < height; y++) {
+      if (map[y] !== k) continue;
+      const j = Math.min(lenses - 1, lens[y]);
+      out.set(view.subarray(j * row, (j + 1) * row), y * row);
+      for (let i = y * row + 3; i < (y + 1) * row; i += 4) out[i] = 255;
+    }
+  }
+}
+
 // The part of a w x h picture that fills a W x H print (centered, cut to the print's shape): { sx, sy, sw, sh } in the picture.
 export function coverRect(w, h, W, H) {
   const k = Math.max(W / w, H / h);

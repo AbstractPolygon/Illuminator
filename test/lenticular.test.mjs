@@ -3,7 +3,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import zlib from 'node:zlib';
-import { lenticularPlan, stripMap, interlaceInto, coverRect, pickFrames, viewPositions, pitchTest, pngWithDpi } from '../app/js/core/lenticular.js';
+import { lenticularPlan, stripMap, lensMap, lensCount, interlaceLensInto, interlaceInto, coverRect, pickFrames, viewPositions, pitchTest, pngWithDpi } from '../app/js/core/lenticular.js';
 import { pngChunk } from '../app/js/core/png16.js';
 
 test('plan: pictures per lens from the printer and the sheet, the size in printer dots', () => {
@@ -140,4 +140,34 @@ test('PNG resolution: a pHYs chunk after the header, in dots per meter, replacin
   assert.equal(p.getUint32(0), 28346); // 720 / 0.0254
   assert.equal(p.getUint32(4), 28346);
   assert.equal(phys[8], 1, 'meters');
+});
+
+test('interleaving one column (or row) per lens gives the same print as interleaving full-size pictures', () => {
+  const W = 300;
+  const H = 40;
+  const n = 7;
+  const dpi = 600;
+  const pitch = 79.7; // not a whole number of dots per lens
+  for (const axis of ['x', 'y']) {
+    const length = axis === 'x' ? W : H;
+    const map = stripMap(length, n, dpi, pitch);
+    const lens = lensMap(length, dpi, pitch);
+    const lenses = lensCount(length, dpi, pitch);
+    assert.equal(lenses, lens[length - 1] + 1);
+    const full = new Uint8ClampedArray(W * H * 4);
+    const fromLens = new Uint8ClampedArray(W * H * 4);
+    for (let k = 0; k < n; k++) {
+      // A picture whose value depends on the lens and the other coordinate only: the same at full size and at one sample per lens.
+      const value = (j, o) => (j * 13 + o * 7 + k * 31) % 256;
+      const big = new Uint8ClampedArray(W * H * 4);
+      for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) big[(y * W + x) * 4] = axis === 'x' ? value(lens[x], y) : value(lens[y], x);
+      const LW = axis === 'x' ? lenses : W;
+      const LH = axis === 'x' ? H : lenses;
+      const small = new Uint8ClampedArray(LW * LH * 4);
+      for (let y = 0; y < LH; y++) for (let x = 0; x < LW; x++) small[(y * LW + x) * 4] = axis === 'x' ? value(x, y) : value(y, x);
+      interlaceInto(full, big, W, H, map, k, axis);
+      interlaceLensInto(fromLens, small, W, H, map, lens, lenses, k, axis);
+    }
+    assert.deepEqual(fromLens, full, axis);
+  }
 });

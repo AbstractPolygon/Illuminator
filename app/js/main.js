@@ -1769,6 +1769,25 @@ function resetAnimation() {
 }
 
 // Renders the animation frames unless they match the current settings.
+// Each frame's pivot, pan and zoom for an animation request (see ensureAnimation).
+function framePivotsOf(req) {
+  const pivots = withPivotZoom(req.type === 'frames'
+    ? req.args.path.map((f) => pivotFor(f.u, f.v, f.alpha ?? req.args.alpha, f.aperture ?? req.args.aperture, f.pivot ?? null))
+    : req.args.alphas.map((alpha) => pivotFor(req.args.u, req.args.v, alpha, req.args.aperture)));
+  return req.framing ? pivots.map((p, i) => combineMotion(p, req.framing[i])) : pivots;
+}
+
+// The animation without rendering it: every frame's render settings (for a 'frames' job) and its pivot, pan and zoom. For work that needs only some of the frames, such as a
+// lenticular print.
+function animationPlan() {
+  const req = animationRequest();
+  const a = req.args;
+  const list = req.type === 'frames'
+    ? a.path.map((f) => ({ u: f.u, v: f.v, alpha: f.alpha ?? a.alpha, aperture: f.aperture ?? a.aperture, dof: f.dof ?? a.dof, bokeh: f.bokeh ?? a.bokeh, masks: f.masks || null, color: f.color || null }))
+    : a.alphas.map((alpha) => ({ u: a.u, v: a.v, alpha, aperture: a.aperture, dof: a.dof, bokeh: a.bokeh }));
+  return { list, pivots: framePivotsOf(req) };
+}
+
 function ensureAnimation() {
   const req = animationRequest();
   const key = JSON.stringify([req.type, req.args]);
@@ -1776,10 +1795,7 @@ function ensureAnimation() {
   engine.cancel(req.kind === 'frames' ? 'refocus' : 'frames');
   state.animKey = key;
   state.frames = new Array(req.type === 'frames' ? req.args.path.length : req.args.alphas.length);
-  state.framePivots = withPivotZoom(req.type === 'frames'
-    ? req.args.path.map((f) => pivotFor(f.u, f.v, f.alpha ?? req.args.alpha, f.aperture ?? req.args.aperture, f.pivot ?? null))
-    : req.args.alphas.map((alpha) => pivotFor(req.args.u, req.args.v, alpha, req.args.aperture)));
-  if (req.framing) state.framePivots = state.framePivots.map((p, i) => combineMotion(p, req.framing[i]));
+  state.framePivots = framePivotsOf(req);
   // Zoomed frames are drawn into a canvas this much larger, so the zoom is
   // resampled once (straight to the screen) instead of blown up twice.
   state.frameScale = Math.min(3, Math.max(1, ...state.framePivots.map((p) => (p && p.zoom) || 1)));
@@ -3949,7 +3965,7 @@ const { setPicking, pickWhiteBalance } = initWhiteBalancePicker({ state, canRend
 
 // export: ui/export.js
 const { baseName, shownScale, showAtPhotoSize, savePhoto, showPhotoFormat, savePng, showVideoCodecs, readParams, showUpscaleControls, frameList, frameGeometry, exportVideo } = initExport({ state, $, canvas, ctx, layoutCanvas: (...a) => layoutCanvas(...a), showsCamera: (...a) => showsCamera(...a), stereoShown, showNotice: (...a) => showNotice(...a), engine, cameraParams: (...a) => cameraParams(...a), showProgress: (...a) => showProgress(...a), hideProgress: (...a) => hideProgress(...a), modelUpscaleParams: (...a) => modelUpscaleParams(...a), finishModelEnlargement: (...a) => finishModelEnlargement(...a), showError: (...a) => showError(...a), showSliderValue: (...a) => showSliderValue(...a), scheduleSave: (...a) => scheduleSave(...a), draw: (...a) => draw(...a), cropValues: (...a) => cropValues(...a), animationRequest: (...a) => animationRequest(...a), eyeOffset, eyeParams, ensureAnimation: (...a) => ensureAnimation(...a), drawGeometry: (...a) => drawGeometry(...a), stereoTag });
-initLenticular({ $, state, engine, cameraParams: (...a) => cameraParams(...a), eyeParams, withPivotZoom: (...a) => withPivotZoom(...a), pivotFor: (...a) => pivotFor(...a), cropValues: (...a) => cropValues(...a), drawGeometry: (...a) => drawGeometry(...a), ensureAnimation: (...a) => ensureAnimation(...a), frameGeometry, showProgress: (...a) => showProgress(...a), hideProgress: (...a) => hideProgress(...a), showError: (...a) => showError(...a), baseName, showSliderValue: (...a) => showSliderValue(...a) });
+initLenticular({ $, state, engine, cameraParams: (...a) => cameraParams(...a), eyeParams, withPivotZoom: (...a) => withPivotZoom(...a), pivotFor: (...a) => pivotFor(...a), cropValues: (...a) => cropValues(...a), drawGeometry: (...a) => drawGeometry(...a), animationPlan: (...a) => animationPlan(...a), invalidateAnimation: (...a) => invalidateAnimation(...a), showNotice: (...a) => showNotice(...a), showProgress: (...a) => showProgress(...a), hideProgress: (...a) => hideProgress(...a), showError: (...a) => showError(...a), baseName, showSliderValue: (...a) => showSliderValue(...a) });
 
 // camera import: ui/cameraimport.js
 const { showCameraDialog, openWebUsbCamera, importFromCameraFolder, importFromConnectedCamera } = initCameraImport({ $, state, setCameraSection: (...a) => setCameraSection(...a), showError: (...a) => showError(...a), webCameraLabel: (...a) => webCameraLabel(...a), importCameraFiles: (...a) => importCameraFiles(...a), openItem: (...a) => openItem(...a) });
