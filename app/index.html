@@ -981,12 +981,13 @@
               <option value="4">4×</option>
             </select>
           </label>
-          <label title="PNG keeps every detail (lossless, bigger files); 16-bit PNG also keeps the fine tonal steps (for editing the picture further); JPEG makes much smaller files; JPEG HDR is a JPEG that also holds the highlights brighter than white, for screens and programs that show HDR (others show the ordinary picture); it is always sRGB">File format
+          <label title="PNG keeps every detail (lossless, bigger files); 16-bit PNG also keeps the fine tonal steps (for editing the picture further); JPEG makes much smaller files; JPEG HDR is a JPEG that also holds the highlights brighter than white, for screens and programs that show HDR (others show the ordinary picture); TIFF HDR is a 32-bit floating-point TIFF in linear light with the highlights above white kept, for editing in programs that read it; both HDR formats are always sRGB">File format
             <select id="photo-format">
               <option value="png" selected>PNG</option>
               <option value="png16">PNG 16-bit</option>
               <option value="jpeg">JPEG</option>
               <option value="jpeghdr">JPEG HDR (highlights above white)</option>
+              <option value="tiffhdr">TIFF HDR (32-bit float)</option>
             </select>
           </label>
           <label title="The color space the saved photo is converted to and tagged with (its profile is saved in the file). The picture is made in sRGB, so a wider space does not add colors beyond sRGB's range; it suits software that works in that space, or editing at 16 bits">Color space

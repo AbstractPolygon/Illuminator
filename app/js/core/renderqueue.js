@@ -155,7 +155,7 @@ export function phasesFor(spec) {
 }
 
 const F_STOPS = [22, 16, 11, 8, 5.6, 4, 2.8, 2, 1.4, 1, 0.7, 0.5];
-const PHOTO_FORMATS = { png: 'PNG', png16: 'PNG 16-bit', jpeg: 'JPEG', jpeghdr: 'JPEG HDR' };
+const PHOTO_FORMATS = { png: 'PNG', png16: 'PNG 16-bit', jpeg: 'JPEG', jpeghdr: 'JPEG HDR', tiffhdr: 'TIFF HDR' };
 
 // The export settings of a job as short phrases, for its card: what is made, in what format and size, and how.
 export function describeSettings(spec) {

@@ -167,7 +167,7 @@ export function initScriptingApi(host) {
       await settled();
     },
 
-    // The picture as a file: { format: 'png' | 'png16' | 'jpeg' | 'jpeghdr', quality (50-100), colorSpace, size (Photo Size, 1 to 4) }. Resolves { name, type, bytes }.
+    // The picture as a file: { format: 'png' | 'png16' | 'jpeg' | 'jpeghdr' | 'tiffhdr', quality (50-100), colorSpace, size (Photo Size, 1 to 4) }. Resolves { name, type, bytes }.
     async export({ format = 'png', quality, colorSpace = 'srgb', size = 1 } = {}) {
       need();
       if (!COLOR_SPACE_IDS.includes(colorSpace)) throw new Error(`Unknown color space ${colorSpace}`);

@@ -27,7 +27,7 @@ Photos are made on the graphics card when the computer has one, as in the app; w
 | Option | |
 | --- | --- |
 | `-o`, `--out <file or folder>` | A file name for one photo, a folder for several. Without it each picture is saved next to its photo. |
-| `--format png, png16, jpeg or jpeghdr` | The file format (default: from the `--out` file name, else png); `jpeghdr` is a JPEG that also holds the highlights above white (always sRGB) |
+| `--format png, png16, jpeg, jpeghdr or tiffhdr` | The file format (default: from the `--out` file name, else png; a `.tif` name means `tiffhdr`); `jpeghdr` is a JPEG that also holds the highlights above white, `tiffhdr` a 32-bit float TIFF in linear light (both always sRGB) |
 | `--quality 50-100` | JPEG quality |
 | `--color-space srgb, p3, adobe, rec2020 or prophoto` | Converts to that color space and saves its profile in the file (see [[Render]]) |
 | `--size 1, 1.5, 2, 3 or 4` | Enlarges by this much (Photo *Size*) |
