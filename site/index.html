@@ -503,7 +503,7 @@ footer { border-top: 1px solid var(--line); padding-block: 32px 48px; color: var
       <div><h3>Film looks</h3><p>296 film emulation LUTs included, from classic color negative to black and white and instant film, or import your LUTs from other sources.</p></div>
       <div><h3>Upscaling to 4K and beyond</h3><p>Photos enlarged up to 4× and video up to 4K on the GPU, with your choice of AMD FSR 1, Lanczos or smooth upscaling and adjustable sharpening. The desktop app can also download optional AI upscaling models (Real-ESRGAN and SPAN) for photos.</p></div>
       <div><h3>Social media sizes</h3><p>Export video ready for Reels, TikTok, Shorts and Stories at 9:16, feed posts at 4:5 or 1:1, and YouTube at 16:9, up to 4K.</p></div>
-      <div><h3>HD Export options</h3><p>Video as WebM or MP4 with VP9, AV1, H.264 or H.265 at up to 40 Mbit/s; photos as lossless PNG or compressed JPEG.</p></div>
+      <div><h3>HD Export options</h3><p>Video as WebM or MP4 with VP9, AV1, H.264 or H.265 at up to 40 Mbit/s; photos as lossless PNG (8 or 16-bit) or compressed JPEG, and HDR photos that keep the highlights brighter than white, as a JPEG any program opens or a 32-bit TIFF for editing.</p></div>
       <div><h3>Tone curve &amp; local adjustments</h3><p>Shape the picture with a tone curve and parametric sliders, then paint masks for exposure, color, sharpening and blur in just the part you choose.</p></div>
       <div><h3>Dust &amp; speckle removal</h3><p>Fill in the faint dark spots dust leaves on the sensor or lens, despeckle small bright or dark specks, and fix hot, warm and dead pixels automatically, alongside luminance, color and multi-view noise reduction.</p></div>
       <div><h3>Lens corrections</h3><p>Remove chromatic aberration, distortion, vignetting and lens flare, automatically or with your tweaks.</p></div>
@@ -587,6 +587,13 @@ footer { border-top: 1px solid var(--line); padding-block: 32px 48px; color: var
     <p class="eyebrow">Latest updates</p>
     <h2 style="font-size:clamp(30px,4vw,46px);font-weight:800;margin-top:10px">What's new.</h2>
     <div class="updates" id="updates-list">
+      <article class="upd" data-version="0.6.1">
+        <header><h3>0.6.1</h3><time datetime="2026-11-11">Nov 11, 2026</time></header>
+        <ul>
+        <li><strong>Save HDR photos as a JPEG.</strong> The new <em>JPEG HDR</em> file format keeps the highlights brighter than white, so they shine on screens and in programs that show HDR, and look as they always did everywhere else.</li>
+        <li><strong>Save HDR photos as a TIFF for editing.</strong> The new <em>TIFF HDR</em> file format keeps the brightest highlights as exact light values, for editing in programs such as Photoshop, Affinity, Krita and DaVinci Resolve.</li>
+        </ul>
+      </article>
       <article class="upd" data-version="0.6.0">
         <header><h3>0.6.0</h3><time datetime="2026-11-10">Nov 10, 2026</time></header>
         <ul>
@@ -610,13 +617,6 @@ footer { border-top: 1px solid var(--line); padding-block: 32px 48px; color: var
         <li><strong>Photos you double-click open in Illuminator.</strong> Opening a photo from your file manager now opens it in the app, even if Illuminator is already running.</li>
         <li><strong>Deleting never skips the trash quietly.</strong> When a photo cannot be moved to the trash, the app asks before deleting it for good.</li>
         <li><strong>A library on a whole drive works.</strong> Choosing a drive such as E:\ as your library no longer makes every action fail.</li>
-        </ul>
-      </article>
-      <article class="upd" data-version="0.5.96">
-        <header><h3>0.5.96</h3><time datetime="2026-11-09">Nov 9, 2026</time></header>
-        <ul>
-        <li><strong>The app refuses code and connections it does not expect.</strong> Even if a malicious file or page tried to slip in a script, the browser and the desktop app now block it, which protects your library.</li>
-        <li><strong>Less graphics memory is held after switching photos.</strong> Opening a processed photo after a raw one now frees the old photo's pictures from the graphics card.</li>
         </ul>
       </article>
     </div>
