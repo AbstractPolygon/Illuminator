@@ -3993,7 +3993,7 @@ $('library-import').onclick = () => importFolder();
 let checkForUpdateNow = () => {};
 // Photos opened from outside the page (double-clicked in the file manager, or sent to a second instance).
 if (native && native.onOpenPaths) native.onOpenPaths((files) => openPicked(files.map((f) => new NativeFile(f))));
-// + Camera over Wi-Fi (the sidebar, under the library; desktop app, first generation cameras).
+// + Connect over Wi-Fi (the sidebar, under the library; desktop app, first generation cameras).
 const cameraWifi = native && native.connectCameraWifi && CAMERA_IMPORT ? initCameraWifi({ $, native, importFromCamera: () => importFromCamera() }) : null;
 if (cameraWifi) {
   $('camera-wifi-btn').hidden = false;

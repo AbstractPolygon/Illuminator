@@ -56,7 +56,7 @@ A first generation Lytro can send its photos over Wi-Fi, without a cable (deskto
 
 1. On the camera, turn Wi-Fi on.
 2. On the computer, join the camera's Wi-Fi network, with the password the camera shows. The computer is off the internet while it is joined.
-3. In the sidebar, under the library, click *+ Camera over Wi-Fi…*, then *Connect*.
+3. In the sidebar, under the library, click *+ Connect over Wi-Fi…*, then *Connect*.
 
 The camera then shows in the *Camera* section and in *Import from camera…* like a camera on USB, labeled *(Wi-Fi)*, and its photos import the same way. *Camera address* is the camera's address on its network, 10.100.1.1 unless the camera says otherwise. While connected, Illuminator asks the camera something every 30 seconds, so the camera does not turn its Wi-Fi off while you choose photos. When the camera stops answering (switched off, out of range, or its Wi-Fi turned off) it leaves the list; *Disconnect* in the same window ends the connection.
 
