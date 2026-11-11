@@ -77,6 +77,7 @@ Read with `debugFlags().name`. In the worker, a harness usually prepends a line 
 | `printGrid` | prints or dumps | app/js/worker.js |  |
 | `rasterFinish` | tuning value | app/js/worker.js |  |
 | `rawModulation` | tuning value | app/js/worker.js |  |
+| `reachLimit` | tuning value | app/js/worker.js |  |
 | `rwOpts` | tuning value | app/js/worker.js |  |
 | `shiftConst` | tuning value | app/js/worker.js |  |
 | `splat` | tuning value | app/js/worker.js |  |

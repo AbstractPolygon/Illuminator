@@ -107,6 +107,8 @@ export function initScriptingApi(host) {
         camera: i.cam ? `${i.cam.make || ''} ${i.cam.model || ''}`.trim() : null,
         sensor: i.cam && i.cam.width ? [i.cam.width, i.cam.height] : null,
         views: [i.width, i.height],
+        // (how far the viewpoint moves within the lens's opening, in the units of camera({ u, v }))
+        radius: i.radius || null,
         renderer: i.renderer || null,
         picture: [$('view').width, $('view').height],
       };

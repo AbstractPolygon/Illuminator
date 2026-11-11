@@ -56,6 +56,7 @@ import { parseMasks, activeMasks, packMasks, resolveMasks, hasSpatial, applySpat
 import { GpuRenderer } from './gpu/renderer.js';
 import { lytroSplatGpu } from './gpu/lytroengine.js';
 import { debugFlags, hook, setHook } from './core/debugflags.js';
+import { withExtension, depthRange, searchSteps } from './core/viewextend.js';
 import { preColorKey, baseKept } from './core/precolorkey.js';
 import { helperCount, renderViews } from './viewpool.js';
 import { depthHelperCount, createDepthPool } from './depthpool.js';
@@ -136,6 +137,35 @@ function channelMeans(rgb) {
 
 function apertureRadius() {
   return state.lf ? state.lf.grid.pitch * 0.32 : 0;
+}
+
+// Viewpoints past the lens edge (Perspective > Reach above 100%). The light field holds views only out to the aperture's edge; a viewpoint asked for farther out is rendered
+// at the edge, in the same direction, then moved on by the depth (GpuRenderer.extendView, withExtension on the CPU). `ref` is the depth that stays still: the focus for a
+// refocused picture, 0 (the camera's focus) for a single view. (debugFlags().reachLimit: the share of the aperture taken as its edge, for tests.)
+function viewEdge() {
+  return apertureRadius() * (debugFlags().reachLimit || 1);
+}
+function splitView(u = 0, v = 0) {
+  const R = viewEdge();
+  const len = Math.hypot(u, v);
+  if (!(R > 0) || !(len > R * 1.0001)) return null;
+  const k = R / len;
+  return { u: u * k, v: v * k, total: [u, v] };
+}
+// The picture `tex` (GPU) or `rgb` (CPU) rendered at the split's edge, moved on to its full viewpoint. Without a depth, it stays at the edge.
+// (the depth map's range, worked out once for each depth)
+function viewDepthRange() {
+  if (!state.depthRange || state.depthRange.of !== state.depth.alpha) state.depthRange = { of: state.depth.alpha, range: depthRange(state.depth.alpha) };
+  return state.depthRange.range;
+}
+async function extendGpu(id, tex, w, h, split, ref) {
+  if (!split || !(await ensureViewDepth(id))) return tex;
+  const range = viewDepthRange();
+  return state.gpu.extendView(tex, w, h, [split.u, split.v], split.total, ref, state.settings.detail, range, searchSteps(range, ref, split.total, state.settings.detail));
+}
+async function extendCpu(id, rgb, w, h, split, ref) {
+  if (!split || !(await ensureViewDepth(id))) return rgb;
+  return withExtension(rgb, w, h, state.depth.alpha, state.sampler.outW, state.sampler.outH, [split.u, split.v], split.total, ref, state.settings.detail, viewDepthRange());
 }
 
 // Highlight views: eight on the darker outer ring of each lens image
@@ -1009,14 +1039,20 @@ async function frames({ id, job, path, alpha = 0, aperture = 0, dof = 0, bokeh }
     if (state.jobs.frames !== job) return { cancelled: true };
     const f = list[i];
     if (state.gpu) {
-      const tex = f.aperture > 0 ? state.gpu.refocusTo(f.alpha, apertureOptions(f)) : await singleView(id, f.u, f.v);
-      await presentGpu(id, tex, outW, outH, { alpha: f.alpha, dof: f.dof, bokeh: f.bokeh, color: f.color, pxPerUnit: viewPxPerUnit(), parallax: true, masks: { focus: f.alpha, overrides: f.masks, view: viewOf(f.u, f.v) } }, { id, type: 'frame', index: i });
+      const split = splitView(f.u, f.v);
+      const at = split ? { ...f, u: split.u, v: split.v } : f;
+      let tex = f.aperture > 0 ? state.gpu.refocusTo(f.alpha, apertureOptions(at)) : await singleView(id, at.u, at.v);
+      tex = await extendGpu(id, tex, outW, outH, split, f.aperture > 0 ? f.alpha : 0);
+      await presentGpu(id, tex, outW, outH, { alpha: f.alpha, dof: f.dof, bokeh: f.bokeh, color: f.color, pxPerUnit: viewPxPerUnit(), parallax: true, masks: { focus: f.alpha, overrides: f.masks, view: viewOf(at.u, at.v) } }, { id, type: 'frame', index: i });
       await tick();
       continue;
     }
-    let rgb = f.aperture > 0 ? refocusRGB(f.alpha, apertureOptions(f)) : await singleView(id, f.u, f.v);
-    rgb = await applyParallax(id, rgb, outW, outH, f.u, f.v);
-    frameMessage(id, i, await withDepthOfField(id, rgb, outW, outH, f.alpha, f.dof, 1, f.bokeh), { focus: f.alpha, overrides: f.masks, view: viewOf(f.u, f.v) }, colorState(f.color));
+    const split = splitView(f.u, f.v);
+    const at = split ? { ...f, u: split.u, v: split.v } : f;
+    let rgb = f.aperture > 0 ? refocusRGB(f.alpha, apertureOptions(at)) : await singleView(id, at.u, at.v);
+    rgb = await extendCpu(id, rgb, outW, outH, split, f.aperture > 0 ? f.alpha : 0);
+    rgb = await applyParallax(id, rgb, outW, outH, at.u, at.v);
+    frameMessage(id, i, await withDepthOfField(id, rgb, outW, outH, f.alpha, f.dof, 1, f.bokeh), { focus: f.alpha, overrides: f.masks, view: viewOf(at.u, at.v) }, colorState(f.color));
     await tick();
   }
   return { done: true };
@@ -1237,16 +1273,18 @@ async function refocusFrames({ id, job, alphas, u, v, aperture, dof = 0, bokeh }
   state.jobs.refocus = job;
   if (!(await ensureRefocusViews(id))) return { cancelled: true };
   const { outW, outH } = state.sampler;
+  const split = splitView(u, v);
+  if (split) ({ u, v } = split);
   const opts = apertureOptions({ u, v, aperture });
   for (let i = 0; i < alphas.length; i++) {
     if (state.jobs.refocus !== job) return { cancelled: true };
     if (state.gpu) {
-      const tex = state.gpu.refocusTo(alphas[i], opts);
+      const tex = await extendGpu(id, state.gpu.refocusTo(alphas[i], opts), outW, outH, split, alphas[i]);
       await presentGpu(id, tex, outW, outH, { alpha: alphas[i], dof, bokeh, pxPerUnit: viewPxPerUnit(), parallax: true, masks: { focus: alphas[i], view: viewOf(u, v) } }, { id, type: 'frame', index: i });
       await tick();
       continue;
     }
-    let rgb = refocusRGB(alphas[i], opts);
+    let rgb = await extendCpu(id, refocusRGB(alphas[i], opts), outW, outH, split, alphas[i]);
     rgb = await applyParallax(id, rgb, outW, outH, u, v);
     frameMessage(id, i, await withDepthOfField(id, rgb, outW, outH, alphas[i], dof, 1, bokeh), { focus: alphas[i], view: viewOf(u, v) });
     await tick();
@@ -1270,6 +1308,9 @@ function superResBaseKey(scale, passes, u, v, cs) {
 }
 
 async function superResPreview({ id, job, alpha = 0, u = 0, v = 0, aperture = 0, dof = 0, bokeh, color = null, masks = null, scale, passes = 0 }) {
+  // (a full sensor render keeps to the views the sensor recorded: a viewpoint past the lens edge is taken at the edge)
+  const split = splitView(u, v);
+  if (split) ({ u, v } = split);
   requireRaw();
   const gpu = state.gpu;
   if (!gpu || !gpu.floatBlend || state.settings.fullSensorPreview === false) return { none: true };
@@ -1326,6 +1367,9 @@ function checkRenderMemoryNow(sampler, scale, cpu) {
 const KEPT_LABEL = 'Applying the changes to the kept picture';
 
 async function superRes({ id, job, alpha = 0, scale, u = 0, v = 0, aperture = 0, dof = 0, bokeh, passes = 0, masks = null, color = null, quiet = false, label = 'Rendering from the full sensor' }) {
+  // (a full sensor render keeps to the views the sensor recorded: a viewpoint past the lens edge is taken at the edge)
+  const split = splitView(u, v);
+  if (split) ({ u, v } = split);
   requireRaw();
   // Setting lytroEngine (on unless set to false): the all in focus picture the way Lytro's engine builds it (lytroEdof), for photos that carry its ray table and white image (raw camera files).
   if (aperture <= 0 && state.settings.lytroEngine !== false && state.lf.rayWarpBytes && state.lf.readModulation && !alpha) return lytroEdof({ id, job, scale, color, masks, quiet });
@@ -1825,6 +1869,10 @@ function schedulePrefetch() {
 async function view({ id, u, v, alpha = 0, aperture = 0, dof = 0, bokeh, draft = false, deferNr = false, final = false }) {
   if (state.pp) return processedView({ id, u, v, alpha, aperture, dof, bokeh });
   requireRaw();
+  // (past the lens edge: rendered at the edge, then moved on by the depth)
+  const asked = [u, v];
+  const split = splitView(u, v);
+  if (split) ({ u, v } = split);
   if (state.gpu) {
     const { outW, outH } = state.sampler;
     const masks = { focus: alpha, view: viewOf(u, v) };
@@ -1833,7 +1881,7 @@ async function view({ id, u, v, alpha = 0, aperture = 0, dof = 0, bokeh, draft =
     // picture instead of rendering it again.
     if (dof > 0 && !(await ensureViewDepth(id))) return { cancelled: true };
     const packed = packedMasks(masks);
-    const key = JSON.stringify([state.gen, u, v, alpha, aperture, dof, dof > 0 && draft, bokeh || null, state.settings.mvDenoise, state.detail, packed && packed.spatial ? packed : null]);
+    const key = JSON.stringify([state.gen, asked, alpha, aperture, dof, dof > 0 && draft, bokeh || null, state.settings.mvDenoise, state.detail, packed && packed.spatial ? packed : null]);
     // The GPU time of each view, for the photo info (where available).
     const message = { id, type: 'result', gpuMs: state.gpu.gpuMs() };
     const mode = draft ? 'draft' : final ? 'final' : deferNr ? 'defer' : undefined;
@@ -1850,6 +1898,7 @@ async function view({ id, u, v, alpha = 0, aperture = 0, dof = 0, bokeh, draft =
     } else {
       tex = await singleView(id, u, v);
     }
+    tex = await extendGpu(id, tex, outW, outH, split, aperture > 0 ? alpha : 0);
     await presentGpu(id, tex, outW, outH, { alpha, dof, bokeh, pxPerUnit: viewPxPerUnit(), parallax: true, masks, keep: key, draft, mode }, message);
     state.gpu.endTiming();
     if (!draft) schedulePrefetch();
@@ -1862,6 +1911,7 @@ async function view({ id, u, v, alpha = 0, aperture = 0, dof = 0, bokeh, draft =
   } else {
     rgb = await singleView(id, u, v);
   }
+  rgb = await extendCpu(id, rgb, state.sampler.outW, state.sampler.outH, split, aperture > 0 ? alpha : 0);
   rgb = await applyParallax(id, rgb, state.sampler.outW, state.sampler.outH, u, v);
   rgb = await withDepthOfField(id, rgb, state.sampler.outW, state.sampler.outH, alpha, dof, 1, bokeh);
   const skipNr = draft || deferNr;
