@@ -1244,6 +1244,11 @@ float srgb(float v) {
   v = clamp(v, 0.0, 1.0);
   return v <= 0.0031308 ? 12.92 * v : 1.055 * pow(v, 1.0 / 2.4) - 0.055;
 }
+vec3 srgbDecode(vec3 v) {
+  return mix(v / 12.92, pow((v + 0.055) / 1.055, vec3(2.4)), step(vec3(0.04045), v));
+}
+// The gain pass lets the highlights out above this share of the look's white (the knee of the curve).
+const float GAIN_KNEE = 0.9;
 
 // The Lytro Desktop look (core/base.js): a curve on log2 of each channel.
 uniform int uLytro;
@@ -1384,9 +1389,33 @@ void main() {
   // In the Lytro Desktop look the sliders act after its curve.
   if (uLookOn == 1 && uLytro == 0) c = applyLook(c);
   if (uMaskCount > 0) c = applyLocal(c, (vec2(p) + 0.5) / vec2(size), float(size.x) / float(size.y));
-  // The gain map: per channel, how far above white the color is (the picture clips there), as log2 over the stops the file holds; 0 up to white.
+  // The gain map (core/ultrahdr.js): per channel, how much brighter the HDR picture is than the one saved. The HDR picture is the saved one with its highlights let out: above the
+  // knee of the tone curve (where the output passes GAIN_KNEE of the look's white) it goes on as the same pipeline at less exposure, scaled back up. So a hard clip gets its
+  // lost highlights back, and a curve that rolls the highlights off gets its roll-off undone; whatever tone curve is in use, found by bisection over how many stops (up to the
+  // file's range) the pixel must be darkened to sit at the knee. A pixel below the knee has a gain of 1 (stored as 0); log2 of the gain over the stops the file holds.
   if (uGainPass == 1) {
-    outColor = vec4(log2(clamp(c, vec3(1.0), vec3(exp2(uGainLog2)))) / uGainLog2, 1.0);
+    vec3 s0 = encodeOut(c);
+    // (the look's white: where its tone curve tops out, which may be a little under 1)
+    vec3 top = encodeOut(vec3(1000.0));
+    float clipAt = GAIN_KNEE * min(top.r, min(top.g, top.b));
+    float k = 0.0;
+    if (max(s0.r, max(s0.g, s0.b)) > clipAt) {
+      float lo = 0.0;
+      float hi = uGainLog2;
+      vec3 sh = encodeOut(c * exp2(-hi));
+      if (max(sh.r, max(sh.g, sh.b)) > clipAt) {
+        k = hi;
+      } else {
+        for (int i = 0; i < 7; i++) {
+          float mid = 0.5 * (lo + hi);
+          vec3 sm = encodeOut(c * exp2(-mid));
+          if (max(sm.r, max(sm.g, sm.b)) > clipAt) lo = mid; else hi = mid;
+        }
+        k = hi;
+      }
+    }
+    vec3 ratio = exp2(k) * srgbDecode(encodeOut(c * exp2(-k))) / max(srgbDecode(s0), vec3(1e-4));
+    outColor = vec4(log2(clamp(ratio, vec3(1.0), vec3(exp2(uGainLog2)))) / uGainLog2, 1.0);
     return;
   }
   vec3 s = encodeOut(c);
