@@ -6,6 +6,7 @@ import { download } from '../platform.js';
 import { fitsMemory, exportRam, memoryProblem, superResVram } from '../core/memorybudget.js';
 import { aiUpscale, denoiseRgb16 } from '../core/aiupscale.js';
 import { encodePng16 } from '../core/png16.js';
+import { buildUltraHdr } from '../core/ultrahdr.js';
 import { convertRgba8, convertRgb16, tagPng, tagJpeg } from '../core/colorspace.js';
 import { VIDEO_FORMATS, videoType, VIDEO_CODECS, videoFrame, chooseVideoType, videoBitrate } from '../core/video-format.js';
 import { MIN_VIDEO_FRAMES, playOrder, recordFrames, cancelControl } from '../core/videoexport.js';
@@ -66,7 +67,7 @@ export function initExport({ state, $, canvas, ctx, layoutCanvas, showsCamera, s
     const model = methodModel($('upscale-method').value);
     const k = +$('photo-size').value || 1;
     // 16-bit PNG, and enlarging with an upscaling model, start from the picture made again at 16 bits (below).
-    if ((($('photo-format').value === 'png16') || (model && k > 1)) && source === canvas && showsCamera() && !stereoShown() && state.info) {
+    if ((($('photo-format').value === 'png16') || ($('photo-format').value === 'jpeghdr') || (model && k > 1)) && source === canvas && showsCamera() && !stereoShown() && state.info) {
       savePhotoRendered(name, model, k);
       return;
     }
@@ -83,7 +84,7 @@ export function initExport({ state, $, canvas, ctx, layoutCanvas, showsCamera, s
   }
 
   function saveAs8Bit(source, name) {
-    const jpeg = $('photo-format').value === 'jpeg';
+    const jpeg = $('photo-format').value === 'jpeg' || $('photo-format').value === 'jpeghdr';
     const type = jpeg ? 'image/jpeg' : 'image/png';
     const quality = jpeg ? +$('photo-quality').value / 100 : undefined;
     const file = `${name}.${jpeg ? 'jpg' : 'png'}`;
@@ -119,10 +120,38 @@ export function initExport({ state, $, canvas, ctx, layoutCanvas, showsCamera, s
     return info.width && info.height ? [Math.floor((info.width / detail) * scale), Math.floor((info.height / detail) * scale)] : null;
   }
 
+  // An 8-bit JPEG of `data` (RGBA), at the quality of the Photo settings (or `quality`), as bytes.
+  async function jpegBytes(data, width, height, quality) {
+    const c = new OffscreenCanvas(width, height);
+    c.getContext('2d').putImageData(data, 0, 0);
+    return new Uint8Array(await (await c.convertToBlob({ type: 'image/jpeg', quality })).arrayBuffer());
+  }
+
+  // The HDR JPEG: `rgb` (16 bits, sRGB) as the ordinary JPEG, `gain` (8 bits, three channels, gainW x gainH: it may be smaller than the picture) as the gain map JPEG.
+  async function encodeHdrJpeg(rgb, width, height, gain, gainW, gainH) {
+    const base = new ImageData(width, height);
+    for (let i = 0, j = 0; i < rgb.length; i += 3, j += 4) {
+      base.data[j] = (rgb[i] + 128) >> 8;
+      base.data[j + 1] = (rgb[i + 1] + 128) >> 8;
+      base.data[j + 2] = (rgb[i + 2] + 128) >> 8;
+      base.data[j + 3] = 255;
+    }
+    const map = new ImageData(gainW, gainH);
+    for (let i = 0, j = 0; i < gain.length; i += 3, j += 4) {
+      map.data[j] = gain[i];
+      map.data[j + 1] = gain[i + 1];
+      map.data[j + 2] = gain[i + 2];
+      map.data[j + 3] = 255;
+    }
+    const quality = +$('photo-quality').value / 100;
+    return buildUltraHdr(await jpegBytes(base, width, height, quality), await jpegBytes(map, gainW, gainH, 0.95));
+  }
+
   async function savePhotoRendered(name, model, k) {
     const format = $('photo-format').value;
+    const hdr = format === 'jpeghdr';
     const eightBit = (why) => {
-      showNotice(format === 'png16' ? 'Saved at 8 bits per channel' : 'Saved without the upscaling model', why);
+      showNotice(format === 'png16' ? 'Saved at 8 bits per channel' : format === 'jpeghdr' ? 'Saved as an ordinary JPEG' : 'Saved without the upscaling model', why);
       saveAs8Bit(canvas, name);
     };
     try {
@@ -141,19 +170,26 @@ export function initExport({ state, $, canvas, ctx, layoutCanvas, showsCamera, s
         }
       }
       if (state.fullRes && state.still) {
-        const { promise } = engine.job('superRes', 'superres', { ...(state.stillFrame || cameraParams()), scale: +$('still-scale').value, passes, bits16: true }, { onProgress: showProgress });
+        const { promise } = engine.job('superRes', 'superres', { ...(state.stillFrame || cameraParams()), scale: +$('still-scale').value, passes, bits16: true, hdr }, { onProgress: showProgress });
         msg = await promise;
       } else if (passes > 0 && state.info.hasRaw) {
-        const { promise } = engine.job('superRes', 'superres', { ...cameraParams(), scale: +$('detail').value, passes, label: 'Processing', bits16: true }, { onProgress: showProgress });
+        const { promise } = engine.job('superRes', 'superres', { ...cameraParams(), scale: +$('detail').value, passes, label: 'Processing', bits16: true, hdr }, { onProgress: showProgress });
         msg = await promise;
       } else {
-        msg = await engine.request('view', { ...cameraParams(), final: true, bits16: true }, { onProgress: showProgress });
+        msg = await engine.request('view', { ...cameraParams(), final: true, bits16: true, hdr }, { onProgress: showProgress });
       }
       hideProgress();
       if (!msg || !msg.pixels16) {
-        eightBit('The picture needs the graphics card (and its noise reduction) to be made at 16 bits; this one was made without it.');
+        eightBit(`The picture needs the graphics card (and its noise reduction) to be made at ${hdr ? 'full precision with its highlights' : '16 bits'}; this one was made without it.`);
         return;
       }
+      if (hdr && !msg.gain) {
+        eightBit('The graphics card did not make the highlight map this file needs.');
+        return;
+      }
+      const gain = hdr ? new Uint8Array(msg.gain) : null;
+      const gainW = msg.width;
+      const gainH = msg.height;
       let rgb = new Uint16Array(msg.pixels16);
       let width = msg.width;
       let height = msg.height;
@@ -190,6 +226,12 @@ export function initExport({ state, $, canvas, ctx, layoutCanvas, showsCamera, s
         }
         if (big) ({ rgb, width, height } = big);
       }
+      if (hdr) {
+        // The ordinary picture in sRGB (the highlight map is worked out in sRGB colors), and the map of what is brighter than white: one file (core/ultrahdr.js).
+        const file = await encodeHdrJpeg(rgb, width, height, gain, gainW, gainH);
+        await download(new Blob([file], { type: 'image/jpeg' }), `${name}.jpg`);
+        return;
+      }
       if (format === 'png16') {
         const space = colorSpace();
         convertRgb16(rgb, space);
@@ -220,9 +262,11 @@ export function initExport({ state, $, canvas, ctx, layoutCanvas, showsCamera, s
 
   function showPhotoFormat() {
     const format = $('photo-format').value;
-    const jpeg = format === 'jpeg';
+    const jpeg = format === 'jpeg' || format === 'jpeghdr';
     $('photo-quality-row').hidden = !jpeg;
-    $('png-btn').textContent = jpeg ? 'Save JPEG' : format === 'png16' ? 'Save 16-bit PNG' : 'Save PNG';
+    // (the HDR JPEG is always sRGB: its highlight map is worked out in sRGB colors)
+    $('photo-colorspace').disabled = format === 'jpeghdr';
+    $('png-btn').textContent = format === 'jpeghdr' ? 'Save HDR JPEG' : jpeg ? 'Save JPEG' : format === 'png16' ? 'Save 16-bit PNG' : 'Save PNG';
   }
   $('photo-format').addEventListener('change', showPhotoFormat);
   $('photo-quality').oninput = () => showSliderValue($('photo-quality'));

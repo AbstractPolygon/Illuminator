@@ -69,6 +69,8 @@ import { makeJobGuard } from './core/jobguard.js';
 
 // Requests whose picture is wanted at 16 bits per channel (see finishGpu).
 const bits16Ids = new Set();
+// The requests that also want the HDR gain map with their 16-bit picture (File format > JPEG HDR): presentBits16 makes it.
+const hdrIds = new Set();
 
 const state = {
   lut: null, // the photo's LUT (core/lut.js), or null
@@ -568,7 +570,7 @@ function packedMasks(ctx) {
 // The color pass: color, defringing, local adjustments and tone mapping.
 // The engine's noise reduction wholly on the GPU: the colour matrix (lens and flare before it), the filter between two textures, then the tone, defringe, local adjustments and
 // sharpening of the usual present. Returns the picture as an ImageBitmap; throws where a step is not possible (the CPU path follows).
-function nrOnGpu(tex, w, h, packed, cs, distortionCorrected, bits16 = false) {
+function nrOnGpu(tex, w, h, packed, cs, distortionCorrected, bits16 = false, gain = false) {
   const gpu = state.gpu;
   const gl = gpu.gl;
   if (w < 40 || h < 40) throw new Error('picture too small');
@@ -585,6 +587,7 @@ function nrOnGpu(tex, w, h, packed, cs, distortionCorrected, bits16 = false) {
     const tables = engineNrTables({ gain: totalGain(state.lf.cam), luminance: cs.settings.engineNrLuma ?? 50, color: cs.settings.engineNrColor ?? 50 });
     clean = nrFilterTex(gpu, lin, w, h, tables, NR_SPACE);
     return gpu[bits16 ? 'presentBits16' : 'present'](clean, w, h, {
+      gain,
       matrix: IDENTITY,
       exposure: 1,
       fringe: cs.settings.defringe,
@@ -610,9 +613,16 @@ const NR_QUICK_MS = 120;
 function finishGpu(tex, w, h, packed, message, cs = state, distortionCorrected = false, ctx = undefined, mode = undefined) {
   // A picture saved at 16 bits per channel (the page asked with bits16): RGB values instead of an ImageBitmap; where a step can only run on the CPU the usual 8-bit picture comes back and the page says so.
   const bits16 = message && bits16Ids.has(message.id);
-  const send = (pic) => (pic instanceof Uint16Array ? post({ ...message, width: w, height: h, pixels16: pic.buffer }, [pic.buffer]) : post({ ...message, width: w, height: h, bitmap: pic }, [pic]));
+  const hdr = !!(message && hdrIds.has(message.id));
+  const send = (pic) => {
+    if (!(pic instanceof Uint16Array)) return post({ ...message, width: w, height: h, bitmap: pic }, [pic]);
+    // (with the HDR gain map the picture was made with: its three channels, 8 bits each)
+    if (pic.gain) return post({ ...message, width: w, height: h, pixels16: pic.buffer, gain: pic.gain.buffer }, [pic.buffer, pic.gain.buffer]);
+    return post({ ...message, width: w, height: h, pixels16: pic.buffer }, [pic.buffer]);
+  };
   // The color pass on the GPU: an ImageBitmap (or the 16-bit values).
   const presentBitmap = () => state.gpu[bits16 ? 'presentBits16' : 'present'](tex, w, h, {
+    gain: hdr,
     matrix: cs.matrix,
     exposure: cs.baseExposure * Math.pow(2, cs.settings.ev),
     fringe: cs.settings.defringe,
@@ -634,7 +644,7 @@ function finishGpu(tex, w, h, packed, message, cs = state, distortionCorrected =
     if (!debugFlags().noGpuNr) {
       try {
         const started = performance.now();
-        const pic = nrOnGpu(tex, w, h, packed, cs, distortionCorrected, bits16);
+        const pic = nrOnGpu(tex, w, h, packed, cs, distortionCorrected, bits16, hdr);
         state.gpu.gl.finish();
         // How long it took, to tell whether the next change may wait for it (a final picture, or one saved, is not a guide).
         if (mode !== 'final' && !bits16) state.gpuNrMs = performance.now() - started;
@@ -3592,6 +3602,7 @@ self.onmessage = async (event) => {
   const msg = event.data;
   const handler = handlers[msg.type];
   if (msg.bits16) bits16Ids.add(msg.id);
+  if (msg.hdr) hdrIds.add(msg.id);
   try {
     if (!handler) throw new Error(`Unknown request ${msg.type}`);
     if (gpuContextLost()) await recoverGpuFor(msg);
@@ -3611,5 +3622,6 @@ self.onmessage = async (event) => {
     post({ id: msg.id, type: 'error', message: err && err.message ? err.message : String(err) });
   } finally {
     bits16Ids.delete(msg.id);
+    hdrIds.delete(msg.id);
   }
 };

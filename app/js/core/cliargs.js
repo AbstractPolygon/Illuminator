@@ -3,8 +3,8 @@
 import { COLOR_SPACE_IDS } from './colorspace.js';
 
 export const COMMANDS = ['render', 'info', 'controls', 'version', 'help'];
-const FORMATS = ['png', 'png16', 'jpeg'];
-const EXT = { png: 'png', png16: 'png', jpeg: 'jpg' };
+const FORMATS = ['png', 'png16', 'jpeg', 'jpeghdr'];
+const EXT = { png: 'png', png16: 'png', jpeg: 'jpg', jpeghdr: 'jpg' };
 const SIZES = ['1', '1.5', '2', '3', '4'];
 
 export const USAGE = `Illuminator command line
@@ -17,7 +17,9 @@ export const USAGE = `Illuminator command line
 Options for render:
   -o, --out <file|folder>     where to save: a file name for one photo, a folder for several
                               (default: next to each photo)
-  --format png|png16|jpeg     file format (default: from the --out file name, else png)
+  --format png|png16|jpeg|jpeghdr
+                              file format (default: from the --out file name, else png);
+                              jpeghdr is a JPEG that also holds the highlights above white (always sRGB)
   --quality <50-100>          JPEG quality
   --color-space <name>        srgb (default), p3, adobe, rec2020 or prophoto
   --size <1|1.5|2|3|4>        enlarge by this much (Photo Size)
