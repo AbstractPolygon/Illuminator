@@ -3,7 +3,7 @@
 // crop, rotation and pivot, fills the print's size, and its strips are copied in; the file is a PNG at the printer's resolution. The sheet and printer
 // settings belong to the equipment, not the photo, so they are kept in this browser rather than in the photo's edits.
 
-import { lenticularPlan, stripMap, interlaceInto, coverRect, pickFrames, viewPositions, pitchTest, pngWithDpi } from '../core/lenticular.js';
+import { lenticularPlan, stripMap, lensMap, lensCount, interlaceLensInto, coverRect, pickFrames, viewPositions, pitchTest, pngWithDpi } from '../core/lenticular.js';
 import { geometry } from '../core/geometry.js';
 import { toImageData } from '../engine.js';
 import { download } from '../platform.js';
@@ -12,7 +12,7 @@ const STORE = 'illuminator.lenticular';
 // (the print type and depth are the photo's, saved with its edits; these are the sheet's, the printer's and the print's)
 const FIELDS = ['lent-lpi', 'lent-dpi', 'lent-pitch', 'lent-width', 'lent-height', 'lent-reverse'];
 
-export function initLenticular({ $, state, engine, cameraParams, eyeParams, withPivotZoom, pivotFor, cropValues, drawGeometry, ensureAnimation, frameGeometry, showProgress, hideProgress, showError, baseName, showSliderValue }) {
+export function initLenticular({ $, state, engine, cameraParams, eyeParams, withPivotZoom, pivotFor, cropValues, drawGeometry, animationPlan, invalidateAnimation, showNotice, showProgress, hideProgress, showError, baseName, showSliderValue }) {
   const settings = () => ({
     type: $('lent-type').value,
     tilt: $('lent-tilt').value,
@@ -84,9 +84,10 @@ export function initLenticular({ $, state, engine, cameraParams, eyeParams, with
     const base = { orientation: +$('orientation').value || 1, angle: +$('straighten').value, crop: cropValues() };
     const out = [];
     for (let i = 0; i < n; i++) {
+      if (run && run.stopped) throw STOPPED;
       showProgress(`Rendering view ${i + 1} of ${n}`, i / n);
       const msg = await engine.request('view', { ...eyeParams(p, points[i].u), v: points[i].v }, { onProgress: () => {} });
-      if (!msg || !(msg.pixels || msg.bitmap)) throw new Error('Rendering the views was stopped.');
+      if (!msg || !(msg.pixels || msg.bitmap)) throw STOPPED;
       const img = toImageData(msg);
       try {
         out.push(shaped(img, geometry(img.width, img.height, { ...base, ...(pivots[i] || {}) })));
@@ -97,21 +98,68 @@ export function initLenticular({ $, state, engine, cameraParams, eyeParams, with
     return out;
   }
 
-  // Animation: n of the animation's frames, evenly spaced from the first to the last, each through its geometry.
+  // Animation: n of the animation's frames, evenly spaced from its first frame to its last, each through its crop, rotation, pivot, pan and zoom. Only those frames are
+  // rendered (in one 'frames' job, as the animation renders them), so the animation need not have been played or finished.
   async function viewsFlip(n) {
-    if (!$('anim-on').checked) throw new Error('An animation lenticular print uses the Animation section\'s frames: turn on Animation and set it up (a focus sweep refocuses as the print is tilted).');
-    showProgress('Rendering the animation', 0);
-    await ensureAnimation();
-    const frames = state.frames || [];
-    if (frames.length < 2 || frames.some((f) => !f)) throw new Error('The animation has not finished rendering: try again when it plays.');
-    const cache = new Map();
-    return pickFrames(frames.length, n).map((i) => {
-      if (!cache.has(i)) {
-        const img = frames[i];
-        cache.set(i, shaped(img, frameGeometry(i, img.width, img.height)));
-      }
-      return cache.get(i);
+    if (!$('anim-on').checked) throw new Error('An animation lenticular print uses the Animation section\'s animation: turn on Animation and set it up (a focus sweep refocuses as the print is tilted).');
+    const { list, pivots } = animationPlan();
+    if (list.length < 2) throw new Error('The animation has only one frame: add a second keyframe, or choose Viewpoint or Focus sweep in the Animation section.');
+    const picks = pickFrames(list.length, n);
+    const unique = [...new Set(picks)];
+    const shots = new Array(unique.length);
+    let done = 0;
+    showProgress('Rendering the animation frames', 0);
+    const { promise } = engine.job('frames', 'frames', { path: unique.map((i) => list[i]) }, {
+      onProgress: () => {},
+      onFrame: async (msg) => {
+        shots[msg.index] = msg.bitmap || (await createImageBitmap(toImageData(msg)));
+        done++;
+        showProgress(`Rendering frame ${done} of ${unique.length}`, done / unique.length);
+      },
     });
+    await promise;
+    // (the job takes the place of any animation frames still rendering for playback: those are made again when the animation plays)
+    if ((state.frames || []).some((f) => !f)) invalidateAnimation();
+    if (run && run.stopped) throw STOPPED;
+    if (shots.some((x) => !x)) throw new Error('Rendering the animation frames was stopped.');
+    const base = { orientation: +$('orientation').value || 1, angle: +$('straighten').value, crop: cropValues() };
+    const made = new Map(unique.map((i, k) => {
+      const img = shots[k];
+      const pic = shaped(img, geometry(img.width, img.height, { ...base, ...(pivots[i] || {}) }));
+      if (img.close) img.close();
+      return [i, pic];
+    }));
+    return picks.map((i) => made.get(i));
+  }
+
+  // Preview and Save print can be stopped: while one renders, its button reads Stop.
+  const STOPPED = new Error('stopped');
+  let run = null;
+  function begin(button) {
+    run = { stopped: false, button, label: button.textContent };
+    button.textContent = 'Stop';
+    button.disabled = false;
+    for (const id of ['lent-preview-btn', 'lent-btn']) if ($(id) !== button) $(id).disabled = true;
+    return run;
+  }
+  function end() {
+    if (!run) return;
+    run.button.textContent = run.label;
+    run = null;
+    for (const id of ['lent-preview-btn', 'lent-btn']) $(id).disabled = !state.info;
+  }
+  function stop() {
+    if (!run) return;
+    run.stopped = true;
+    run.button.disabled = true;
+    // (an animation's frames: the job ends at its next frame)
+    engine.cancel('frames');
+  }
+  // A failure, or nothing at all when it was stopped.
+  function failed(err) {
+    hideProgress();
+    if (err === STOPPED || (run && run.stopped)) showNotice('Lenticular rendering stopped.');
+    else showError(err);
   }
 
   async function savePng(canvas, name, dpi) {
@@ -124,9 +172,10 @@ export function initLenticular({ $, state, engine, cameraParams, eyeParams, with
   // detail keeps one stripe per lens across the lenses, the detail the print has that way. Play rocks the print back and forth.
   const preview = { pics: null, lensPics: null, playing: 0, t: 0.5, n: 0 };
   async function openPreview() {
+    if (run) return stop();
     if (!state.info) return;
     const s = settings();
-    $('lent-preview-btn').disabled = true;
+    begin($('lent-preview-btn'));
     try {
       const plan = lenticularPlan(s);
       const pics = isAnimation(s.type) ? await viewsFlip(plan.views) : await views3d(plan.views, s.depth, axisOf(s));
@@ -167,12 +216,12 @@ export function initLenticular({ $, state, engine, cameraParams, eyeParams, with
       $('lent-preview-tilt').value = 500;
       drawPreview();
       hideProgress();
+      end();
       $('lent-preview-dialog').showModal();
     } catch (err) {
-      hideProgress();
-      showError(err);
+      failed(err);
     } finally {
-      $('lent-preview-btn').disabled = !state.info;
+      end();
     }
   }
   function drawPreview() {
@@ -219,38 +268,48 @@ export function initLenticular({ $, state, engine, cameraParams, eyeParams, with
   });
 
   async function savePrint() {
+    if (run) return stop();
     if (!state.info) return;
     const s = settings();
-    $('lent-btn').disabled = true;
+    begin($('lent-btn'));
     try {
       const plan = lenticularPlan(s);
       const pics = isAnimation(s.type) ? await viewsFlip(plan.views) : await views3d(plan.views, s.depth, axisOf(s));
       const W = plan.width;
       const H = plan.height;
       const a = axisOf(s);
-      const map = stripMap(a === 'x' ? W : H, plan.views, plan.dpi, plan.pitch, s.reverse);
-      const c = new OffscreenCanvas(W, H);
-      const g = c.getContext('2d', { willReadFrequently: true });
-      g.imageSmoothingQuality = 'high';
+      const length = a === 'x' ? W : H;
+      const map = stripMap(length, plan.views, plan.dpi, plan.pitch, s.reverse);
+      const lens = lensMap(length, plan.dpi, plan.pitch);
+      const lenses = lensCount(length, plan.dpi, plan.pitch);
+      // Each picture at one column (or row) per lens: all the detail the print shows of it.
+      const LW = a === 'x' ? lenses : W;
+      const LH = a === 'x' ? H : lenses;
+      const small = new OffscreenCanvas(LW, LH);
+      const sg = small.getContext('2d', { willReadFrequently: true });
+      sg.imageSmoothingQuality = 'high';
       const out = new Uint8ClampedArray(W * H * 4);
       for (let k = 0; k < pics.length; k++) {
         showProgress('Interleaving the pictures', k / pics.length);
-        // (yield, so the progress shows)
+        // (yield, so the progress shows and Stop can be pressed)
         await new Promise((r) => setTimeout(r, 0));
+        if (run && run.stopped) throw STOPPED;
         const pic = pics[k];
         const r = coverRect(pic.width, pic.height, W, H);
-        g.clearRect(0, 0, W, H);
-        g.drawImage(pic, r.sx, r.sy, r.sw, r.sh, 0, 0, W, H);
-        interlaceInto(out, g.getImageData(0, 0, W, H).data, W, H, map, k, a);
+        sg.clearRect(0, 0, LW, LH);
+        sg.drawImage(pic, r.sx, r.sy, r.sw, r.sh, 0, 0, LW, LH);
+        interlaceLensInto(out, sg.getImageData(0, 0, LW, LH).data, W, H, map, lens, lenses, k, a);
       }
+      const c = new OffscreenCanvas(W, H);
+      const g = c.getContext('2d');
       g.putImageData(new ImageData(out, W, H), 0, 0);
       showProgress('Saving the print', 1);
       await savePng(c, `${baseName()}-lenticular-${isAnimation(s.type) ? 'animation' : '3d'}-${plan.lpi}lpi-${plan.dpi}dpi.png`, plan.dpi);
     } catch (err) {
-      showError(err);
+      failed(err);
     } finally {
       hideProgress();
-      $('lent-btn').disabled = !state.info;
+      end();
     }
   }
 
