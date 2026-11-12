@@ -4,6 +4,7 @@
 
 ## Settings
 
+- *Preview:* *Render preview* renders every frame, then plays them at the frame rate; press it again while rendering to cancel. Below it are the playback controls (first frame, previous frame, stop, pause, play, next frame, last frame, loop) and a slider, which work like the play bar under the picture.
 - *Frame rate:* 23.976, 24, 25, 29.97, 30, 48, 50, 59.94 or 60 frames a second, or *Custom* (1 to 240). Playback, keyframes and exported video all use it.
 - *Animate:*
   - *Viewpoint* moves the viewpoint along a *Path* (circle, left–right, up–down, figure eight, diagonal) by an *Amount*. *Amount* can be keyframed.
