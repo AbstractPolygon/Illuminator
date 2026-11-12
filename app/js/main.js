@@ -125,6 +125,10 @@ const lensView = { x: null, y: null, z: 4 };
 
 // ---------------------------------------------------------------- progress
 
+// Animation > Preview: its controls, and whether a preview is rendering.
+const PREVIEW_IDS = ['pv-render', 'pv-first', 'pv-prev', 'pv-stop', 'pv-pause', 'pv-play', 'pv-next', 'pv-last', 'pv-loop', 'pv-scrub'];
+let previewing = false;
+
 function showProgress(stage, p) {
   emitEvent('progress', { stage, progress: p || 0 });
   $('progress').hidden = false;
@@ -1841,6 +1845,7 @@ function invalidateAnimation() {
 // The play bar's readout: current frame of all frames, and the time of the
 // length (shown whenever the animation is on).
 function updateFrameLabel() {
+  updatePreviewStatus();
   const n = state.frames.length;
   const animOn = $('anim-on').checked && state.mode === 'camera' && state.info;
   if (!animOn && (!n || !state.showingFrames)) {
@@ -2471,7 +2476,7 @@ function setMode(mode) {
   // Pictures Lytro Desktop finished already have its look.
   $('base-look').disabled = !raw;
   $('detail').disabled = !raw;
-  for (const id of ['stop-btn', 'pause-btn', 'play-btn', 'loop-btn', 'webm-btn', 'scrub']) $(id).disabled = !state.info || !camera || !$('anim-on').checked;
+  for (const id of ['stop-btn', 'pause-btn', 'play-btn', 'loop-btn', 'webm-btn', 'scrub', ...PREVIEW_IDS]) $(id).disabled = !state.info || !camera || !$('anim-on').checked;
   $('png-btn').disabled = !state.info;
   $('quick-export-btn').disabled = !state.info;
   $('stereo-btn').disabled = !(state.info && state.info.hasRaw) || !camera;
@@ -4148,13 +4153,77 @@ $('loop-btn').innerHTML = '<svg viewBox="0 0 16 16" width="15" height="15" aria-
 
 // The play button lights up while playing.
 function showPlayIcon(playing) {
-  $('play-btn').classList.toggle('active', playing);
-  $('pause-btn').classList.toggle('active', !playing && state.showingFrames && state.frames.length > 0);
+  const paused = !playing && state.showingFrames && state.frames.length > 0;
+  for (const p of ['', 'pv-']) {
+    $(p ? 'pv-play' : 'play-btn').classList.toggle('active', playing);
+    $(p ? 'pv-pause' : 'pause-btn').classList.toggle('active', paused);
+  }
 }
 
 function showLoop() {
-  $('loop-btn').classList.toggle('active', state.repeat);
-  $('loop-btn').setAttribute('aria-pressed', String(state.repeat));
+  for (const id of ['loop-btn', 'pv-loop']) {
+    $(id).classList.toggle('active', state.repeat);
+    $(id).setAttribute('aria-pressed', String(state.repeat));
+  }
+}
+// Animation > Preview: render every frame, then the usual transport controls (first, previous, stop, pause, play, next, last, loop) and a slider, as in a video editor's
+// preview panel. They drive the same playback as the play bar under the picture.
+$('pv-first').innerHTML = icon('M3 3h1.6v10H3zM13 3v10L5.5 8z');
+$('pv-prev').innerHTML = icon('M11 3v10L4.5 8z');
+$('pv-stop').innerHTML = $('stop-btn').innerHTML;
+$('pv-pause').innerHTML = $('pause-btn').innerHTML;
+$('pv-play').innerHTML = $('play-btn').innerHTML;
+$('pv-next').innerHTML = icon('M5 3v10l6.5-5z');
+$('pv-last').innerHTML = icon('M13 3h-1.6v10H13zM3 3v10l7.5-5z');
+$('pv-loop').innerHTML = $('loop-btn').innerHTML;
+$('pv-play').onclick = () => setPlaying(true);
+$('pv-pause').onclick = () => setPlaying(false);
+$('pv-stop').onclick = () => $('stop-btn').onclick();
+$('pv-loop').onclick = () => $('loop-btn').onclick();
+// Steps to a rendered frame and shows it (pausing).
+function goToFrame(pick) {
+  setPlaying(false);
+  if (state.frames.length < 2) return;
+  setFullRes(false, { restore: false });
+  setDepthShown(false, { restore: false });
+  state.showingFrames = true;
+  state.index = Math.min(state.frames.length - 1, Math.max(0, pick(state.index, state.frames.length)));
+  showFrame(state.index);
+  showPlayIcon(false);
+}
+$('pv-first').onclick = () => goToFrame(() => 0);
+$('pv-last').onclick = () => goToFrame((i, n) => n - 1);
+$('pv-prev').onclick = () => goToFrame((i) => i - 1);
+$('pv-next').onclick = () => goToFrame((i) => i + 1);
+$('pv-scrub').oninput = () => {
+  $('scrub').value = $('pv-scrub').value;
+  $('scrub').oninput();
+};
+// Render preview: all the frames first, then it plays; pressed again while rendering, it cancels.
+$('pv-render').onclick = async () => {
+  if (previewing) {
+    invalidateAnimation();
+    return;
+  }
+  if (!state.info || !$('anim-on').checked) return;
+  setPlaying(false);
+  previewing = true;
+  updatePreviewStatus();
+  const done = ensureAnimation();
+  const key = state.animKey;
+  await done;
+  previewing = false;
+  // Cancelled or changed meanwhile: the frames are gone.
+  if (state.animKey === key && state.frames.length && state.frames.every(Boolean)) setPlaying(true);
+  updatePreviewStatus();
+};
+function updatePreviewStatus() {
+  const n = state.frames.length;
+  const ready = state.frames.filter(Boolean).length;
+  $('pv-render').textContent = previewing ? 'Cancel' : n && ready === n ? 'Render again' : 'Render preview';
+  $('pv-status').textContent = !n ? 'Not rendered' : ready < n ? `Rendering ${ready} / ${n}` : `Ready · ${n} frames · ${(n / state.fps).toFixed(2)} s`;
+  $('pv-scrub').max = $('scrub').max;
+  $('pv-scrub').value = $('scrub').value;
 }
 showPlayIcon(false);
 showLoop();
@@ -4393,7 +4462,7 @@ function showAnimationEnabled() {
   const on = $('anim-on').checked;
   $('anim-controls').disabled = !on;
   const camera = state.mode === 'camera';
-  for (const id of ['stop-btn', 'pause-btn', 'play-btn', 'loop-btn', 'webm-btn', 'scrub']) $(id).disabled = !state.info || !camera || !on;
+  for (const id of ['stop-btn', 'pause-btn', 'play-btn', 'loop-btn', 'webm-btn', 'scrub', ...PREVIEW_IDS]) $(id).disabled = !state.info || !camera || !on;
   // The keyframe controls in the sidebar show only while animation is enabled.
   updateKeyButtons();
 }
