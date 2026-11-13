@@ -1597,9 +1597,32 @@ for (const type of ['pointerup', 'pointercancel']) {
 // once the changes stop (the worker says so with nrDeferred). `final`: that request.
 let nrFinalTimer = 0;
 let recoveryRunning = false;
+// The slow Detail recovery pass runs on its own, not while the quick view is marked busy, so a newer quick preview is made at once and never waits for it. Any new render
+// stops it (its picture is for settings that have changed).
+let recoveryToken = 0;
+async function runRecovery(gen, token) {
+  recoveryRunning = true;
+  try {
+    const { promise } = engine.job('superRes', 'superres', { ...cameraParams(), scale: +$('detail').value, passes: +$('still-passes').value, label: 'Processing' }, { onProgress: progressFor(gen) });
+    const msg = await promise;
+    if (openSeq.superseded(gen) || token !== recoveryToken) return;
+    hideProgress();
+    if (msg && (msg.pixels || msg.bitmap) && showsCamera()) {
+      draw(toImageData(msg), gen);
+      if (msg.gpuMs != null) showGpuTime(msg.gpuMs);
+    }
+  } catch (err) {
+    if (!openSeq.superseded(gen) && token === recoveryToken) showError(err, 'Could not render the picture');
+  } finally {
+    recoveryRunning = false;
+  }
+}
+
 async function renderCamera({ final = false } = {}) {
   clearTimeout(nrFinalTimer);
   cancelSharp();
+  recoveryToken++;
+  if (recoveryRunning) engine.cancel('superres').catch(() => {});
   // Changes keep coming: wait for them to stop before auto rendering.
   if (autoRenderTimer) scheduleAutoRender();
   if (!canRender()) return;
@@ -1608,8 +1631,6 @@ async function renderCamera({ final = false } = {}) {
   const v = state.view;
   if (v.busy) {
     v.pending = true;
-    // A Detail recovery in progress is for a picture that has changed: stop it.
-    if (recoveryRunning) engine.cancel('superres').catch(() => {});
     return;
   }
   v.busy = true;
@@ -1631,17 +1652,10 @@ async function renderCamera({ final = false } = {}) {
       const recovery = passes > 0 && !draft && state.info.hasRaw;
       let msg = null;
       if (recovery && final) {
-        recoveryRunning = true;
-        try {
-          const { promise } = engine.job('superRes', 'superres', { ...cameraParams(), scale: +$('detail').value, passes, label: 'Processing' }, { onProgress: progressFor(gen) });
-          msg = await promise;
-        } finally {
-          recoveryRunning = false;
-        }
-        if (!(msg && (msg.pixels || msg.bitmap))) msg = null;
+        runRecovery(gen, recoveryToken);
+        return;
       }
-      // (a recovery stopped for a newer change: that change is rendered next)
-      if (!msg && !(recovery && final && v.pending)) {
+      if (!msg) {
         msg = await engine.request('view', { ...cameraParams(), draft, deferNr: !draft && !final, final: final && !recovery }, {
           onProgress: progressFor(gen),
           // A picture before its noise reduction (a CPU step) is done: shown at once, replaced when the finished one arrives.
@@ -1910,23 +1924,32 @@ function stopProcessing() {
   }
 }
 
-// One frame of the animation by itself (the slider moved to a frame that is not rendered): the latest request wins, and an earlier one stops.
-let singleFrame = 0;
+// One frame of the animation by itself (the slider moved to a frame that is not rendered). While one is being made, moves that follow wait and only the newest position is made
+// next, so a drag keeps showing frames as they finish instead of cancelling each one before it is done.
+let singleBusy = false;
+let singlePending = null;
 function renderSingleFrame(i) {
+  if (singleBusy) {
+    singlePending = i;
+    return;
+  }
   if (!state.info || !canRender()) return;
-  const plan = animationPlan();
-  const f = plan.list[i];
+  const f = animationPlan().list[i];
   if (!f) return;
-  const token = ++singleFrame;
-  engine.cancel('frames');
+  singleBusy = true;
   const div = previewDivisor();
   const { promise } = engine.job('frames', 'frames', { path: [f], alpha: f.alpha, aperture: f.aperture, dof: f.dof, bokeh: f.bokeh }, {
     onFrame: async (msg) => {
-      if (token !== singleFrame || state.frames[i] || state.fullRes || state.depthShown) return;
+      if (state.frames[i] || state.fullRes || state.depthShown) return;
       draw(await previewFrame(msg, div));
     },
   });
-  promise.catch(() => {});
+  promise.catch(() => {}).finally(() => {
+    singleBusy = false;
+    const next = singlePending;
+    singlePending = null;
+    if (next !== null && !state.frames[next]) renderSingleFrame(next);
+  });
 }
 
 // A camera or animation setting changed: the frames are stale.
