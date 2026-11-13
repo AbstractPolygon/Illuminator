@@ -1849,7 +1849,8 @@ function ensureAnimation() {
   state.frameScale = Math.min(3, Math.max(1, ...state.framePivots.map((p) => (p && p.zoom) || 1)));
   state.frameValues = req.values;
   state.loop = req.loop;
-  state.index = 0;
+  // The playhead stays where it was (it was only ever reset to the start here, so any re-render sent it back to the beginning).
+  state.index = Math.min(state.frames.length - 1, Math.max(0, Math.round((state.keyTime || 0) * state.fps)));
   state.direction = 1;
   $('scrub').max = Math.max(0, state.frames.length - 1);
   const { promise } = engine.job(req.type, req.kind, req.args, {
@@ -1858,9 +1859,12 @@ function ensureAnimation() {
       hideProgress();
       if (state.animKey !== key) return;
       state.frames[msg.index] = await previewFrame(msg, div);
-      if (state.showingFrames && (msg.index === state.index || !state.frames[state.index])) {
-        state.index = msg.index;
+      if (state.showingFrames && msg.index === state.index) {
         showFrame(msg.index);
+      } else if (state.showingFrames && !state.frames[state.index]) {
+        // The frame at the playhead is still to come: show this one meanwhile, without moving the playhead to it.
+        if (!state.fullRes && !state.depthShown) draw(state.frames[msg.index]);
+        updateFrameLabel();
       } else {
         updateFrameLabel();
       }
@@ -1902,7 +1906,7 @@ function updateFrameLabel() {
   // The play bar's slider spans the whole animation, rendered or not, so it
   // can be dragged at once.
   $('scrub').max = String(Math.max(0, expected - 1));
-  const index = n > 1 && state.showingFrames ? state.index : keyframes ? Math.round((state.keyTime || 0) * state.fps) : 0;
+  const index = n > 1 && state.showingFrames ? state.index : Math.round((state.keyTime || 0) * state.fps);
   const i = Math.min(total - 1, Math.max(0, index));
   const ready = state.frames.filter(Boolean).length;
   const val = state.showingFrames ? state.frameValues[state.index] : undefined;
@@ -1915,6 +1919,8 @@ function updateFrameLabel() {
 function showFrame(i) {
   const f = state.frames[i];
   state.drawFrame = i;
+  // The time of the frame on show is the playhead's, so it stays there when the frames are dropped or the camera view comes back.
+  state.keyTime = i / state.fps;
   if (f && !state.fullRes && !state.depthShown) draw(f);
   $('scrub').value = i;
   updateFrameLabel();
@@ -1961,7 +1967,10 @@ function setPlaying(p) {
   showPlayIcon(p);
   if (p) {
     // Played to the end without repeating: start over.
-    if (!state.repeat && state.loop !== 'pingpong' && state.index >= state.frames.length - 1) state.index = 0;
+    if (!state.repeat && state.loop !== 'pingpong' && state.frames.length > 1 && state.index >= state.frames.length - 1) {
+      state.index = 0;
+      state.keyTime = 0;
+    }
     if (!state.repeat && state.loop === 'pingpong' && state.direction < 0 && state.index <= 0) state.direction = 1;
     setFullRes(false, { restore: false });
     setDepthShown(false, { restore: false });
@@ -4271,6 +4280,35 @@ function updatePreviewStatus() {
   $('pv-status').textContent = !n ? 'Not rendered' : ready < n ? `Rendering ${ready} / ${n}` : `Ready · ${n} frames · ${(n / state.fps).toFixed(2)} s`;
   $('pv-scrub').max = $('scrub').max;
   $('pv-scrub').value = $('scrub').value;
+  showRenderedFrames();
+}
+
+// The play bar's slider (and the preview's) is lit where frames are rendered, so a render in progress fills it from the left.
+function showRenderedFrames() {
+  const n = state.frames.length;
+  let channel = '';
+  if (n > 1 && state.frames.some(Boolean)) {
+    const stops = [];
+    let last = 0;
+    const at = (i) => `${(100 * Math.min(n, Math.max(0, i))) / n}%`;
+    for (let i = 0; i < n; ) {
+      if (!state.frames[i]) {
+        i++;
+        continue;
+      }
+      let j = i;
+      while (j + 1 < n && state.frames[j + 1]) j++;
+      stops.push(`var(--line) ${at(last)} ${at(i)}`, `var(--live) ${at(i)} ${at(j + 1)}`);
+      last = j + 1;
+      i = j + 1;
+    }
+    stops.push(`var(--line) ${at(last)} 100%`);
+    channel = `linear-gradient(to right, ${stops.join(', ')})`;
+  }
+  for (const id of ['scrub', 'pv-scrub']) {
+    if (channel) $(id).style.setProperty('--channel', channel);
+    else $(id).style.removeProperty('--channel');
+  }
 }
 showPlayIcon(false);
 showLoop();
