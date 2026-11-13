@@ -305,8 +305,9 @@ function renderLibrary() {
     if (marks) li.append(marks.rater(photo));
     if (mark) li.append(mark);
     li.onclick = (e) => {
-      // With the Render Queue view open, Ctrl/Command-click and Shift-click choose several photos to add (ui/queue.js).
-      if (!(queueUi && queueUi.pick(photo, e))) openItem(photo);
+      // (a press that was already acted on when the pointer was released, see below)
+      if (performance.now() < pressHandledUntil && pressHandledId === photo.id) return;
+      chooseListedPhoto(photo, e);
     };
     li.onkeydown = (e) => {
       // (the ••• button inside keeps its keys)
@@ -804,6 +805,35 @@ async function importPhotos(entries, { album = state.album, replace = false } = 
 }
 
 // ---------------------------------------------------------------- opening
+
+// With the Render Queue view open, Ctrl/Command-click and Shift-click choose several photos to add (ui/queue.js).
+function chooseListedPhoto(photo, e) {
+  if (!(queueUi && queueUi.pick(photo, e))) openItem(photo);
+}
+
+// One click on a photo in the sidebar opens it. A click is only sent when the pointer is released on the element it was pressed on, and the list is rebuilt whenever something
+// changes (a thumbnail arrives, a field that loses focus saves its value), so a press could lose its click and the photo needed a second one. The photo is chosen when the pointer is
+// released over the same photo instead, whether or not the row was rebuilt in between. (A drag to an album ends without a release on a row of the same photo; the keyboard still
+// uses click.)
+let pressedPhotoId = null;
+let pressHandledUntil = 0;
+let pressHandledId = null;
+const photoRowAt = (target) => (target && target.closest && !target.closest('button, input, select, a') ? target.closest('#library-list li') : null);
+$('library-list').addEventListener('pointerdown', (e) => {
+  const row = e.button === 0 ? photoRowAt(e.target) : null;
+  pressedPhotoId = row ? row.dataset.photoId : null;
+});
+$('library-list').addEventListener('pointerup', (e) => {
+  const id = pressedPhotoId;
+  pressedPhotoId = null;
+  const row = e.button === 0 ? photoRowAt(e.target) : null;
+  if (!id || !row || row.dataset.photoId !== id) return;
+  const photo = (state.listedPhotos || []).find((p) => p.id === id);
+  if (!photo) return;
+  pressHandledId = id;
+  pressHandledUntil = performance.now() + 500;
+  chooseListedPhoto(photo, e);
+});
 
 async function openItem(photo) {
   // A click on another photo while this one is still loading takes over: everything below stops at its next await.
