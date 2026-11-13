@@ -1603,6 +1603,8 @@ async function renderCamera({ final = false } = {}) {
   // Changes keep coming: wait for them to stop before auto rendering.
   if (autoRenderTimer) scheduleAutoRender();
   if (!canRender()) return;
+  // The slow final pass waits until the slider or playhead has been still (the quick view is made now; the pass is scheduled again below).
+  if (final && !seekSettled()) final = false;
   const v = state.view;
   if (v.busy) {
     v.pending = true;
@@ -1886,7 +1888,7 @@ function framesMissing() {
 
 // The follow-up processing after a change (the sharp preview, the full sensor render, noise reduction and Detail recovery) waits until the time slider or playhead has been
 // still for a moment, so it does not start while it is still being moved.
-const SEEK_SETTLE = 700;
+const SEEK_SETTLE = 1500;
 const seekSettled = () => performance.now() - (state.lastSeek || 0) >= SEEK_SETTLE;
 const seekWait = () => Math.max(50, SEEK_SETTLE - (performance.now() - (state.lastSeek || 0)));
 
