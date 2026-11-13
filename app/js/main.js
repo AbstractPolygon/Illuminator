@@ -3,6 +3,7 @@ import { VERSION } from './version.js';
 import { readEdits, writeEdits, editsStore, EDITS_FORMAT, EDITS_VERSION, EDIT_GROUPS } from './edits.js';
 const EDIT_GROUPS_CAMERA = new Set(EDIT_GROUPS.camera);
 import { Engine, toImageData } from './engine.js';
+import { PreviewMirror } from './ui/previewmirror.js';
 import { Timings, formatDuration, speedLimits, reportText } from './core/speedreport.js';
 import { initScriptingApi } from './ui/api.js';
 import { tiltPreset } from './core/tiltpresets.js';
@@ -56,10 +57,13 @@ import { createOpenSequencer } from './core/openseq.js';
 
 const $ = (id) => document.getElementById(id);
 const engine = new Engine();
+// A second worker for quick previews while the first is busy (ui/previewmirror.js), only while Animation is enabled.
+const previewMirror = new PreviewMirror(engine, { onLog: (...a) => console.info(...a) });
 engine.onNotice = (text) => showNotice(text);
 // The worker stopped: the requests waiting for it have failed (their callers clean up); what is left is the page's own busy flags, and the photo, which only the
 // worker held, must be opened again.
 engine.onWorkerLost = () => {
+  previewMirror.stop();
   openSeq.next();
   state.view.busy = false;
   state.view.pending = false;
@@ -1656,7 +1660,10 @@ async function renderCamera({ final = false } = {}) {
         return;
       }
       if (!msg) {
-        msg = await engine.request('view', { ...cameraParams(), draft, deferNr: !draft && !final, final: final && !recovery }, {
+        // While the slider or playhead is being moved and the main engine is busy, the second worker makes the quick view.
+        const maker = seekSettled() ? engine : previewMirror.quick();
+        msg = await maker.request('view', { ...cameraParams(), draft, deferNr: !draft && !final, final: final && !recovery }, {
+          quick: true,
           onProgress: progressFor(gen),
           // A picture before its noise reduction (a CPU step) is done: shown at once, replaced when the finished one arrives.
           onFrame: (f) => { if (f.preview && f.bitmap && showsCamera()) draw(f.bitmap, gen); },
@@ -1938,7 +1945,8 @@ function renderSingleFrame(i) {
   if (!f) return;
   singleBusy = true;
   const div = previewDivisor();
-  const { promise } = engine.job('frames', 'frames', { path: [f], alpha: f.alpha, aperture: f.aperture, dof: f.dof, bokeh: f.bokeh }, {
+  const { promise } = previewMirror.quick().job('frames', 'frames', { path: [f], alpha: f.alpha, aperture: f.aperture, dof: f.dof, bokeh: f.bokeh }, {
+    quick: true,
     onFrame: async (msg) => {
       if (state.frames[i] || state.fullRes || state.depthShown) return;
       draw(await previewFrame(msg, div));
@@ -4630,6 +4638,7 @@ for (const id of ['amount', 'near', 'far']) {
 function showAnimationEnabled() {
   const on = $('anim-on').checked;
   $('anim-controls').disabled = !on;
+  previewMirror.want(on && !!state.info);
   const camera = state.mode === 'camera';
   for (const id of ['stop-btn', 'play-btn', 'loop-btn', 'webm-btn', 'scrub', ...PREVIEW_IDS]) $(id).disabled = !state.info || !camera || !on;
   // The keyframe controls in the sidebar show only while animation is enabled.

@@ -75,14 +75,14 @@ export class Engine {
     }
   }
 
-  request(type, args = {}, { onProgress, onFrame, transfer } = {}) {
+  request(type, args = {}, { onProgress, onFrame, transfer, quick } = {}) {
     const id = this.nextId++;
     return new Promise((resolve, reject) => {
       if (!this.worker) {
         this.start();
         if (this.onRecreate) this.onRecreate();
       }
-      this.pending.set(id, { resolve, reject, onProgress, onFrame, type });
+      this.pending.set(id, { resolve, reject, onProgress, onFrame, type, quick });
       try {
         this.worker.postMessage({ id, type, ...args }, transfer || []);
       } catch (err) {
