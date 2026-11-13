@@ -126,7 +126,7 @@ const lensView = { x: null, y: null, z: 4 };
 // ---------------------------------------------------------------- progress
 
 // Animation > Preview: its controls, and whether a preview is rendering.
-const PREVIEW_IDS = ['pv-render', 'pv-first', 'pv-prev', 'pv-stop', 'pv-pause', 'pv-play', 'pv-next', 'pv-last', 'pv-loop', 'pv-scrub'];
+const PREVIEW_IDS = ['pv-res', 'pv-render', 'pv-first', 'pv-prev', 'pv-stop', 'pv-play', 'pv-next', 'pv-last', 'pv-loop', 'pv-scrub'];
 let previewing = false;
 
 function showProgress(stage, p) {
@@ -1793,9 +1793,22 @@ function animationPlan() {
   return { list, pivots: framePivotsOf(req) };
 }
 
+// Animation > Preview > Resolution: the frames are kept at a half, third or quarter of their size.
+const previewDivisor = () => Math.max(1, +$('pv-res').value || 1);
+async function previewFrame(msg, div) {
+  const src = msg.bitmap || toImageData(msg);
+  if (div === 1) return msg.bitmap || createImageBitmap(src);
+  const w = Math.max(1, Math.round(src.width / div));
+  const h = Math.max(1, Math.round(src.height / div));
+  const small = await createImageBitmap(src, { resizeWidth: w, resizeHeight: h, resizeQuality: 'high' });
+  if (msg.bitmap && msg.bitmap.close) msg.bitmap.close();
+  return small;
+}
+
 function ensureAnimation() {
   const req = animationRequest();
-  const key = JSON.stringify([req.type, req.args]);
+  const div = previewDivisor();
+  const key = JSON.stringify([req.type, req.args, div]);
   if (key === state.animKey) return state.animDone;
   engine.cancel(req.kind === 'frames' ? 'refocus' : 'frames');
   state.animKey = key;
@@ -1814,7 +1827,7 @@ function ensureAnimation() {
     onFrame: async (msg) => {
       hideProgress();
       if (state.animKey !== key) return;
-      state.frames[msg.index] = msg.bitmap || (await createImageBitmap(toImageData(msg)));
+      state.frames[msg.index] = await previewFrame(msg, div);
       if (state.showingFrames && (msg.index === state.index || !state.frames[state.index])) {
         state.index = msg.index;
         showFrame(msg.index);
@@ -2476,7 +2489,7 @@ function setMode(mode) {
   // Pictures Lytro Desktop finished already have its look.
   $('base-look').disabled = !raw;
   $('detail').disabled = !raw;
-  for (const id of ['stop-btn', 'pause-btn', 'play-btn', 'loop-btn', 'webm-btn', 'scrub', ...PREVIEW_IDS]) $(id).disabled = !state.info || !camera || !$('anim-on').checked;
+  for (const id of ['stop-btn', 'play-btn', 'loop-btn', 'webm-btn', 'scrub', ...PREVIEW_IDS]) $(id).disabled = !state.info || !camera || !$('anim-on').checked;
   $('png-btn').disabled = !state.info;
   $('quick-export-btn').disabled = !state.info;
   $('stereo-btn').disabled = !(state.info && state.info.hasRaw) || !camera;
@@ -4127,8 +4140,8 @@ $('sample-btn').onclick = async () => {
   renderLibrary();
   openWith({ synthetic: { width: 3864, height: 2684 } }, undefined, my);
 };
-$('play-btn').onclick = () => setPlaying(true);
-$('pause-btn').onclick = () => setPlaying(false);
+// One button plays and pauses (its icon shows what a press does).
+$('play-btn').onclick = () => setPlaying(!state.playing);
 // Stop: pause and go back to the start.
 $('stop-btn').onclick = () => {
   setPlaying(false);
@@ -4147,16 +4160,18 @@ $('loop-btn').onclick = () => {
 
 const icon = (d) => `<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="${d}"/></svg>`;
 $('stop-btn').innerHTML = icon('M3.5 3.5h9v9h-9z');
-$('pause-btn').innerHTML = icon('M3.5 2.5h3v11h-3zM9.5 2.5h3v11h-3z');
-$('play-btn').innerHTML = icon('M4 2.5v11l9.5-5.5z');
+const ICON_PLAY = icon('M4 2.5v11l9.5-5.5z');
+const ICON_PAUSE = icon('M3.5 2.5h3v11h-3zM9.5 2.5h3v11h-3z');
 $('loop-btn').innerHTML = '<svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 9V7.5a3 3 0 0 1 3-3h8M11 2l2.5 2.5L11 7"/><path d="M13.5 7v1.5a3 3 0 0 1-3 3h-8M5 14l-2.5-2.5L5 9"/></g></svg>';
 
 // The play button lights up while playing.
 function showPlayIcon(playing) {
-  const paused = !playing && state.showingFrames && state.frames.length > 0;
-  for (const p of ['', 'pv-']) {
-    $(p ? 'pv-play' : 'play-btn').classList.toggle('active', playing);
-    $(p ? 'pv-pause' : 'pause-btn').classList.toggle('active', paused);
+  for (const id of ['play-btn', 'pv-play']) {
+    const b = $(id);
+    b.classList.toggle('active', playing);
+    b.innerHTML = playing ? ICON_PAUSE : ICON_PLAY;
+    b.setAttribute('aria-label', playing ? 'Pause' : 'Play');
+    b.setAttribute('aria-pressed', String(playing));
   }
 }
 
@@ -4171,13 +4186,15 @@ function showLoop() {
 $('pv-first').innerHTML = icon('M3 3h1.6v10H3zM13 3v10L5.5 8z');
 $('pv-prev').innerHTML = icon('M11 3v10L4.5 8z');
 $('pv-stop').innerHTML = $('stop-btn').innerHTML;
-$('pv-pause').innerHTML = $('pause-btn').innerHTML;
-$('pv-play').innerHTML = $('play-btn').innerHTML;
 $('pv-next').innerHTML = icon('M5 3v10l6.5-5z');
 $('pv-last').innerHTML = icon('M13 3h-1.6v10H13zM3 3v10l7.5-5z');
 $('pv-loop').innerHTML = $('loop-btn').innerHTML;
-$('pv-play').onclick = () => setPlaying(true);
-$('pv-pause').onclick = () => setPlaying(false);
+$('pv-play').onclick = () => setPlaying(!state.playing);
+$('pv-res').onchange = () => {
+  invalidateAnimation();
+  if (state.showingFrames) backToCamera();
+  updatePreviewStatus();
+};
 $('pv-stop').onclick = () => $('stop-btn').onclick();
 $('pv-loop').onclick = () => $('loop-btn').onclick();
 // Steps to a rendered frame and shows it (pausing).
@@ -4462,7 +4479,7 @@ function showAnimationEnabled() {
   const on = $('anim-on').checked;
   $('anim-controls').disabled = !on;
   const camera = state.mode === 'camera';
-  for (const id of ['stop-btn', 'pause-btn', 'play-btn', 'loop-btn', 'webm-btn', 'scrub', ...PREVIEW_IDS]) $(id).disabled = !state.info || !camera || !on;
+  for (const id of ['stop-btn', 'play-btn', 'loop-btn', 'webm-btn', 'scrub', ...PREVIEW_IDS]) $(id).disabled = !state.info || !camera || !on;
   // The keyframe controls in the sidebar show only while animation is enabled.
   updateKeyButtons();
 }

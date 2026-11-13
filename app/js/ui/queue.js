@@ -241,7 +241,7 @@ export function initQueue({ $, state, native, currentEdits, showNotice, showErro
       b.classList.toggle('active', on);
       b.setAttribute('aria-pressed', String(on));
     }
-    if (on && state.playing) $('pause-btn').click();
+    if (on && state.playing) $('play-btn').click();
     if (on) {
       const photo = libraryPhoto();
       picked = photo ? [photo.id] : [];
