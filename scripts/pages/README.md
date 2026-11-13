@@ -7,6 +7,7 @@ The app test page and the plan are Artifact pages kept current by hand with ever
 - `site-sync.mjs BEFORE.html AFTER.html [site/index.html]`: carries the edits between two versions of the website artifact into the repo's site
   (the page embeds images and shows the version number; the site keeps `gallery/` files and `{{version}}`). Changed blocks it cannot place
   are printed and nothing is written.
+- `check-site-edit.mjs PAGE.html`: checks that the website page's edit copy (what its "Edit text" button works from) is valid. Run it before publishing the website artifact: a raw line break in that copy hides the button.
 - `plan-sync.mjs PLAN.html`: after editing the plan's visible text, rebuilds the JSON copy of it (`edit-src`) the page edits itself from. Then publish the file.
 
 Both are safe to run again: they change nothing when nothing differs.
