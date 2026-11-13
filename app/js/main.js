@@ -1877,8 +1877,11 @@ function ensureAnimation() {
 // The time slider moved: whatever was still being processed for the picture that was on show stops (the preview's frames keep what is rendered so far, and its Render
 // preview button starts the rest again).
 function stopProcessing() {
+  clearTimeout(nrFinalTimer);
   cancelSharp();
   if (recoveryRunning) engine.cancel('superres').catch(() => {});
+  // The full resolution render (or its picture on show) gives way to the quick view again: frames are not drawn while it is up. This stops its render at once.
+  if (state.fullRes) setFullRes(false, { restore: false });
   if (state.animKey && state.frames.some((f) => !f)) {
     engine.cancel('frames');
     engine.cancel('refocus');
@@ -4349,7 +4352,6 @@ showLoop();
 // where there is one, the animation's settings there until then.
 $('scrub').oninput = () => {
   stopProcessing();
-  setFullRes(false, { restore: false });
   setDepthShown(false, { restore: false });
   state.playing = false;
   showPlayIcon(false);

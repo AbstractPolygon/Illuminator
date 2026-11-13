@@ -1062,6 +1062,9 @@ async function frames({ id, job, path, alpha = 0, aperture = 0, dof = 0, bokeh, 
       const at = split ? { ...f, u: split.u, v: split.v } : f;
       let tex = f.aperture > 0 ? state.gpu.refocusTo(f.alpha, apertureOptions(at)) : await singleView(id, at.u, at.v, f.dof);
       tex = await extendGpu(id, tex, outW, outH, split, f.aperture > 0 ? f.alpha : 0);
+      // (a stop request is heard here, not only between frames)
+      await tick();
+      if (state.jobs.frames !== job) return { cancelled: true };
       const unseen = holes ? await holesFor(id, split, f.aperture > 0 ? f.alpha : 0) : null;
       await presentGpu(id, tex, outW, outH, { alpha: f.alpha, dof: f.dof, bokeh: f.bokeh, color: f.color, pxPerUnit: viewPxPerUnit(), parallax: true, masks: { focus: f.alpha, overrides: f.masks, view: viewOf(at.u, at.v) } }, { id, type: 'frame', index: i, ...(unseen ? { holes: unseen } : {}) });
       await tick();
@@ -1071,6 +1074,8 @@ async function frames({ id, job, path, alpha = 0, aperture = 0, dof = 0, bokeh, 
     const at = split ? { ...f, u: split.u, v: split.v } : f;
     let rgb = f.aperture > 0 ? refocusRGB(f.alpha, apertureOptions(at)) : await singleView(id, at.u, at.v, f.dof);
     rgb = await extendCpu(id, rgb, outW, outH, split, f.aperture > 0 ? f.alpha : 0);
+    await tick();
+    if (state.jobs.frames !== job) return { cancelled: true };
     rgb = await applyParallax(id, rgb, outW, outH, at.u, at.v);
     frameMessage(id, i, await withDepthOfField(id, rgb, outW, outH, f.alpha, f.dof, 1, f.bokeh), { focus: f.alpha, overrides: f.masks, view: viewOf(at.u, at.v) }, colorState(f.color), holes ? await holesFor(id, split, f.aperture > 0 ? f.alpha : 0) : null);
     await tick();
@@ -1303,11 +1308,15 @@ async function refocusFrames({ id, job, alphas, u, v, aperture, dof = 0, bokeh }
     if (state.jobs.refocus !== job) return { cancelled: true };
     if (state.gpu) {
       const tex = await extendGpu(id, state.gpu.refocusTo(alphas[i], opts), outW, outH, split, alphas[i]);
+      await tick();
+      if (state.jobs.refocus !== job) return { cancelled: true };
       await presentGpu(id, tex, outW, outH, { alpha: alphas[i], dof, bokeh, pxPerUnit: viewPxPerUnit(), parallax: true, masks: { focus: alphas[i], view: viewOf(u, v) } }, { id, type: 'frame', index: i });
       await tick();
       continue;
     }
     let rgb = await extendCpu(id, refocusRGB(alphas[i], opts), outW, outH, split, alphas[i]);
+    await tick();
+    if (state.jobs.refocus !== job) return { cancelled: true };
     rgb = await applyParallax(id, rgb, outW, outH, u, v);
     frameMessage(id, i, await withDepthOfField(id, rgb, outW, outH, alphas[i], dof, 1, bokeh), { focus: alphas[i], view: viewOf(u, v) });
     await tick();
