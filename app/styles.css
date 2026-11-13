@@ -404,6 +404,9 @@ input[type=range]::-moz-range-thumb {
 input[type=range]:hover::-webkit-slider-runnable-track { background: var(--channel, var(--muted)); }
 input[type=range]:hover::-moz-range-track { background: var(--channel, var(--muted)); }
 
+/* The play bar's slider shows which frames are rendered (--channel is set from main.js). */
+#scrub, #pv-scrub { --slider-track: 5px; }
+
 /* Channels that show what the slider does. */
 #wb-temperature { --channel: linear-gradient(to right, #3d7bff, #ffd23d); }
 #wb-tint { --channel: linear-gradient(to right, #2fd14a, #f030f0); }
