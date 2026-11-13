@@ -1654,7 +1654,7 @@ async function renderCamera({ final = false } = {}) {
         if (draft) drag.drafted = true;
       }
       if (msg && msg.gpuMs != null) showGpuTime(msg.gpuMs);
-      if (msg && !final && (msg.nrDeferred || recovery)) nrFinalTimer = setTimeout(() => { if (showsCamera()) renderCamera({ final: true }); }, 350);
+      if (msg && !final && (msg.nrDeferred || recovery)) nrFinalTimer = setTimeout(function again() { if (!seekSettled()) nrFinalTimer = setTimeout(again, seekWait()); else if (showsCamera()) renderCamera({ final: true }); }, 350);
     }
   } catch (err) {
     if (!openSeq.superseded(gen)) showError(err, 'Could not render the picture');
@@ -1705,6 +1705,10 @@ function scheduleSharp() {
 async function runSharp() {
   sharpTimer = 0;
   if (!sharpWanted() || state.view.busy) return;
+  if (!seekSettled()) {
+    sharpTimer = setTimeout(runSharp, seekWait());
+    return;
+  }
   if (sharp.running) return;  // (when it ends, a cancelled one starts the next, see below)
   const token = ++sharp.token;
   const photo = state.current && state.current.photo;
@@ -1874,15 +1878,28 @@ function ensureAnimation() {
   return state.animDone;
 }
 
+// Whether any frame of the animation is not rendered yet (the array has empty slots, which some() and every() skip).
+function framesMissing() {
+  for (let i = 0; i < state.frames.length; i++) if (!state.frames[i]) return true;
+  return false;
+}
+
+// The follow-up processing after a change (the sharp preview, the full sensor render, noise reduction and Detail recovery) waits until the time slider or playhead has been
+// still for a moment, so it does not start while it is still being moved.
+const SEEK_SETTLE = 700;
+const seekSettled = () => performance.now() - (state.lastSeek || 0) >= SEEK_SETTLE;
+const seekWait = () => Math.max(50, SEEK_SETTLE - (performance.now() - (state.lastSeek || 0)));
+
 // The time slider moved: whatever was still being processed for the picture that was on show stops (the preview's frames keep what is rendered so far, and its Render
 // preview button starts the rest again).
 function stopProcessing() {
+  state.lastSeek = performance.now();
   clearTimeout(nrFinalTimer);
   cancelSharp();
   if (recoveryRunning) engine.cancel('superres').catch(() => {});
   // The full resolution render (or its picture on show) gives way to the quick view again: frames are not drawn while it is up. This stops its render at once.
   if (state.fullRes) setFullRes(false, { restore: false });
-  if (state.animKey && state.frames.some((f) => !f)) {
+  if (state.animKey && framesMissing()) {
     engine.cancel('frames');
     engine.cancel('refocus');
     state.animKey = null;
@@ -2173,6 +2190,7 @@ function scheduleAutoRender(delay = AUTO_RENDER_DELAY) {
   autoRenderTimer = setTimeout(() => {
     autoRenderTimer = 0;
     if (drag.on) return scheduleAutoRender();
+    if (!seekSettled()) return scheduleAutoRender(seekWait());
     if (state.playing || state.showingFrames || state.depthShown || $('auto-render').disabled) return;
     setFullRes(true);
   }, delay);
@@ -4219,6 +4237,7 @@ $('sample-btn').onclick = async () => {
 $('play-btn').onclick = () => setPlaying(!state.playing);
 // Stop: pause and go back to the start.
 $('stop-btn').onclick = () => {
+  stopProcessing();
   setPlaying(false);
   state.index = 0;
   state.direction = 1;
@@ -4274,6 +4293,7 @@ $('pv-stop').onclick = () => $('stop-btn').onclick();
 $('pv-loop').onclick = () => $('loop-btn').onclick();
 // Steps to a rendered frame and shows it (pausing).
 function goToFrame(pick) {
+  stopProcessing();
   setPlaying(false);
   if (state.frames.length < 2) return;
   setFullRes(false, { restore: false });
@@ -4306,14 +4326,15 @@ $('pv-render').onclick = async () => {
   await done;
   previewing = false;
   // Cancelled or changed meanwhile: the frames are gone.
-  if (state.animKey === key && state.frames.length && state.frames.every(Boolean)) setPlaying(true);
+  if (state.animKey === key && state.frames.length && !framesMissing()) setPlaying(true);
   updatePreviewStatus();
 };
 function updatePreviewStatus() {
   const n = state.frames.length;
   const ready = state.frames.filter(Boolean).length;
   $('pv-render').textContent = previewing ? 'Cancel' : n && ready === n ? 'Render again' : 'Render preview';
-  $('pv-status').textContent = !n ? 'Not rendered' : ready === n ? `Ready · ${n} frames · ${(n / state.fps).toFixed(2)} s` : state.animKey ? `Rendering ${ready} / ${n}` : `Stopped at ${ready} / ${n}`;
+  $('pv-status').textContent = !n ? '' : ready === n ? `Ready · ${n} frames · ${(n / state.fps).toFixed(2)} s` : state.animKey ? `Rendering ${ready} / ${n}` : `Stopped at ${ready} / ${n}`;
+  $('pv-status').hidden = !$('pv-status').textContent;
   $('pv-scrub').max = $('scrub').max;
   $('pv-scrub').value = $('scrub').value;
   showRenderedFrames();

@@ -825,7 +825,7 @@
               <option value="4">Quarter</option>
             </select>
           </label>
-          <button id="pv-render" class="wide" type="button" title="Renders every frame, then plays them at the frame rate">Render preview</button>
+          <input id="pv-scrub" title="Drag to move through the preview" type="range" min="0" max="0" value="0" aria-label="Preview position" disabled>
           <div class="transport-buttons pv-transport" role="group" aria-label="Preview playback">
             <button id="pv-first" class="icon-btn" type="button" title="First frame" aria-label="First frame"></button>
             <button id="pv-prev" class="icon-btn" type="button" title="Previous frame" aria-label="Previous frame"></button>
@@ -835,8 +835,8 @@
             <button id="pv-last" class="icon-btn" type="button" title="Last frame" aria-label="Last frame"></button>
             <button id="pv-loop" class="icon-btn" type="button" title="Loop: play over and over" aria-label="Loop" aria-pressed="true"></button>
           </div>
-          <input id="pv-scrub" title="Drag to move through the preview" type="range" min="0" max="0" value="0" aria-label="Preview position" disabled>
-          <p id="pv-status" class="hint">Not rendered</p>
+          <button id="pv-render" class="wide" type="button" title="Renders every frame, then plays them at the frame rate">Render preview</button>
+          <p id="pv-status" class="hint" hidden></p>
         </details>
         <label title="Frames a second, for playback, keyframes and exported video">Frame rate
           <select id="fps-preset">
