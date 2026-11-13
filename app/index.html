@@ -190,8 +190,7 @@
       <div class="transport">
         <div class="transport-buttons" role="group" aria-label="Playback">
           <button id="stop-btn" class="icon-btn" type="button" title="Stop: back to the start" aria-label="Stop"></button>
-          <button id="pause-btn" class="icon-btn" type="button" title="Pause (space)" aria-label="Pause"></button>
-          <button id="play-btn" class="icon-btn" type="button" title="Play (space)" aria-label="Play"></button>
+          <button id="play-btn" class="icon-btn" type="button" title="Play / pause (space)" aria-label="Play"></button>
           <button id="loop-btn" class="icon-btn" type="button" title="Loop: play over and over" aria-label="Loop" aria-pressed="true"></button>
         </div>
         <input id="scrub" title="Drag to move through the animation" type="range" min="0" max="0" value="0" aria-label="Animation position">
@@ -818,13 +817,20 @@
         <fieldset id="anim-controls" class="plain" disabled>
         <details class="subpanel" id="anim-preview" open>
           <summary><h3>Preview</h3></summary>
+          <label title="Size of the preview's frames: smaller frames render and play faster">Resolution
+            <select id="pv-res">
+              <option value="1" selected>Full</option>
+              <option value="2">Half</option>
+              <option value="3">Third</option>
+              <option value="4">Quarter</option>
+            </select>
+          </label>
           <button id="pv-render" class="wide" type="button" title="Renders every frame, then plays them at the frame rate">Render preview</button>
           <div class="transport-buttons pv-transport" role="group" aria-label="Preview playback">
             <button id="pv-first" class="icon-btn" type="button" title="First frame" aria-label="First frame"></button>
             <button id="pv-prev" class="icon-btn" type="button" title="Previous frame" aria-label="Previous frame"></button>
             <button id="pv-stop" class="icon-btn" type="button" title="Stop: back to the start" aria-label="Stop"></button>
-            <button id="pv-pause" class="icon-btn" type="button" title="Pause" aria-label="Pause"></button>
-            <button id="pv-play" class="icon-btn" type="button" title="Play" aria-label="Play"></button>
+            <button id="pv-play" class="icon-btn" type="button" title="Play / pause" aria-label="Play"></button>
             <button id="pv-next" class="icon-btn" type="button" title="Next frame" aria-label="Next frame"></button>
             <button id="pv-last" class="icon-btn" type="button" title="Last frame" aria-label="Last frame"></button>
             <button id="pv-loop" class="icon-btn" type="button" title="Loop: play over and over" aria-label="Loop" aria-pressed="true"></button>
