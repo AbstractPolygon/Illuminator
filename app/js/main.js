@@ -1874,6 +1874,39 @@ function ensureAnimation() {
   return state.animDone;
 }
 
+// The time slider moved: whatever was still being processed for the picture that was on show stops (the preview's frames keep what is rendered so far, and its Render
+// preview button starts the rest again).
+function stopProcessing() {
+  cancelSharp();
+  if (recoveryRunning) engine.cancel('superres').catch(() => {});
+  if (state.animKey && state.frames.some((f) => !f)) {
+    engine.cancel('frames');
+    engine.cancel('refocus');
+    state.animKey = null;
+    hideProgress();
+    updatePreviewStatus();
+  }
+}
+
+// One frame of the animation by itself (the slider moved to a frame that is not rendered): the latest request wins, and an earlier one stops.
+let singleFrame = 0;
+function renderSingleFrame(i) {
+  if (!state.info || !canRender()) return;
+  const plan = animationPlan();
+  const f = plan.list[i];
+  if (!f) return;
+  const token = ++singleFrame;
+  engine.cancel('frames');
+  const div = previewDivisor();
+  const { promise } = engine.job('frames', 'frames', { path: [f], alpha: f.alpha, aperture: f.aperture, dof: f.dof, bokeh: f.bokeh }, {
+    onFrame: async (msg) => {
+      if (token !== singleFrame || state.frames[i] || state.fullRes || state.depthShown) return;
+      draw(await previewFrame(msg, div));
+    },
+  });
+  promise.catch(() => {});
+}
+
 // A camera or animation setting changed: the frames are stale.
 function invalidateAnimation() {
   // The playhead stays on the frame that was showing (while frames play, only
@@ -4054,7 +4087,7 @@ const { showColorMatrix } = initColorMatrix({ $, state, applySettings: (...a) =>
 const { getMasks, setMasks, maskLabel, TRASH_ICON, renderMasks, localSettings, setDepthRange, pickDepthRange, selectedDepthMask } = initLocalAdjustments({ $, applySettingsSoon: (...a) => applySettingsSoon(...a), scheduleSave: (...a) => scheduleSave(...a), state, clearSelection: (...a) => clearSelection(...a), saveAnimation: (...a) => saveAnimation(...a), renderTimeline: (...a) => renderTimeline(...a), showMenu: (...a) => showMenu(...a), confirmInMenu: (...a) => confirmInMenu(...a), editName: (...a) => editName(...a), canRender: (...a) => canRender(...a), showSliderValue: (...a) => showSliderValue(...a), updateKeyButtons: (...a) => updateKeyButtons(...a), autoKey: (...a) => autoKey(...a) });
 
 // keyframes: ui/keyframes.js
-const { MASK_LIMITS, parseMaskTrack, trackGroups, tracks, KEY_CONTROLS, settingControl, updateKeyButtons, groupCollapsed, shownTracks, groupHidden, trackName, tlSel, tlCurves, keyframesOn, animLength, loadAnimation, saveAnimation, liveFraming, combineMotion, showValue, previewAt, autoKey, playheadTime, clearSelection, selectKey, selectedKeys, moveKeys, selectedKey, viewWindow, tickStep, updatePlayhead, groupHeading, renderTimeline, timeAt, seekTimeline, seekTo, showAnimationLength, keyframeFrames } = initKeyframes({ $, getMasks, maskLabel, state, canRender: (...a) => canRender(...a), F_STOPS, scheduleSave: (...a) => scheduleSave(...a), invalidateAnimation: (...a) => invalidateAnimation(...a), backToCamera: (...a) => backToCamera(...a), renderCamera: (...a) => renderCamera(...a), showSliderValue: (...a) => showSliderValue(...a), setMasks, renderMasks, showFNumber: (...a) => showFNumber(...a), showFocusPoint: (...a) => showFocusPoint(...a), applySettingsSoon: (...a) => applySettingsSoon(...a), cameraChanged: (...a) => cameraChanged(...a), layoutCanvas: (...a) => layoutCanvas(...a), drawCurves: (...a) => drawCurves(...a), setPlaying: (...a) => setPlaying(...a), showFrame: (...a) => showFrame(...a), updateFrameLabel: (...a) => updateFrameLabel(...a), plotBox: (...a) => plotBox(...a), animationSettingsChanged: (...a) => animationSettingsChanged(...a), draw: (...a) => draw(...a), apertureFor: (...a) => apertureFor(...a), view, bokehParams: (...a) => bokehParams(...a), colorSettings: (...a) => colorSettings(...a) });
+const { MASK_LIMITS, parseMaskTrack, trackGroups, tracks, KEY_CONTROLS, settingControl, updateKeyButtons, groupCollapsed, shownTracks, groupHidden, trackName, tlSel, tlCurves, keyframesOn, animLength, loadAnimation, saveAnimation, liveFraming, combineMotion, showValue, previewAt, autoKey, playheadTime, clearSelection, selectKey, selectedKeys, moveKeys, selectedKey, viewWindow, tickStep, updatePlayhead, groupHeading, renderTimeline, timeAt, seekTimeline, seekTo, showAnimationLength, keyframeFrames } = initKeyframes({ $, getMasks, maskLabel, state, canRender: (...a) => canRender(...a), F_STOPS, scheduleSave: (...a) => scheduleSave(...a), invalidateAnimation: (...a) => invalidateAnimation(...a), backToCamera: (...a) => backToCamera(...a), renderCamera: (...a) => renderCamera(...a), showSliderValue: (...a) => showSliderValue(...a), setMasks, renderMasks, showFNumber: (...a) => showFNumber(...a), showFocusPoint: (...a) => showFocusPoint(...a), applySettingsSoon: (...a) => applySettingsSoon(...a), cameraChanged: (...a) => cameraChanged(...a), layoutCanvas: (...a) => layoutCanvas(...a), drawCurves: (...a) => drawCurves(...a), stopProcessing: (...a) => stopProcessing(...a), setPlaying: (...a) => setPlaying(...a), showFrame: (...a) => showFrame(...a), updateFrameLabel: (...a) => updateFrameLabel(...a), plotBox: (...a) => plotBox(...a), animationSettingsChanged: (...a) => animationSettingsChanged(...a), draw: (...a) => draw(...a), apertureFor: (...a) => apertureFor(...a), view, bokehParams: (...a) => bokehParams(...a), colorSettings: (...a) => colorSettings(...a) });
 
 // curves view: ui/curvesview.js
 const { plotBox, drawCurves } = initCurvesView({ trackGroups, shownTracks, trackName, $, state, settingControl, MASK_LIMITS, parseMaskTrack, F_STOPS, groupHeading, groupCollapsed, tlCurves, viewWindow, tickStep, selectedKey, groupHidden, animLength, tlSel, playheadTime, renderTimeline, saveAnimation, tracks, layoutCanvas: (...a) => layoutCanvas(...a), seekTimeline, selectedKeys, selectKey, moveKeys, timeAt, showValue, clearSelection, seekTo, scheduleSave: (...a) => scheduleSave(...a) });
@@ -4277,7 +4310,7 @@ function updatePreviewStatus() {
   const n = state.frames.length;
   const ready = state.frames.filter(Boolean).length;
   $('pv-render').textContent = previewing ? 'Cancel' : n && ready === n ? 'Render again' : 'Render preview';
-  $('pv-status').textContent = !n ? 'Not rendered' : ready < n ? `Rendering ${ready} / ${n}` : `Ready · ${n} frames · ${(n / state.fps).toFixed(2)} s`;
+  $('pv-status').textContent = !n ? 'Not rendered' : ready === n ? `Ready · ${n} frames · ${(n / state.fps).toFixed(2)} s` : state.animKey ? `Rendering ${ready} / ${n}` : `Stopped at ${ready} / ${n}`;
   $('pv-scrub').max = $('scrub').max;
   $('pv-scrub').value = $('scrub').value;
   showRenderedFrames();
@@ -4315,12 +4348,15 @@ showLoop();
 // Dragging the play bar's slider moves the playhead: a rendered frame
 // where there is one, the animation's settings there until then.
 $('scrub').oninput = () => {
+  stopProcessing();
   setFullRes(false, { restore: false });
   setDepthShown(false, { restore: false });
   state.playing = false;
   showPlayIcon(false);
-  if (!state.frames.length) ensureAnimation();
-  seekTo(+$('scrub').value / state.fps);
+  const i = Math.round(+$('scrub').value);
+  seekTo(i / state.fps);
+  // Only the frame under the slider is made, never the whole preview (that is what Render preview is for). Keyframed animations show it through the live view (seekTo).
+  if ($('anim').value !== 'keyframes' && !state.frames[i]) renderSingleFrame(i);
 };
 $('png-btn').onclick = savePng;
 
