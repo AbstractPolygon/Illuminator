@@ -20,7 +20,7 @@ function trackDrag(move, up) {
   window.addEventListener('blur', end);
 }
 
-export function initKeyframes({ $, getMasks, maskLabel, state, canRender, F_STOPS, scheduleSave, invalidateAnimation, backToCamera, renderCamera, showSliderValue, setMasks, renderMasks, showFNumber, showFocusPoint, applySettingsSoon, cameraChanged, layoutCanvas, drawCurves, setPlaying, showFrame, updateFrameLabel, plotBox, animationSettingsChanged, draw, apertureFor, view, bokehParams, colorSettings }) {
+export function initKeyframes({ $, getMasks, maskLabel, state, canRender, F_STOPS, scheduleSave, invalidateAnimation, backToCamera, renderCamera, showSliderValue, setMasks, renderMasks, showFNumber, showFocusPoint, applySettingsSoon, cameraChanged, layoutCanvas, drawCurves, stopProcessing, setPlaying, showFrame, updateFrameLabel, plotBox, animationSettingsChanged, draw, apertureFor, view, bokehParams, colorSettings }) {
   // Keyframed animation (core/keyframes.js): a track per property on the
   // timeline under the picture. Each track's diamonds are its keyframes: drag
   // to move, click to select (and show), Delete to remove; the selected one
@@ -870,6 +870,7 @@ export function initKeyframes({ $, getMasks, maskLabel, state, canRender, F_STOP
 
   // Moves the playhead to time t.
   function seekTo(t) {
+    stopProcessing();
     state.keyTime = t;
     if (state.playing) setPlaying(false);
     if (state.frames.length) {

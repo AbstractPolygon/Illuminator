@@ -4,7 +4,7 @@
 
 ## Settings
 
-- *Preview:* *Resolution* (Full, Half, Third or Quarter) sets the size of the preview's frames. *Render preview* renders every frame, then plays them at the frame rate; press it again while rendering to cancel. Below it are the playback controls (first frame, previous frame, stop, play / pause, next frame, last frame, loop) and a slider, which work like the play bar under the picture, where one button also plays and pauses. The slider is lit blue where frames are rendered, in the play bar too, so you can see a render fill it.
+- *Preview:* *Resolution* (Full, Half, Third or Quarter) sets the size of the preview's frames. *Render preview* renders every frame, then plays them at the frame rate; press it again while rendering to cancel. Below it are the playback controls (first frame, previous frame, stop, play / pause, next frame, last frame, loop) and a slider, which work like the play bar under the picture, where one button also plays and pauses. The slider is lit blue where frames are rendered, in the play bar too, so you can see a render fill it. Moving the time slider stops a render in progress (the frames done so far stay) and renders only the frame under it; *Render preview* renders the rest.
 - *Frame rate:* 23.976, 24, 25, 29.97, 30, 48, 50, 59.94 or 60 frames a second, or *Custom* (1 to 240). Playback, keyframes and exported video all use it.
 - *Animate:*
   - *Viewpoint* moves the viewpoint along a *Path* (circle, left–right, up–down, figure eight, diagonal) by an *Amount*. *Amount* can be keyframed.
