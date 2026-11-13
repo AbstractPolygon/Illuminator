@@ -522,6 +522,7 @@ export function initKeyframes({ $, getMasks, maskLabel, state, canRender, F_STOP
   }
 
   function showValue(k, v) {
+    stopProcessing();
     applyValue(k, v);
     settingsShown();
     // Showing a keyframe is not a change to record.
