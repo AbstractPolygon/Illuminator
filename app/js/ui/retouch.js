@@ -2,14 +2,17 @@
 // control. A tool places a spot where the picture is clicked (or a stroke where it is painted) and the spots are drawn over the picture (a circle on the blemish, a dashed one on
 // its source), which can be dragged.
 import { parseSpots, defaultSpot, MAX_SPOTS } from '../core/retouch.js';
+import { bestSource } from '../core/autosource.js';
 
 export function initRetouch({ $, state, canvas, engine, applySettingsSoon, scheduleSave, viewPoint, sourceFraction, canRender, showError, applyMatrix, stillDepth }) {
   const getSpots = () => parseSpots($('retouch-spots').value);
 
   state.retouchSel = -1;
-  state.retouchTool = null; // 'select' | 'spot' | 'brush' | 'redeye'
-  const TOOLS = { select: 'rt-select-tool', spot: 'rt-spot-tool', brush: 'rt-brush-tool', redeye: 'rt-redeye-tool' };
+  state.retouchTool = null; // 'select' | 'spot' | 'brush' | 'fill' | 'redeye'
+  const TOOLS = { select: 'rt-select-tool', spot: 'rt-spot-tool', brush: 'rt-brush-tool', fill: 'rt-fill-tool', redeye: 'rt-redeye-tool' };
   const BRUSH_SIZE = 0.015;
+  const FILL_SIZE = 0.03;
+  const brushSize = () => (state.retouchTool === 'fill' ? FILL_SIZE : BRUSH_SIZE);
   const EYE_SIZE = 0.012;
 
   function setSpots(spots, { final = true } = {}) {
@@ -40,6 +43,7 @@ export function initRetouch({ $, state, canvas, engine, applySettingsSoon, sched
     }));
     const s = spots[state.retouchSel];
     $('rt-editor').hidden = !s;
+    $('rt-autosource').hidden = !s || s.mode === 'redeye';
     if (s) {
       $('rt-mode').value = s.mode;
       $('rt-size').value = String(Math.round(s.r * 1000));
@@ -70,6 +74,7 @@ export function initRetouch({ $, state, canvas, engine, applySettingsSoon, sched
     out('rt-opacity', `${$('rt-opacity').value}%`);
     out('rt-depth', (+$('rt-depth').value).toFixed(2));
     out('rt-sdepth', (+$('rt-sdepth').value).toFixed(2));
+    out('rt-vis-gain', $('rt-vis-gain').value);
   }
 
   function select(i) {
@@ -145,10 +150,32 @@ export function initRetouch({ $, state, canvas, engine, applySettingsSoon, sched
   // The stroke being painted (picture fractions), shown until it is let go.
   let painting = null;
 
+  // The picture as its fine detail only (the difference from a blurred copy, brightened), black where it is smooth: dust and blemishes show as bright dots.
+  function showDetail(o, g) {
+    const gain = 2 + 0.3 * +$('rt-vis-gain').value;
+    g.filter = 'grayscale(1)';
+    g.drawImage(canvas, 0, 0, o.width, o.height);
+    g.globalCompositeOperation = 'difference';
+    g.filter = `grayscale(1) blur(${Math.max(2, o.width / 150)}px)`;
+    g.drawImage(canvas, 0, 0, o.width, o.height);
+    g.globalCompositeOperation = 'source-over';
+    g.filter = 'none';
+    const t = document.createElement('canvas');
+    t.width = o.width;
+    t.height = o.height;
+    const tg = t.getContext('2d');
+    tg.filter = `brightness(${gain})`;
+    tg.drawImage(o, 0, 0);
+    g.clearRect(0, 0, o.width, o.height);
+    g.drawImage(t, 0, 0);
+  }
+
   function drawOverlay() {
     const o = $('retouch-overlay');
     const spots = getSpots();
-    const show = $('rt-show').checked && (state.retouchTool || spots.length > 0) && state.info && state.mode === 'camera' && !state.fullRes;
+    const visualize = $('rt-visualize').checked;
+    $('rt-vis-row').hidden = !visualize;
+    const show = (visualize || ($('rt-show').checked && (state.retouchTool || spots.length > 0))) && state.info && state.mode === 'camera' && !state.fullRes;
     o.hidden = !show;
     if (!show) return;
     if (o.width !== canvas.width) o.width = canvas.width;
@@ -156,6 +183,8 @@ export function initRetouch({ $, state, canvas, engine, applySettingsSoon, sched
     for (const k of ['width', 'height', 'left', 'top']) o.style[k] = canvas.style[k];
     const g = o.getContext('2d');
     g.clearRect(0, 0, o.width, o.height);
+    if (visualize) showDetail(o, g);
+    if (!$('rt-show').checked) return;
     const big = Math.max(srcW(), srcH()) * canvasScale();
     const line = Math.max(1, o.width / 1400);
     const trace = (pts, R, alpha) => {
@@ -225,9 +254,9 @@ export function initRetouch({ $, state, canvas, engine, applySettingsSoon, sched
     });
     if (painting) {
       g.strokeStyle = '#4da3ff';
-      trace(painting.points.map(([px, py]) => toCanvas(px, py)), BRUSH_SIZE * big, 0.2);
+      trace(painting.points.map(([px, py]) => toCanvas(px, py)), brushSize() * big, 0.2);
       // where its source will be (the dashed copy beside the stroke)
-      const gap = sourceGap(Math.max(...painting.points.map((p) => p[0])), BRUSH_SIZE);
+      const gap = sourceGap(Math.max(...painting.points.map((p) => p[0])), brushSize());
       g.lineWidth = line;
       g.setLineDash([line * 4, line * 4]);
       g.lineCap = 'butt';
@@ -268,20 +297,26 @@ export function initRetouch({ $, state, canvas, engine, applySettingsSoon, sched
     }
     const d = defaultSpot();
     const [fx, fy] = points[0];
-    const same = (x) => (kind === 'redeye' ? x.mode === 'redeye' : kind === 'brush' ? !!x.path : x.mode !== 'redeye' && !x.path);
+    const same = (x) => (kind === 'redeye' ? x.mode === 'redeye' : kind === 'brush' || kind === 'fill' ? !!x.path : x.mode !== 'redeye' && !x.path);
     const last = spots.filter(same).pop();
-    const r = last ? last.r : kind === 'brush' ? BRUSH_SIZE : kind === 'redeye' ? EYE_SIZE : d.r;
+    const r = kind === 'fill' ? FILL_SIZE : last ? last.r : kind === 'brush' ? BRUSH_SIZE : kind === 'redeye' ? EYE_SIZE : d.r;
     const xs = points.map((p) => p[0]);
     const sx = kind === 'redeye' ? fx : fx + sourceGap(Math.max(...xs), r);
     const spot = { ...d, mode: kind === 'redeye' ? 'redeye' : 'heal', x: fx, y: fy, r, sx, sy: fy, u0: state.camera.u || 0, v0: state.camera.v || 0, focus0: stillDepth() };
     if (kind === 'redeye') Object.assign(spot, { feather: 0.2, opacity: 1 });
     if (kind === 'brush') Object.assign(spot, { path: points.map((p) => [p[0], p[1]]), feather: 0.4 });
+    if (kind === 'fill') {
+      // content-aware: the source is where the surroundings fit best
+      Object.assign(spot, { path: points.map((p) => [p[0], p[1]]), feather: 0.5 });
+      const found = findSource(spot);
+      if (found) Object.assign(spot, found);
+    }
     spots.push(spot);
     state.retouchSel = spots.length - 1;
     setSpots(spots);
     renderList();
     // The scene's depth there, from the depth map: the spot follows the viewpoint by it.
-    const [depth, sdepth] = await Promise.all([depthAt(fx, fy), kind === 'redeye' ? Promise.resolve(0) : depthAt(sx, fy)]);
+    const [depth, sdepth] = await Promise.all([depthAt(fx, fy), kind === 'redeye' ? Promise.resolve(0) : depthAt(spot.sx, spot.sy)]);
     const now = getSpots();
     const mine = now.find((x) => x.id === spot.id);
     if (mine) {
@@ -291,6 +326,99 @@ export function initRetouch({ $, state, canvas, engine, applySettingsSoon, sched
       renderList();
     }
   }
+
+  // Where to copy a spot from, { sx, sy } (picture fractions): the best match for the surroundings of its area (core/autosource.js), searched on the picture as it is shown. null when
+  // the picture cannot be read or nothing fits.
+  function findSource(s) {
+    if (!canvas.width || !canvas.height) return null;
+    const scale = Math.min(1, 480 / Math.max(canvas.width, canvas.height));
+    const t = document.createElement('canvas');
+    t.width = Math.max(1, Math.round(canvas.width * scale));
+    t.height = Math.max(1, Math.round(canvas.height * scale));
+    const g = t.getContext('2d', { willReadFrequently: true });
+    let img;
+    try {
+      g.drawImage(canvas, 0, 0, t.width, t.height);
+      img = g.getImageData(0, 0, t.width, t.height);
+    } catch {
+      return null;
+    }
+    const big = Math.max(srcW(), srcH()) * canvasScale();
+    const path = (s.path && s.path.length > 1 ? s.path : [[s.x, s.y]]).map(([x, y]) => toCanvas(x, y).map((v) => v * scale));
+    const found = bestSource(img, path, s.r * big * scale);
+    if (!found) return null;
+    const [cx, cy] = toCanvas(s.x, s.y);
+    const nx = cx + found.dx / scale;
+    const ny = cy + found.dy / scale;
+    if (state.geom) {
+      const [x, y] = applyMatrix(state.geom.inverse, nx, ny);
+      return { sx: x / state.geom.srcW, sy: y / state.geom.srcH };
+    }
+    return { sx: nx / canvas.width, sy: ny / canvas.height };
+  }
+
+  $('rt-autosource').onclick = async () => {
+    const spots = getSpots();
+    const s = spots[state.retouchSel];
+    if (!s || s.mode === 'redeye') return;
+    const found = findSource(s);
+    if (!found) {
+      showError(new Error('No place in the picture fits around this spot. Drag its source by hand.'), 'No source found');
+      return;
+    }
+    Object.assign(s, found);
+    s.sdepth = await depthAt(found.sx, found.sy);
+    const now = getSpots();
+    const mine = now[state.retouchSel];
+    if (mine && mine.id === s.id) {
+      Object.assign(mine, { sx: s.sx, sy: s.sy, sdepth: s.sdepth });
+      setSpots(now);
+      renderList();
+    }
+  };
+
+  // Copy and paste: the spots go to the clipboard (kept in the app, and in the browser's storage for the next start), and paste adds them to the photo that is open now.
+  const CLIP = 'illuminator.spotClipboard';
+  $('rt-copy').onclick = () => {
+    const spots = getSpots();
+    if (!spots.length) return;
+    state.spotClipboard = spots;
+    try {
+      localStorage.setItem(CLIP, JSON.stringify(spots));
+    } catch {
+      // (not kept for the next start)
+    }
+    $('rt-paste').disabled = !canRender();
+  };
+  $('rt-paste').onclick = () => {
+    let clip = state.spotClipboard;
+    if (!clip) {
+      try {
+        clip = parseSpots(localStorage.getItem(CLIP));
+      } catch {
+        clip = null;
+      }
+    }
+    if (!clip || !clip.length || !canRender()) return;
+    const spots = getSpots();
+    const room = MAX_SPOTS - spots.length;
+    if (room <= 0) {
+      showError(new Error(`A photo can have ${MAX_SPOTS} spots.`), 'Too many spots');
+      return;
+    }
+    // new ids, so a spot pasted twice is two spots
+    const added = clip.slice(0, room).map((x) => ({ ...JSON.parse(JSON.stringify(x)), id: Math.random().toString(36).slice(2, 10) }));
+    spots.push(...added);
+    state.retouchSel = spots.length - 1;
+    setSpots(spots);
+    renderList();
+    if (clip.length > room) showError(new Error(`Only ${room} of the ${clip.length} spots fit: a photo can have ${MAX_SPOTS}.`), 'Some spots left out');
+  };
+  $('rt-visualize').onchange = drawOverlay;
+  $('rt-vis-gain').oninput = () => {
+    showOutputs();
+    drawOverlay();
+  };
 
   // The distance (in pixels of the picture) from a point to a spot's blemish area: its circle, or its stroke.
   function distanceTo(s, fx, fy, offset = [0, 0]) {
@@ -317,7 +445,7 @@ export function initRetouch({ $, state, canvas, engine, applySettingsSoon, sched
     const [fx, fy] = sourceFraction(event);
     const x = Math.min(1, Math.max(0, fx));
     const y = Math.min(1, Math.max(0, fy));
-    if (state.retouchTool === 'brush') {
+    if (state.retouchTool === 'brush' || state.retouchTool === 'fill') {
       painting = { points: [[x, y]], pointer: event.pointerId };
       canvas.setPointerCapture(event.pointerId);
       drawOverlay();
@@ -356,7 +484,7 @@ export function initRetouch({ $, state, canvas, engine, applySettingsSoon, sched
       const [fx, fy] = sourceFraction(event);
       const last = painting.points[painting.points.length - 1];
       // a new point once the pointer has moved a fifth of the brush
-      if (Math.hypot((fx - last[0]) * srcW(), (fy - last[1]) * srcH()) > 0.2 * BRUSH_SIZE * Math.max(srcW(), srcH())) {
+      if (Math.hypot((fx - last[0]) * srcW(), (fy - last[1]) * srcH()) > 0.2 * brushSize() * Math.max(srcW(), srcH())) {
         painting.points.push([Math.min(1, Math.max(0, fx)), Math.min(1, Math.max(0, fy))]);
         drawOverlay();
       }
@@ -383,7 +511,7 @@ export function initRetouch({ $, state, canvas, engine, applySettingsSoon, sched
       // thin the stroke to at most 40 points, keeping both ends
       const keep = points.length > 40 ? points.filter((_, n) => n === points.length - 1 || n % Math.ceil(points.length / 40) === 0) : points;
       if (keep.length === 1) keep.push([keep[0][0] + 0.001, keep[0][1]]);
-      await addSpot('brush', keep);
+      await addSpot(state.retouchTool === 'fill' ? 'fill' : 'brush', keep);
       return;
     }
     if (!drag) return;
