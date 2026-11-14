@@ -808,11 +808,12 @@ footer { border-top: 1px solid var(--line); padding-block: 32px 48px; color: var
     under.src = mode === 'illuminator' && hasIll ? it.depth.illuminator : it[kind].ours;
     top.alt = 'Lytro Desktop ' + kind + ' of ' + it.title;
     under.alt = (mode === 'illuminator' && hasIll ? 'Illuminator depth' : 'Illuminator ' + kind) + ' of ' + it.title;
-    thumbs.forEach((b) => {
-      b.setAttribute('aria-pressed', String(+b.dataset.i === current));
-      // With the Illuminator view chosen, the photos that do not have its depth yet are greyed out.
-      const missing = mode === 'illuminator' && !(items[+b.dataset.i].depth && items[+b.dataset.i].depth.illuminator);
-      b.classList.toggle('no-depth', missing);
+    thumbs.forEach((b) => b.setAttribute('aria-pressed', String(+b.dataset.i === current)));
+    // The Illuminator button is greyed out on a photo that does not have its depth picture yet.
+    modeButtons.forEach((b) => {
+      if (b.dataset.mode !== 'illuminator') return;
+      b.disabled = !hasIll;
+      b.title = hasIll ? '' : 'Not rendered for this photo yet';
     });
     modeButtons.forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.mode === mode)));
   };
