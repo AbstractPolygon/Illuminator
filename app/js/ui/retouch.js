@@ -4,7 +4,7 @@
 import { parseSpots, defaultSpot, MAX_SPOTS } from '../core/retouch.js';
 import { bestSource } from '../core/autosource.js';
 
-export function initRetouch({ $, state, canvas, engine, applySettingsSoon, scheduleSave, viewPoint, sourceFraction, canRender, showError, applyMatrix, stillDepth }) {
+export function initRetouch({ $, state, canvas, engine, applySettingsSoon, scheduleSave, viewPoint, sourceFraction, canRender, showError, applyMatrix, stillDepth, refocus }) {
   const getSpots = () => parseSpots($('retouch-spots').value);
 
   state.retouchSel = -1;
@@ -131,7 +131,10 @@ export function initRetouch({ $, state, canvas, engine, applySettingsSoon, sched
 
   // `tool`: 'spot', 'brush', 'redeye', or null/false for none.
   function setTool(tool) {
+    const was = !!state.retouchTool;
     state.retouchTool = tool && state.info && state.mode === 'camera' ? tool : null;
+    // With a tool on the picture is shown all in focus; leaving it brings the depth of field back.
+    if (was !== !!state.retouchTool) refocus();
     for (const [name, id] of Object.entries(TOOLS)) {
       $(id).classList.toggle('active', state.retouchTool === name);
       $(id).setAttribute('aria-pressed', String(state.retouchTool === name));

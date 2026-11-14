@@ -1557,8 +1557,10 @@ function depthOfFieldScale() {
 // Camera settings shared by the live view, animations and full resolution.
 // Blur strength multiplies the simulated blur: a light field camera's own
 // aperture is small, so true-to-the-optics blur is often subtle.
-function cameraParams() {
-  const lens = apertureFor(fNumber());
+// `live`: for what is shown on screen. Retouching shows the whole picture in focus, so every blemish can be seen and fixed (the depth of field comes back when the tool is left);
+// what is saved or exported keeps the depth of field.
+function cameraParams({ live = false } = {}) {
+  const lens = live && state.retouchTool ? { aperture: 0, dof: 0 } : apertureFor(fNumber());
   return {
     u: state.camera.u,
     v: state.camera.v,
@@ -1615,7 +1617,7 @@ let recoveryToken = 0;
 async function runRecovery(gen, token) {
   recoveryRunning = true;
   try {
-    const { promise } = engine.job('superRes', 'superres', { ...cameraParams(), scale: +$('detail').value, passes: +$('still-passes').value, label: 'Processing' }, { onProgress: progressFor(gen) });
+    const { promise } = engine.job('superRes', 'superres', { ...cameraParams({ live: true }), scale: +$('detail').value, passes: +$('still-passes').value, label: 'Processing' }, { onProgress: progressFor(gen) });
     const msg = await promise;
     if (openSeq.superseded(gen) || token !== recoveryToken) return;
     hideProgress();
@@ -1670,7 +1672,7 @@ async function renderCamera({ final = false } = {}) {
       if (!msg) {
         // While the slider or playhead is being moved and the main engine is busy, the second worker makes the quick view.
         const maker = seekSettled() ? engine : previewMirror.quick();
-        msg = await maker.request('view', { ...cameraParams(), draft, deferNr: !draft && !final, final: final && !recovery }, {
+        msg = await maker.request('view', { ...cameraParams({ live: true }), draft, deferNr: !draft && !final, final: final && !recovery }, {
           quick: true,
           onProgress: progressFor(gen),
           // A picture before its noise reduction (a CPU step) is done: shown at once, replaced when the finished one arrives.
@@ -1713,7 +1715,7 @@ function sharpWanted() {
   const info = state.info;
   if (!info || !info.hasRaw || state.mode !== 'camera' || !showsCamera() || state.fullResMode || state.playing || drag.on || stereoShown()) return false;
   if (!hook('sharpAnyGpu') && /swiftshader|llvmpipe|software|softpipe|^CPU/i.test(info.renderer || 'CPU')) return false;  // (the flag: tests on a software renderer)
-  const lens = apertureFor(fNumber());
+  const lens = state.retouchTool ? { aperture: 0, dof: 0 } : apertureFor(fNumber());
   if (lens.aperture !== 0 || lens.dof !== 0) return false;
   const size = info.stillSizes && info.stillSizes[SHARP_SCALE];
   return !(size && !fitsMemory('vram', superResVram(size[0], size[1])));
@@ -1745,7 +1747,7 @@ async function runSharp() {
   const photo = state.current && state.current.photo;
   sharp.running = true;
   try {
-    const { promise } = engine.job('superRes', 'superres', { ...cameraParams(), scale: SHARP_SCALE, passes: 0, label: 'Sharpening', quiet: true }, { onProgress: (stage, p) => { if (sharp.token === token) $('frame-label').textContent = `Sharpening ${Math.round((p ?? 0) * 100)}%`; } });
+    const { promise } = engine.job('superRes', 'superres', { ...cameraParams({ live: true }), scale: SHARP_SCALE, passes: 0, label: 'Sharpening', quiet: true }, { onProgress: (stage, p) => { if (sharp.token === token) $('frame-label').textContent = `Sharpening ${Math.round((p ?? 0) * 100)}%`; } });
     const msg = await promise;
     // A change since (or another photo) makes it stale.
     if (token === sharp.token && msg && (msg.pixels || msg.bitmap) && sharpWanted() && state.current && state.current.photo === photo) {
@@ -3818,7 +3820,7 @@ function currentPivot() {
   if (state.showingFrames && state.framePivots) return state.framePivots[state.drawFrame ?? state.index] || null;
   // A still rendered from an animation frame keeps that frame's framing.
   if (state.fullRes && state.stillFrame && state.framePivots) return state.framePivots[state.stillIndex] || null;
-  const p = cameraParams();
+  const p = cameraParams({ live: true });
   const pivot = withPivotZoom([pivotFor(p.u, p.v, p.alpha, p.aperture)])[0];
   return keyframesOn() ? combineMotion(pivot, liveFraming()) : pivot;
 }
@@ -4149,7 +4151,7 @@ const { showColorMatrix } = initColorMatrix({ $, state, applySettings: (...a) =>
 // local adjustments: ui/localadjust.js
 const { getMasks, setMasks, maskLabel, TRASH_ICON, renderMasks, localSettings, setDepthRange, pickDepthRange, selectedDepthMask } = initLocalAdjustments({ $, applySettingsSoon: (...a) => applySettingsSoon(...a), scheduleSave: (...a) => scheduleSave(...a), state, clearSelection: (...a) => clearSelection(...a), saveAnimation: (...a) => saveAnimation(...a), renderTimeline: (...a) => renderTimeline(...a), showMenu: (...a) => showMenu(...a), confirmInMenu: (...a) => confirmInMenu(...a), editName: (...a) => editName(...a), canRender: (...a) => canRender(...a), showSliderValue: (...a) => showSliderValue(...a), updateKeyButtons: (...a) => updateKeyButtons(...a), autoKey: (...a) => autoKey(...a), canvas, engine, sourceFraction: (...a) => sourceFraction(...a), stillDepth: () => (apertureFor(fNumber()).aperture > 0 ? +$('focus').value || 0 : 0), showError: (...a) => showError(...a), retouchTool: (t) => retouchUi && retouchUi.setTool(t) });
 // Retouch (spot removal): the spots over the picture, and the tool that places them.
-retouchUi = initRetouch({ $, state, canvas, engine, applySettingsSoon: (...a) => applySettingsSoon(...a), scheduleSave: (...a) => scheduleSave(...a), viewPoint: (...a) => viewPoint(...a), sourceFraction: (...a) => sourceFraction(...a), canRender: (...a) => canRender(...a), showError: (...a) => showError(...a), applyMatrix, stillDepth: () => (apertureFor(fNumber()).aperture > 0 ? +$('focus').value || 0 : 0) });
+retouchUi = initRetouch({ $, state, canvas, engine, applySettingsSoon: (...a) => applySettingsSoon(...a), scheduleSave: (...a) => scheduleSave(...a), viewPoint: (...a) => viewPoint(...a), sourceFraction: (...a) => sourceFraction(...a), canRender: (...a) => canRender(...a), showError: (...a) => showError(...a), applyMatrix, stillDepth: () => (!state.retouchTool && apertureFor(fNumber()).aperture > 0 ? +$('focus').value || 0 : 0), refocus: () => { if (state.fullRes) setFullRes(false, { restore: false }); if (!state.depthShown && canRender()) renderCamera(); } });
 
 // keyframes: ui/keyframes.js
 const { MASK_LIMITS, parseMaskTrack, trackGroups, tracks, KEY_CONTROLS, settingControl, updateKeyButtons, groupCollapsed, shownTracks, groupHidden, trackName, tlSel, tlCurves, keyframesOn, animLength, loadAnimation, saveAnimation, liveFraming, combineMotion, showValue, previewAt, autoKey, playheadTime, clearSelection, selectKey, selectedKeys, moveKeys, selectedKey, viewWindow, tickStep, updatePlayhead, groupHeading, renderTimeline, timeAt, seekTimeline, seekTo, showAnimationLength, keyframeFrames } = initKeyframes({ $, getMasks, maskLabel, state, canRender: (...a) => canRender(...a), F_STOPS, scheduleSave: (...a) => scheduleSave(...a), invalidateAnimation: (...a) => invalidateAnimation(...a), backToCamera: (...a) => backToCamera(...a), renderCamera: (...a) => renderCamera(...a), showSliderValue: (...a) => showSliderValue(...a), setMasks, renderMasks, showFNumber: (...a) => showFNumber(...a), showFocusPoint: (...a) => showFocusPoint(...a), applySettingsSoon: (...a) => applySettingsSoon(...a), cameraChanged: (...a) => cameraChanged(...a), layoutCanvas: (...a) => layoutCanvas(...a), drawCurves: (...a) => drawCurves(...a), stopProcessing: (...a) => stopProcessing(...a), setPlaying: (...a) => setPlaying(...a), showFrame: (...a) => showFrame(...a), updateFrameLabel: (...a) => updateFrameLabel(...a), plotBox: (...a) => plotBox(...a), animationSettingsChanged: (...a) => animationSettingsChanged(...a), draw: (...a) => draw(...a), apertureFor: (...a) => apertureFor(...a), view, bokehParams: (...a) => bokehParams(...a), colorSettings: (...a) => colorSettings(...a) });
