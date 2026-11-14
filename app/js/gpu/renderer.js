@@ -18,7 +18,7 @@ import { searchPlanner, DEPTH_FAST_SEARCH } from '../core/depth.js';
 
 import { ENGINE_USM, engineUsmMap, rangeSigma, chromaSigma, sharpenWindow, HALO_LIMIT, speckleThreshold, dustRadius, DUST_LOW, DUST_HIGH } from '../core/detail.js';
 import { MAX_MASKS } from '../core/local.js';
-import { MAX_SPOTS, RING_RADIUS, RING_TAPS } from '../core/retouch.js';
+import { MAX_DABS, RING_RADIUS, RING_TAPS } from '../core/retouch.js';
 import { bokehKernel } from '../core/dof.js';
 import { CHROMA_EDGE } from '../core/render.js';
 import { LYTRO_CURVE, LYTRO_HUE, CURVE_START, CURVE_STEP, ENGINE_SPLINE, FIRST_SPLINE, PROPHOTO, PROPHOTO_INV } from '../core/base.js';
@@ -1136,8 +1136,8 @@ precision highp float;
 precision highp int;
 uniform sampler2D uSrc;
 uniform int uCount;
-uniform vec4 uA[${MAX_SPOTS}];  // x, y, radius (a fraction of the longer side), feather
-uniform vec4 uB[${MAX_SPOTS}];  // source x, source y, opacity, heal
+uniform vec4 uA[${MAX_DABS}];  // x, y, radius (a fraction of the longer side), feather
+uniform vec4 uB[${MAX_DABS}];  // source x, source y, opacity, mode (0 clone, 1 heal, 2 red-eye)
 out vec4 outColor;
 vec3 at(vec2 q, ivec2 size) {
   return texelFetch(uSrc, clamp(ivec2(floor(q)), ivec2(0), size - 1), 0).rgb;
@@ -1149,7 +1149,7 @@ void main() {
   vec2 fp = vec2(p) + 0.5;
   float big = max(sz.x, sz.y);
   vec3 c = texelFetch(uSrc, p, 0).rgb;
-  for (int i = 0; i < ${MAX_SPOTS}; i++) {
+  for (int i = 0; i < ${MAX_DABS}; i++) {
     if (i >= uCount) break;
     vec4 a = uA[i];
     vec4 b = uB[i];
@@ -1160,13 +1160,36 @@ void main() {
     float t = clamp((d - (1.0 - a.w)) / max(a.w, 1e-6), 0.0, 1.0);
     float wgt = b.z * (1.0 - t * t * (3.0 - 2.0 * t));
     if (wgt <= 0.0) continue;
+    if (b.w > 1.5) {
+      float red = clamp((c.r - max(c.g, c.b)) / (c.r + 1e-3) * 2.0, 0.0, 1.0);
+      float neutral = (c.g + c.b) * 0.5;
+      c = mix(c, vec3(neutral * 0.6, c.g * 0.6, c.b * 0.6), wgt * red);
+      continue;
+    }
     vec2 off = (b.xy - a.xy) * sz;
     vec3 shift = vec3(0.0);
     if (b.w > 0.5) {
+      // the median of the ring's differences, per channel (see core/retouch.js)
+      vec3 dif[${RING_TAPS}];
       for (int k = 0; k < ${RING_TAPS}; k++) {
         float ang = 6.2831853 * float(k) / ${RING_TAPS}.0;
         vec2 o = vec2(cos(ang), sin(ang)) * R * ${RING_RADIUS.toFixed(2)};
-        shift += (at(ctr + o, size) - at(ctr + o + off, size)) / ${RING_TAPS}.0;
+        dif[k] = at(ctr + o, size) - at(ctr + o + off, size);
+      }
+      for (int ch = 0; ch < 3; ch++) {
+        float v[${RING_TAPS}];
+        for (int k = 0; k < ${RING_TAPS}; k++) v[k] = dif[k][ch];
+        for (int j = 1; j < ${RING_TAPS}; j++) {
+          float key = v[j];
+          int m = j - 1;
+          for (int guard = 0; guard < ${RING_TAPS}; guard++) {
+            if (m < 0 || v[m] <= key) break;
+            v[m + 1] = v[m];
+            m--;
+          }
+          v[m + 1] = key;
+        }
+        shift[ch] = 0.5 * (v[${RING_TAPS / 2 - 1}] + v[${RING_TAPS / 2}]);
       }
     }
     vec3 src = max(at(fp + off, size) + shift, vec3(0.0));

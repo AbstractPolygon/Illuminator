@@ -1,13 +1,16 @@
-// Retouch: spot removal (core/retouch.js). The spots are kept as JSON in a hidden field, so they are saved with the photo's edits like every other control. The tool places a
-// spot where the picture is clicked and draws the spots over the picture (a circle on the blemish, a dashed one on its source), which can be dragged.
+// Retouch: spot removal, the healing brush and red-eye (core/retouch.js). The spots are kept as JSON in a hidden field, so they are saved with the photo's edits like every other
+// control. A tool places a spot where the picture is clicked (or a stroke where it is painted) and the spots are drawn over the picture (a circle on the blemish, a dashed one on
+// its source), which can be dragged.
 import { parseSpots, defaultSpot, MAX_SPOTS } from '../core/retouch.js';
 
 export function initRetouch({ $, state, canvas, engine, applySettingsSoon, scheduleSave, viewPoint, sourceFraction, canRender, showError, applyMatrix, stillDepth }) {
   const getSpots = () => parseSpots($('retouch-spots').value);
-  const SLIDERS = { size: 'rt-size', feather: 'rt-feather', opacity: 'rt-opacity', depth: 'rt-depth', sdepth: 'rt-sdepth' };
 
   state.retouchSel = -1;
-  state.retouchTool = false;
+  state.retouchTool = null; // 'spot' | 'brush' | 'redeye'
+  const TOOLS = { spot: 'rt-spot-tool', brush: 'rt-brush-tool', redeye: 'rt-redeye-tool' };
+  const BRUSH_SIZE = 0.015;
+  const EYE_SIZE = 0.012;
 
   function setSpots(spots, { final = true } = {}) {
     $('retouch-spots').value = JSON.stringify(spots);
@@ -24,7 +27,7 @@ export function initRetouch({ $, state, canvas, engine, applySettingsSoon, sched
       const li = document.createElement('li');
       li.className = i === state.retouchSel ? 'current' : '';
       if (!s.on) li.classList.add('off');
-      const name = Object.assign(document.createElement('button'), { type: 'button', className: 'mask-name', textContent: `Spot ${i + 1}${s.mode === 'clone' ? ' (clone)' : ''}` });
+      const name = Object.assign(document.createElement('button'), { type: 'button', className: 'mask-name', textContent: spotName(s, i) });
       name.onclick = () => select(i);
       const del = Object.assign(document.createElement('button'), { type: 'button', className: 'icon-only mask-del', title: 'Delete spot', textContent: '×' });
       del.setAttribute('aria-label', `Delete spot ${i + 1}`);
@@ -44,9 +47,17 @@ export function initRetouch({ $, state, canvas, engine, applySettingsSoon, sched
       $('rt-opacity').value = String(Math.round(s.opacity * 100));
       $('rt-depth').value = String(s.depth);
       $('rt-sdepth').value = String(s.sdepth);
+      $('rt-sdepth-row').hidden = s.mode === 'redeye';
       showOutputs();
     }
     drawOverlay();
+  }
+
+  // A spot's name: its kind and number among those of the kind.
+  function spotName(s, i) {
+    const kind = s.mode === 'redeye' ? 'Red-eye' : s.path ? 'Brush' : 'Spot';
+    const n = getSpots().slice(0, i + 1).filter((x) => (x.mode === 'redeye' ? 'Red-eye' : x.path ? 'Brush' : 'Spot') === kind).length;
+    return `${kind} ${n}${s.mode === 'clone' ? ' (clone)' : ''}`;
   }
 
   function showOutputs() {
@@ -110,13 +121,16 @@ export function initRetouch({ $, state, canvas, engine, applySettingsSoon, sched
   slide('rt-sdepth', 'sdepth', (v) => v);
   $('rt-delete').onclick = () => remove(state.retouchSel);
 
-  $('rt-spot-tool').onclick = () => setTool(!state.retouchTool);
+  for (const [name, id] of Object.entries(TOOLS)) $(id).onclick = () => setTool(state.retouchTool === name ? null : name);
   $('rt-show').onchange = drawOverlay;
 
-  function setTool(on) {
-    state.retouchTool = on && !!state.info && state.mode === 'camera';
-    $('rt-spot-tool').classList.toggle('active', state.retouchTool);
-    $('rt-spot-tool').setAttribute('aria-pressed', String(state.retouchTool));
+  // `tool`: 'spot', 'brush', 'redeye', or null/false for none.
+  function setTool(tool) {
+    state.retouchTool = tool && state.info && state.mode === 'camera' ? tool : null;
+    for (const [name, id] of Object.entries(TOOLS)) {
+      $(id).classList.toggle('active', state.retouchTool === name);
+      $(id).setAttribute('aria-pressed', String(state.retouchTool === name));
+    }
     canvas.style.cursor = state.retouchTool ? 'crosshair' : '';
     drawOverlay();
   }
@@ -126,6 +140,9 @@ export function initRetouch({ $, state, canvas, engine, applySettingsSoon, sched
   const srcH = () => (state.info && state.info.height) || canvas.height;
   const toCanvas = (fx, fy) => (state.geom ? applyMatrix(state.geom.matrix, fx * state.geom.srcW, fy * state.geom.srcH) : [fx * canvas.width, fy * canvas.height]);
   const canvasScale = () => (state.geom ? Math.sqrt(Math.abs(state.geom.matrix[0] * state.geom.matrix[3] - state.geom.matrix[1] * state.geom.matrix[2])) || 1 : 1);
+
+  // The stroke being painted (picture fractions), shown until it is let go.
+  let painting = null;
 
   function drawOverlay() {
     const o = $('retouch-overlay');
@@ -139,18 +156,48 @@ export function initRetouch({ $, state, canvas, engine, applySettingsSoon, sched
     const g = o.getContext('2d');
     g.clearRect(0, 0, o.width, o.height);
     const big = Math.max(srcW(), srcH()) * canvasScale();
+    const line = Math.max(1.5, o.width / 600);
+    const trace = (pts, R, alpha) => {
+      g.lineCap = 'round';
+      g.lineJoin = 'round';
+      g.globalAlpha = alpha;
+      g.lineWidth = 2 * R;
+      g.beginPath();
+      pts.forEach(([px, py], n) => (n ? g.lineTo(px, py) : g.moveTo(px, py)));
+      if (pts.length === 1) g.lineTo(pts[0][0] + 0.01, pts[0][1]);
+      g.stroke();
+      g.globalAlpha = 1;
+    };
     spots.forEach((s, i) => {
-      const [x, y] = toCanvas(s.x, s.y);
-      const [sx, sy] = toCanvas(s.sx, s.sy);
-      const R = s.r * big;
       const sel = i === state.retouchSel;
-      const line = Math.max(1.5, o.width / 600);
-      g.lineWidth = sel ? line * 1.6 : line;
-      g.strokeStyle = sel ? '#4da3ff' : 'rgba(255,255,255,0.85)';
+      const R = s.r * big;
+      const color = sel ? '#4da3ff' : 'rgba(255,255,255,0.85)';
       g.setLineDash([]);
+      g.strokeStyle = color;
+      if (s.path && s.path.length > 1) {
+        // a stroke: the painted band, and its dashed copy at the source
+        const pts = s.path.map(([px, py]) => toCanvas(px, py));
+        g.strokeStyle = sel ? '#4da3ff' : '#ffffff';
+        trace(pts, R, sel ? 0.28 : 0.18);
+        const off = [s.sx - s.x, s.sy - s.y];
+        const spts = s.path.map(([px, py]) => toCanvas(px + off[0], py + off[1]));
+        g.strokeStyle = color;
+        g.lineWidth = line * (sel ? 1.6 : 1);
+        g.setLineDash([line * 3, line * 3]);
+        g.lineCap = 'butt';
+        g.beginPath();
+        spts.forEach(([px, py], n) => (n ? g.lineTo(px, py) : g.moveTo(px, py)));
+        g.stroke();
+        g.setLineDash([]);
+        return;
+      }
+      const [x, y] = toCanvas(s.x, s.y);
+      g.lineWidth = sel ? line * 1.6 : line;
       g.beginPath();
       g.arc(x, y, R, 0, 2 * Math.PI);
       g.stroke();
+      if (s.mode === 'redeye') return;
+      const [sx, sy] = toCanvas(s.sx, s.sy);
       g.setLineDash([line * 3, line * 3]);
       g.beginPath();
       g.arc(sx, sy, R, 0, 2 * Math.PI);
@@ -163,6 +210,10 @@ export function initRetouch({ $, state, canvas, engine, applySettingsSoon, sched
       g.stroke();
       g.globalAlpha = 1;
     });
+    if (painting) {
+      g.strokeStyle = '#4da3ff';
+      trace(painting.points.map(([px, py]) => toCanvas(px, py)), BRUSH_SIZE * big, 0.3);
+    }
   }
 
   // The depth map's value (focus units) at a point of the picture, or the current focus when it cannot be read.
@@ -176,26 +227,37 @@ export function initRetouch({ $, state, canvas, engine, applySettingsSoon, sched
     return +$('focus').value || 0;
   }
 
-  async function addSpot(fx, fy) {
+  // How far (in x) a source starts from the blemish: beside it, on the side with more room.
+  const sourceGap = (maxX, r) => {
+    const gap = (2.6 * r * Math.max(srcW(), srcH())) / srcW();
+    return maxX + gap < 0.97 ? gap : -gap;
+  };
+
+  // Adds a spot of `kind` ('spot' heals a blemish, 'redeye' corrects an eye, 'brush' is a stroke along `points`) and reads its depth from the depth map.
+  async function addSpot(kind, points) {
     const spots = getSpots();
     if (spots.length >= MAX_SPOTS) {
       showError(new Error(`A photo can have ${MAX_SPOTS} spots.`), 'Too many spots');
       return;
     }
     const d = defaultSpot();
-    const r = state.retouchSel >= 0 && spots[state.retouchSel] ? spots[state.retouchSel].r : d.r;
-    // The source starts beside the blemish, on the side with more room.
-    const gap = 2.6 * r * Math.max(srcW(), srcH()) / srcW();
-    const sx = fx + gap < 0.97 ? fx + gap : fx - gap;
-    const spot = { ...d, x: fx, y: fy, r, sx, sy: fy, u0: state.camera.u || 0, v0: state.camera.v || 0, focus0: stillDepth() };
+    const [fx, fy] = points[0];
+    const same = (x) => (kind === 'redeye' ? x.mode === 'redeye' : kind === 'brush' ? !!x.path : x.mode !== 'redeye' && !x.path);
+    const last = spots.filter(same).pop();
+    const r = last ? last.r : kind === 'brush' ? BRUSH_SIZE : kind === 'redeye' ? EYE_SIZE : d.r;
+    const xs = points.map((p) => p[0]);
+    const sx = kind === 'redeye' ? fx : fx + sourceGap(Math.max(...xs), r);
+    const spot = { ...d, mode: kind === 'redeye' ? 'redeye' : 'heal', x: fx, y: fy, r, sx, sy: fy, u0: state.camera.u || 0, v0: state.camera.v || 0, focus0: stillDepth() };
+    if (kind === 'redeye') Object.assign(spot, { feather: 0.2, opacity: 1 });
+    if (kind === 'brush') Object.assign(spot, { path: points.map((p) => [p[0], p[1]]), feather: 0.4 });
     spots.push(spot);
     state.retouchSel = spots.length - 1;
     setSpots(spots);
     renderList();
     // The scene's depth there, from the depth map: the spot follows the viewpoint by it.
-    const [depth, sdepth] = await Promise.all([depthAt(fx, fy), depthAt(sx, fy)]);
+    const [depth, sdepth] = await Promise.all([depthAt(fx, fy), kind === 'redeye' ? Promise.resolve(0) : depthAt(sx, fy)]);
     const now = getSpots();
-    const mine = now.find((s) => s.id === spot.id);
+    const mine = now.find((x) => x.id === spot.id);
     if (mine) {
       mine.depth = depth;
       mine.sdepth = sdepth;
@@ -204,32 +266,66 @@ export function initRetouch({ $, state, canvas, engine, applySettingsSoon, sched
     }
   }
 
-  // A press on the picture with the tool on: on a spot's circle it drags that spot (or its source); elsewhere it adds a spot.
+  // The distance (in pixels of the picture) from a point to a spot's blemish area: its circle, or its stroke.
+  function distanceTo(s, fx, fy, offset = [0, 0]) {
+    const px = fx * srcW();
+    const py = fy * srcH();
+    const pts = (s.path && s.path.length > 1 ? s.path : [[s.x, s.y]]).map(([x, y]) => [(x + offset[0]) * srcW(), (y + offset[1]) * srcH()]);
+    let best = Infinity;
+    for (let n = 0; n < pts.length; n++) {
+      const [ax, ay] = pts[n];
+      const [bx, by] = pts[Math.min(n + 1, pts.length - 1)];
+      const len2 = (bx - ax) ** 2 + (by - ay) ** 2;
+      const t = len2 ? Math.max(0, Math.min(1, ((px - ax) * (bx - ax) + (py - ay) * (by - ay)) / len2)) : 0;
+      best = Math.min(best, Math.hypot(px - (ax + (bx - ax) * t), py - (ay + (by - ay) * t)));
+    }
+    return best;
+  }
+
+  // A press on the picture with a tool on: on a spot or its source it drags that; otherwise the tool adds a spot (or starts a stroke).
   let drag = null;
   window.addEventListener('pointerdown', (event) => {
     if (!state.retouchTool || event.target !== canvas || event.button !== 0) return;
     event.stopImmediatePropagation();
     event.preventDefault();
     const [fx, fy] = sourceFraction(event);
+    const x = Math.min(1, Math.max(0, fx));
+    const y = Math.min(1, Math.max(0, fy));
+    if (state.retouchTool === 'brush') {
+      painting = { points: [[x, y]], pointer: event.pointerId };
+      canvas.setPointerCapture(event.pointerId);
+      drawOverlay();
+      return;
+    }
     const spots = getSpots();
     const big = Math.max(srcW(), srcH());
-    const hit = (cx, cy, r) => Math.hypot((fx - cx) * srcW(), (fy - cy) * srcH()) <= Math.max(r * big, 8);
     // the selected spot first, then the others
     const order = [...spots.keys()].sort((a, b) => (b === state.retouchSel) - (a === state.retouchSel));
     for (const i of order) {
       const s = spots[i];
-      const grab = hit(s.sx, s.sy, s.r) ? 'source' : hit(s.x, s.y, s.r) ? 'spot' : null;
+      const reach = Math.max(s.r * big, 8);
+      const grab = s.mode !== 'redeye' && distanceTo(s, fx, fy, [s.sx - s.x, s.sy - s.y]) <= reach ? 'source' : distanceTo(s, fx, fy) <= reach ? 'spot' : null;
       if (grab) {
         state.retouchSel = i;
         renderList();
-        drag = { i, grab, fx, fy, orig: { ...s } };
+        drag = { i, grab, fx, fy, orig: JSON.parse(JSON.stringify(s)) };
         canvas.setPointerCapture(event.pointerId);
         return;
       }
     }
-    addSpot(Math.min(1, Math.max(0, fx)), Math.min(1, Math.max(0, fy)));
+    addSpot(state.retouchTool, [[x, y]]);
   }, true);
   window.addEventListener('pointermove', (event) => {
+    if (painting) {
+      const [fx, fy] = sourceFraction(event);
+      const last = painting.points[painting.points.length - 1];
+      // a new point once the pointer has moved a fifth of the brush
+      if (Math.hypot((fx - last[0]) * srcW(), (fy - last[1]) * srcH()) > 0.2 * BRUSH_SIZE * Math.max(srcW(), srcH())) {
+        painting.points.push([Math.min(1, Math.max(0, fx)), Math.min(1, Math.max(0, fy))]);
+        drawOverlay();
+      }
+      return;
+    }
     if (!drag) return;
     const [fx, fy] = sourceFraction(event);
     const spots = getSpots();
@@ -238,30 +334,39 @@ export function initRetouch({ $, state, canvas, engine, applySettingsSoon, sched
     const dx = fx - drag.fx;
     const dy = fy - drag.fy;
     if (drag.grab === 'source') Object.assign(s, { sx: drag.orig.sx + dx, sy: drag.orig.sy + dy });
-    else Object.assign(s, { x: drag.orig.x + dx, y: drag.orig.y + dy, sx: drag.orig.sx + dx, sy: drag.orig.sy + dy });
+    else {
+      Object.assign(s, { x: drag.orig.x + dx, y: drag.orig.y + dy, sx: drag.orig.sx + dx, sy: drag.orig.sy + dy });
+      if (drag.orig.path) s.path = drag.orig.path.map(([px, py]) => [px + dx, py + dy]);
+    }
     setSpots(spots, { final: false });
   }, true);
   window.addEventListener('pointerup', async () => {
+    if (painting) {
+      const { points } = painting;
+      painting = null;
+      // thin the stroke to at most 40 points, keeping both ends
+      const keep = points.length > 40 ? points.filter((_, n) => n === points.length - 1 || n % Math.ceil(points.length / 40) === 0) : points;
+      if (keep.length === 1) keep.push([keep[0][0] + 0.001, keep[0][1]]);
+      await addSpot('brush', keep);
+      return;
+    }
     if (!drag) return;
     const { i, grab } = drag;
     drag = null;
     // A moved spot or source is at another depth: read it again.
     const spots = getSpots();
     const s = spots[i];
-    if (s) {
-      const d = await depthAt(grab === 'source' ? s.sx : s.x, grab === 'source' ? s.sy : s.y);
-      const now = getSpots();
-      if (now[i]) {
-        if (grab === 'source') now[i].sdepth = d;
-        else now[i].depth = d;
-        if (grab === 'spot') {
-          const sd = await depthAt(now[i].sx, now[i].sy);
-          if (now[i]) now[i].sdepth = sd;
-        }
-        setSpots(now);
-        renderList();
-      }
-    } else setSpots(spots);
+    if (!s) return;
+    const d = await depthAt(grab === 'source' ? s.sx : s.x, grab === 'source' ? s.sy : s.y);
+    const now = getSpots();
+    if (!now[i]) return;
+    if (grab === 'source') now[i].sdepth = d;
+    else {
+      now[i].depth = d;
+      if (now[i].mode !== 'redeye') now[i].sdepth = await depthAt(now[i].sx, now[i].sy);
+    }
+    setSpots(now);
+    renderList();
   }, true);
 
   // Escape leaves the tool.
