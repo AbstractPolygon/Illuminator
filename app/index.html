@@ -265,16 +265,25 @@
 
       <details class="panel" data-panel="camera" id="retouch-panel">
         <summary><h2>Retouch</h2></summary>
-        <div class="row">
-          <button id="rt-spot-tool" type="button" class="wide" aria-pressed="false" title="Click a blemish; drag its circle, or the source circle, to move them">Spot removal</button>
+        <div class="row mask-add">
+          <button id="rt-spot-tool" type="button" class="icon-only mask-icon" aria-pressed="false" title="Spot removal: click a blemish, then drag its circle or the source circle" aria-label="Spot removal">
+            <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><circle cx="8.5" cy="12" r="5" fill="none" stroke="currentColor" stroke-width="1.6"/><circle cx="17" cy="12" r="3.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-dasharray="2.4 2"/><path d="M13.5 12h-0" stroke="currentColor"/></svg>
+          </button>
+          <button id="rt-brush-tool" type="button" class="icon-only mask-icon" aria-pressed="false" title="Healing brush: paint over a blemish or a line, then drag the dashed copy to a clean area" aria-label="Healing brush">
+            <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M5 19c0-3 2-4 4-4 0 2-1 4-4 4z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M9.5 14.5 18 6l1.5 1.5-8.5 8.5z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
+          </button>
+          <button id="rt-redeye-tool" type="button" class="icon-only mask-icon" aria-pressed="false" title="Red-eye: click a red pupil" aria-label="Red-eye">
+            <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><circle cx="12" cy="12" r="3" fill="currentColor"/></svg>
+          </button>
         </div>
         <label class="check" title="Draws the spots on the picture"><input id="rt-show" type="checkbox" checked> Show spots</label>
         <ul id="rt-list" class="mask-list"></ul>
         <div id="rt-editor" hidden>
-          <label title="Heal matches the color around the blemish; Clone copies the source as it is">Mode
+          <label title="Heal matches the color around the blemish; Clone copies the source as it is; Red-eye makes red pupils dark and neutral">Mode
             <select id="rt-mode">
               <option value="heal">Heal</option>
               <option value="clone">Clone</option>
+              <option value="redeye">Red-eye</option>
             </select>
           </label>
           <label title="Radius of the spot">Size <output for="rt-size">3%</output>
@@ -283,13 +292,13 @@
           <label title="How much of the edge fades out">Feather <output for="rt-feather">50%</output>
             <input id="rt-feather" type="range" min="0" max="100" step="1" value="50">
           </label>
-          <label title="How much of the copy shows">Opacity <output for="rt-opacity">100%</output>
+          <label title="How much of the copy shows (for red-eye, how strong the correction is)">Opacity <output for="rt-opacity">100%</output>
             <input id="rt-opacity" type="range" min="0" max="100" step="1" value="100">
           </label>
           <label title="How far the blemish is, from the depth map: drag it if the spot slips when the viewpoint moves">Depth <output for="rt-depth">0.00</output>
             <input id="rt-depth" type="range" min="-3" max="3" step="0.01" value="0">
           </label>
-          <label title="How far the source is: drag it if the copy slips when the viewpoint moves">Source depth <output for="rt-sdepth">0.00</output>
+          <label id="rt-sdepth-row" title="How far the source is: drag it if the copy slips when the viewpoint moves">Source depth <output for="rt-sdepth">0.00</output>
             <input id="rt-sdepth" type="range" min="-3" max="3" step="0.01" value="0">
           </label>
           <button id="rt-delete" type="button" class="wide" title="Removes the selected spot">Delete spot</button>

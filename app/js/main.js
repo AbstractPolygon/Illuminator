@@ -1004,7 +1004,7 @@ function closePhoto() {
   resetView();
   renderMasks();
   if (retouchUi) {
-    retouchUi.setTool(false);
+    retouchUi.setTool(null);
     retouchUi.renderList();
   }
   $('histogram').getContext('2d').clearRect(0, 0, 256, 80);
@@ -4839,7 +4839,7 @@ async function applyEdits(info, saved) {
     $('mask-show').checked = false;
     renderMasks();
     if (retouchUi) {
-      retouchUi.setTool(false);
+      retouchUi.setTool(null);
       state.retouchSel = retouchUi.getSpots().length ? 0 : -1;
       retouchUi.renderList();
     }
