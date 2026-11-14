@@ -12,7 +12,7 @@ const ids = new Set([...html.matchAll(/\bid="([^"]+)"/g)].map((m) => m[1]));
 const saved = new Set(Object.values(EDIT_GROUPS).flat());
 
 // Controls with a default that are deliberately not in EDIT_GROUPS: the local adjustment sliders edit the selected mask, and the masks are saved whole as `local-masks` (the retouch sliders edit the selected spot, saved whole as `retouch-spots`).
-const SAVED_ELSEWHERE = /^(mx|mr|ml|md|rt)-/;
+const SAVED_ELSEWHERE = /^(mx|mr|ml|md|mb|rt)-/;
 
 test('every saved control exists in the page', () => {
   const missing = [...saved].filter((id) => !ids.has(id));

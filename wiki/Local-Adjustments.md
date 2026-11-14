@@ -10,6 +10,10 @@ Masks that change part of the picture. A photo can have up to 16.
 
 <img src="images/mask-depth.png" width="20" height="20" alt="Depth mask"> **Depth:** uses the light field's depth: full effect between a *Near* and a *Far* depth (negative is nearer than the camera's focus), fading over *Feather*. *Follow focus* moves the range with the focus, so it keeps the same distance from it, also when the focus is animated. Three ways to set the range besides the sliders: *Pick range from picture* (then click the picture: the range is centered on the depth you click, keeping its width; Esc cancels), *From focus* (the sharp range around the focus, see *Focus Spread*), and Shift-drag on the depth ruler under *Camera > Depth*, which sets *Near* and *Far* to the depths you drag across.
 
+**Brush:** paint where the effect goes. Add one with the brush button (or pick a ready-made one from *Brushes…*), then press *Paint* and drag over the picture; *Erase* takes away what you painted, *Undo stroke* removes the last stroke and *Clear* all of them. *Size* and *Feather* are the brush's for the strokes you paint next. Esc stops painting. The paint sticks to the scene, like a retouch spot: it moves with what you painted on when the viewpoint or the focus changes (paint it at one viewpoint for the best result). *Stay within depth* keeps the effect to what is near the depth you started painting on (*Depth range* is how far), so it does not spill onto the background. A photo can have up to four brush masks.
+
+The ready-made brushes are Soften skin, Reduce noise, Whiten teeth, Iris pop, Dodge and Burn: each is a brush mask with its effect already set, which you can change like any other mask. (Reduce noise and Soften skin use a light blur.)
+
 Click a mask in the list to edit it.
 
 <img src="images/edit.png" width="20" height="20" alt="Rename"> **Rename** the mask (or double-click its name).

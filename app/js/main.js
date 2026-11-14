@@ -3065,7 +3065,7 @@ window.addEventListener('pointercancel', () => {
 canvas.addEventListener('click', (event) => {
   const press = pressed;
   pressed = null;
-  if (cropState.editing || state.retouchTool) return;
+  if (cropState.editing || state.retouchTool || state.maskPaint) return;
   if (state.picking) {
     pickWhiteBalance(event);
     return;
@@ -4147,7 +4147,7 @@ document.addEventListener('keydown', (e) => {
 const { showColorMatrix } = initColorMatrix({ $, state, applySettings: (...a) => applySettings(...a), applySettingsSoon: (...a) => applySettingsSoon(...a) });
 
 // local adjustments: ui/localadjust.js
-const { getMasks, setMasks, maskLabel, TRASH_ICON, renderMasks, localSettings, setDepthRange, pickDepthRange, selectedDepthMask } = initLocalAdjustments({ $, applySettingsSoon: (...a) => applySettingsSoon(...a), scheduleSave: (...a) => scheduleSave(...a), state, clearSelection: (...a) => clearSelection(...a), saveAnimation: (...a) => saveAnimation(...a), renderTimeline: (...a) => renderTimeline(...a), showMenu: (...a) => showMenu(...a), confirmInMenu: (...a) => confirmInMenu(...a), editName: (...a) => editName(...a), canRender: (...a) => canRender(...a), showSliderValue: (...a) => showSliderValue(...a), updateKeyButtons: (...a) => updateKeyButtons(...a), autoKey: (...a) => autoKey(...a) });
+const { getMasks, setMasks, maskLabel, TRASH_ICON, renderMasks, localSettings, setDepthRange, pickDepthRange, selectedDepthMask } = initLocalAdjustments({ $, applySettingsSoon: (...a) => applySettingsSoon(...a), scheduleSave: (...a) => scheduleSave(...a), state, clearSelection: (...a) => clearSelection(...a), saveAnimation: (...a) => saveAnimation(...a), renderTimeline: (...a) => renderTimeline(...a), showMenu: (...a) => showMenu(...a), confirmInMenu: (...a) => confirmInMenu(...a), editName: (...a) => editName(...a), canRender: (...a) => canRender(...a), showSliderValue: (...a) => showSliderValue(...a), updateKeyButtons: (...a) => updateKeyButtons(...a), autoKey: (...a) => autoKey(...a), canvas, engine, sourceFraction: (...a) => sourceFraction(...a), stillDepth: () => (apertureFor(fNumber()).aperture > 0 ? +$('focus').value || 0 : 0), showError: (...a) => showError(...a), retouchTool: (t) => retouchUi && retouchUi.setTool(t) });
 // Retouch (spot removal): the spots over the picture, and the tool that places them.
 retouchUi = initRetouch({ $, state, canvas, engine, applySettingsSoon: (...a) => applySettingsSoon(...a), scheduleSave: (...a) => scheduleSave(...a), viewPoint: (...a) => viewPoint(...a), sourceFraction: (...a) => sourceFraction(...a), canRender: (...a) => canRender(...a), showError: (...a) => showError(...a), applyMatrix, stillDepth: () => (apertureFor(fNumber()).aperture > 0 ? +$('focus').value || 0 : 0) });
 

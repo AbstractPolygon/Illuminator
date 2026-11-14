@@ -1,15 +1,16 @@
 // local adjustments: moved out of main.js. initLocalAdjustments() runs where the section used to, with what it uses from the rest of the page.
-import { parseMasks, MAX_MASKS, defaultMask } from '../core/local.js';
+import { parseMasks, MAX_MASKS, MAX_STROKES, MAX_STROKE_POINTS, defaultMask } from '../core/local.js';
 
-export function initLocalAdjustments({ $, applySettingsSoon, scheduleSave, state, clearSelection, saveAnimation, renderTimeline, showMenu, confirmInMenu, editName, canRender, showSliderValue, updateKeyButtons, autoKey }) {
+export function initLocalAdjustments({ $, applySettingsSoon, scheduleSave, state, clearSelection, saveAnimation, renderTimeline, showMenu, confirmInMenu, editName, canRender, showSliderValue, updateKeyButtons, autoKey, canvas, engine, sourceFraction, stillDepth, showError, retouchTool }) {
   // Masks (core/local.js) kept as JSON in a hidden field, so they are saved
   // with the photo's edits like every other control. The editor shows the
   // selected mask.
-  const MASK_NAMES = { radial: 'Radial', linear: 'Gradient', depth: 'Depth' };
+  const MASK_NAMES = { radial: 'Radial', linear: 'Gradient', depth: 'Depth', brush: 'Brush' };
   const SHAPE_SLIDERS = {
     radial: { x: ['mr-x', 100], y: ['mr-y', 100], w: ['mr-w', 100], h: ['mr-h', 100], feather: ['mr-feather', 100] },
     linear: { x: ['ml-x', 100], y: ['ml-y', 100], angle: ['ml-angle', 1], width: ['ml-width', 100] },
     depth: { near: ['md-near', 100], far: ['md-far', 100], feather: ['md-feather', 100] },
+    brush: { size: ['mb-size', 100], feather: ['mb-feather', 100], tol: ['mb-tol', 100] },
   };
   const FX_SLIDERS = { exposure: 'mx-exposure', contrast: 'mx-contrast', saturation: 'mx-saturation', temperature: 'mx-temperature', tint: 'mx-tint', haze: 'mx-haze', blur: 'mx-blur', pixelate: 'mx-pixelate', sketch: 'mx-sketch' };
 
@@ -107,8 +108,11 @@ export function initLocalAdjustments({ $, applySettingsSoon, scheduleSave, state
     // Masks belong to a photo: none can be added until one is open.
     for (const kind of Object.keys(MASK_NAMES)) $(`mask-add-${kind}`).disabled = masks.length >= MAX_MASKS || !canRender();
     $('mask-filter').disabled = masks.length >= MAX_MASKS || !canRender();
+    $('mask-brushes').disabled = masks.length >= MAX_MASKS || !canRender();
     const m = masks[state.maskSel];
     $('mask-editor').hidden = !m;
+    // Painting belongs to the selected brush mask.
+    if (state.maskPaint && (!m || m.kind !== 'brush')) setPaint(null);
     if (!m) {
       $('mask-show').checked = false;
       return;
@@ -122,6 +126,9 @@ export function initLocalAdjustments({ $, applySettingsSoon, scheduleSave, state
     $('mask-invert').checked = m.invert;
     $('mx-strength').value = Math.round((m.strength ?? 1) * 100);
     $('mask-follow').checked = !!m.follow;
+    $('mb-limit').checked = !!m.limit;
+    $('mb-undo').disabled = $('mb-clear').disabled = m.kind !== 'brush' || !m.strokes.length;
+    syncPaintButtons();
     for (const input of document.querySelectorAll('.local-panel input[type=range]')) showSliderValue(input);
     updateKeyButtons();
   }
@@ -138,6 +145,7 @@ export function initLocalAdjustments({ $, applySettingsSoon, scheduleSave, state
     m.on = $('mask-on').checked;
     if (!m.on && $('mask-show').checked) $('mask-show').checked = false;
     m.invert = $('mask-invert').checked;
+    if (m.kind === 'brush') m.limit = $('mb-limit').checked;
     m.strength = +$('mx-strength').value / 100;
     // Following the focus from where it is now.
     const follow = $('mask-follow').checked;
@@ -162,6 +170,166 @@ export function initLocalAdjustments({ $, applySettingsSoon, scheduleSave, state
       renderMasks();
     };
   }
+
+  // ---------------------------------------------------------------- brush masks
+  // Adjustment brushes: a brush mask with its effect already set (the Brushes menu).
+  const BRUSHES = {
+    soften: { name: 'Soften skin', fx: { blur: 0.25, contrast: -0.15 } },
+    noise: { name: 'Reduce noise', fx: { blur: 0.1 } },
+    teeth: { name: 'Whiten teeth', fx: { saturation: -0.5, exposure: 0.25 } },
+    iris: { name: 'Iris pop', fx: { contrast: 0.3, saturation: 0.3, exposure: 0.2 } },
+    dodge: { name: 'Dodge', fx: { exposure: 0.4 } },
+    burn: { name: 'Burn', fx: { exposure: -0.4 } },
+  };
+
+  const srcW = () => (state.info && state.info.width) || canvas.width;
+  const srcH = () => (state.info && state.info.height) || canvas.height;
+  const selectedBrush = () => {
+    const m = getMasks()[state.maskSel];
+    return m && m.kind === 'brush' ? m : null;
+  };
+
+  // 'paint' | 'erase' | null: what a press on the picture does.
+  state.maskPaint = null;
+  function setPaint(mode) {
+    state.maskPaint = mode && selectedBrush() && state.info && state.mode === 'camera' ? mode : null;
+    if (state.maskPaint) retouchTool(null);
+    else if (!state.retouchTool) canvas.style.cursor = '';
+    if (state.maskPaint) canvas.style.cursor = 'crosshair';
+    if (state.maskPaint) {
+      $('mask-show').checked = true;
+      applySettingsSoon();
+    }
+    syncPaintButtons();
+  }
+  function syncPaintButtons() {
+    for (const [id, mode] of [['mb-paint', 'paint'], ['mb-erase', 'erase']]) {
+      $(id).classList.toggle('active', state.maskPaint === mode);
+      $(id).setAttribute('aria-pressed', String(state.maskPaint === mode));
+    }
+  }
+  document.addEventListener('retouch-tool', () => setPaint(null));
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && state.maskPaint) setPaint(null);
+  });
+  $('mb-paint').onclick = () => setPaint(state.maskPaint === 'paint' ? null : 'paint');
+  $('mb-erase').onclick = () => setPaint(state.maskPaint === 'erase' ? null : 'erase');
+  $('mb-undo').onclick = () => {
+    const list = getMasks();
+    const m = list[state.maskSel];
+    if (!m || m.kind !== 'brush' || !m.strokes.length) return;
+    m.strokes.pop();
+    setMasks(list);
+    renderMasks();
+  };
+  $('mb-clear').onclick = () => {
+    const list = getMasks();
+    const m = list[state.maskSel];
+    if (!m || m.kind !== 'brush') return;
+    m.strokes = [];
+    setMasks(list);
+    renderMasks();
+  };
+
+  // The depth map at a point of the picture (focus units), or the current focus when it cannot be read.
+  async function depthAt(fx, fy) {
+    try {
+      const res = await engine.request('focusAt', { x: fx * srcW(), y: fy * srcH(), u: state.camera.u, v: state.camera.v, depth: true });
+      if (res && typeof res.alpha === 'number') return res.alpha;
+    } catch {
+      // (no depth yet)
+    }
+    return +$('focus').value || 0;
+  }
+
+  // The stroke being painted, kept in the mask as it grows so that the picture shows it.
+  let stroke = null;
+  window.addEventListener('pointerdown', (event) => {
+    if (!state.maskPaint || event.target !== canvas || event.button !== 0) return;
+    const m = selectedBrush();
+    if (!m) return;
+    event.stopImmediatePropagation();
+    event.preventDefault();
+    if (m.strokes.length >= MAX_STROKES) {
+      showError(new Error(`A brush mask can have ${MAX_STROKES} strokes. Clear it, or add another mask.`), 'Too many strokes');
+      return;
+    }
+    const [fx, fy] = sourceFraction(event);
+    const first = [Math.min(1, Math.max(0, fx)), Math.min(1, Math.max(0, fy))];
+    const firstStroke = !m.strokes.length;
+    // A stroke is a dab; its width and softness are the mask's
+    stroke = { id: m.id, pointer: event.pointerId, firstStroke, data: { erase: state.maskPaint === 'erase', size: m.size, feather: m.feather, points: [first, [first[0] + 1e-4, first[1]]] } };
+    canvas.setPointerCapture(event.pointerId);
+    commitStroke({ final: false });
+  }, true);
+  function commitStroke({ final }) {
+    const list = getMasks();
+    const i = list.findIndex((x) => x.id === stroke.id);
+    if (i < 0) return;
+    const m = list[i];
+    const kept = m.strokes.slice(0, stroke.base ?? m.strokes.length);
+    stroke.base = kept.length;
+    m.strokes = [...kept, stroke.data];
+    m.aspect = srcW() / srcH();
+    setMasks(list, { final });
+    if (final) renderMasks();
+  }
+  window.addEventListener('pointermove', (event) => {
+    if (!stroke) return;
+    const [fx, fy] = sourceFraction(event);
+    const pts = stroke.data.points;
+    const last = pts[pts.length - 1];
+    const x = Math.min(1, Math.max(0, fx));
+    const y = Math.min(1, Math.max(0, fy));
+    // a point once the pointer has moved a fifth of the brush
+    if (Math.hypot((x - last[0]) * srcW(), (y - last[1]) * srcH()) < 0.2 * stroke.data.size * Math.max(srcW(), srcH())) return;
+    if (pts.length >= MAX_STROKE_POINTS) return;
+    pts.push([x, y]);
+    commitStroke({ final: false });
+  }, true);
+  window.addEventListener('pointerup', () => {
+    if (!stroke) return;
+    const done = stroke;
+    commitStroke({ final: true });
+    stroke = null;
+    if (done.firstStroke) anchorBrush(done.id, done.data.points[0]);
+  }, true);
+
+  // The scene's depth where the first stroke began, and the viewpoint and focus it was painted at: the mask is stuck to the scene there (core/local.js).
+  async function anchorBrush(id, [fx, fy]) {
+    const u0 = state.camera.u || 0;
+    const v0 = state.camera.v || 0;
+    const focus0 = stillDepth();
+    const depth = await depthAt(fx, fy);
+    const list = getMasks();
+    const m = list.find((x) => x.id === id);
+    if (!m) return;
+    Object.assign(m, { depth, u0, v0, focus0 });
+    setMasks(list);
+  }
+
+  // Presets and the add button.
+  function addBrush(preset = null) {
+    const masks = getMasks();
+    if (masks.length >= MAX_MASKS || !canRender()) return;
+    const m = defaultMask('brush');
+    m.aspect = srcW() / srcH();
+    if (preset) {
+      m.name = preset.name;
+      Object.assign(m.fx, preset.fx);
+    }
+    masks.push(m);
+    state.maskSel = masks.length - 1;
+    setMasks(masks);
+    renderMasks();
+    setPaint('paint');
+  }
+  $('mask-add-brush').onclick = () => addBrush();
+  $('mask-brushes').onchange = () => {
+    const preset = BRUSHES[$('mask-brushes').value];
+    $('mask-brushes').value = '';
+    if (preset) addBrush(preset);
+  };
 
   for (const input of document.querySelectorAll('.local-panel input[type=range]')) {
     input.addEventListener('input', () => {

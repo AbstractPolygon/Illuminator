@@ -132,6 +132,7 @@ export function initRetouch({ $, state, canvas, engine, applySettingsSoon, sched
       $(id).setAttribute('aria-pressed', String(state.retouchTool === name));
     }
     canvas.style.cursor = state.retouchTool ? 'crosshair' : '';
+    if (state.retouchTool) document.dispatchEvent(new Event('retouch-tool'));
     drawOverlay();
   }
 
