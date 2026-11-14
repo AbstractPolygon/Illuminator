@@ -346,6 +346,8 @@ footer { border-top: 1px solid var(--line); padding-block: 32px 48px; color: var
 .gal-thumbs button img { width: 100%; aspect-ratio: 1100 / 764; object-fit: cover; border-radius: 7px; display: block; }
 .gal-thumbs button[aria-pressed="true"] { border-color: var(--accent); opacity: 1; }
 .gal-thumbs button:hover { opacity: 1; }
+.gal-thumbs button.no-depth { filter: grayscale(1); opacity: .35; }
+.gal-thumbs button.no-depth:hover { opacity: .6; }
 .gal-thumbs button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .gal-arrow { flex: 0 0 auto; width: 46px; height: 46px; border-radius: 50%; border: 1px solid var(--line); background: var(--panel); color: var(--fg); font: 500 38px/1 var(--display); cursor: pointer; padding: 0 0 5px; }
 .gal-arrow:hover:not(:disabled) { border-color: var(--accent); }
@@ -801,22 +803,24 @@ footer { border-top: 1px solid var(--line); padding-block: 32px 48px; color: var
     const it = items[current];
     // Depth comes in two styles: Classic (the Lytro Desktop look) and Illuminator's own; the choice shows only when the photos have the second.
     const hasStyles = !!(it.depth && it.depth.illuminator);
-    // Both depth styles are always offered; a photo without a picture for the Illuminator style shows Classic and the choice is dimmed.
-    const shown = hasStyles ? style : 'classic';
+    // Both depth styles are always offered. A photo without a picture for the Illuminator style shows Classic, and says so.
     styleBox.hidden = mode !== 'depth';
-    styleButtons.forEach((b) => {
-      b.setAttribute('aria-pressed', String(b.dataset.style === shown));
-      if (b.dataset.style === 'illuminator') {
-        b.disabled = !hasStyles;
-        b.title = hasStyles ? '' : 'Not rendered for this photo yet';
-      }
-    });
-    const own = mode === 'depth' && shown === 'illuminator' ? it.depth.illuminator : it[mode].ours;
+    styleButtons.forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.style === style)));
+    const tagR = stage.querySelector('.gal-tag.r');
+    if (!tagR.dataset.text) tagR.dataset.text = tagR.textContent;
+    const fallback = mode === 'depth' && style === 'illuminator' && !hasStyles;
+    tagR.textContent = fallback ? 'Classic (Illuminator depth not rendered yet)' : tagR.dataset.text;
+    const own = mode === 'depth' && style === 'illuminator' && hasStyles ? it.depth.illuminator : it[mode].ours;
     top.src = it[mode].lytro;
     under.src = own;
     top.alt = 'Lytro Desktop ' + mode + ' of ' + it.title;
     under.alt = 'Illuminator ' + mode + ' of ' + it.title;
-    thumbs.forEach((b) => b.setAttribute('aria-pressed', String(+b.dataset.i === current)));
+    thumbs.forEach((b) => {
+      b.setAttribute('aria-pressed', String(+b.dataset.i === current));
+      // With Illuminator depth chosen, the photos that do not have it yet are greyed out.
+      const missing = mode === 'depth' && style === 'illuminator' && !(items[+b.dataset.i].depth && items[+b.dataset.i].depth.illuminator);
+      b.classList.toggle('no-depth', missing);
+    });
     modeButtons.forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.mode === mode)));
   };
   const place = (percent) => {
