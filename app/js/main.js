@@ -5,6 +5,7 @@ const EDIT_GROUPS_CAMERA = new Set(EDIT_GROUPS.camera);
 import { Engine, toImageData } from './engine.js';
 import { PreviewMirror } from './ui/previewmirror.js';
 import { initRetouch } from './ui/retouch.js';
+import { Selection } from './ui/selection.js';
 import { Timings, formatDuration, speedLimits, reportText } from './core/speedreport.js';
 import { initScriptingApi } from './ui/api.js';
 import { tiltPreset } from './core/tiltpresets.js';
@@ -179,6 +180,10 @@ let libReady = null;
 let calReady = Promise.resolve();
 const thumbs = new Map(); // photo id -> object URL (null while loading)
 const PHOTO_DRAG = 'application/x-illuminator-photo';
+// Picking several photos in the grid to delete them together.
+const selection = new Selection();
+let selectMode = false; // a click picks a photo (otherwise it opens it, and Ctrl/Cmd-click or Shift-click pick)
+let gridOrder = []; // the ids of the photos the grid shows, in order
 
 // The render queue's renders run in a hidden copy of this page opened with ?queue (ui/queue.js).
 const QUEUE_RUNNER = typeof location !== 'undefined' && /[?&]queue\b/.test(location.search);
@@ -448,9 +453,12 @@ function renderGrid(photos, album) {
   $('grid-title').textContent = album ? album.name : 'All photos';
   $('grid-count').textContent = `${photos.length} photo${photos.length === 1 ? '' : 's'}`;
   const current = state.current && state.current.photo;
+  gridOrder = photos.map((p) => p.id);
+  selection.keepOnly(gridOrder);
   $('photo-grid').replaceChildren(...photos.map((photo) => {
     const tile = document.createElement('div');
-    tile.className = photo === current ? 'tile current' : 'tile';
+    tile.className = (photo === current ? 'tile current' : 'tile') + (selection.has(photo.id) ? ' selected' : '');
+    tile.dataset.id = photo.id;
     tile.tabIndex = 0;
     tile.setAttribute('role', 'button');
     tile.setAttribute('aria-label', `Open ${photo.name}`);
@@ -484,7 +492,7 @@ function renderGrid(photos, album) {
     }
     tile.append(frame, name, more);
     if (mark) tile.append(mark);
-    tile.onclick = () => openItem(photo);
+    tile.onclick = (e) => tileClick(e, photo);
     tile.oncontextmenu = (e) => {
       e.preventDefault();
       photoMenu(photo, more, { x: e.clientX, y: e.clientY });
@@ -492,15 +500,121 @@ function renderGrid(photos, album) {
     tile.onkeydown = (e) => {
       if (e.target === tile && (e.key === 'Enter' || e.key === ' ')) {
         e.preventDefault();
-        openItem(photo);
+        if (selectMode) {
+          selection.toggle(photo.id);
+          showSelection();
+        } else openItem(photo);
       }
     };
     return tile;
   }));
+  showSelection();
   $('grid-empty').hidden = photos.length > 0;
   $('grid-empty').textContent = album
     ? 'No photos in this album yet. Drag photos onto the album in the sidebar, or use ••• on a photo.'
     : EMPTY_LIBRARY;
+}
+
+// A click on a photo in the grid: it opens the photo, or (Ctrl/Cmd, Shift, or Select mode on) picks it.
+function tileClick(e, photo) {
+  if (e.shiftKey) selection.range(gridOrder, photo.id);
+  else if (e.ctrlKey || e.metaKey || selectMode) selection.toggle(photo.id);
+  else {
+    if (selection.size) {
+      selection.clear();
+      showSelection();
+    }
+    openItem(photo);
+    return;
+  }
+  showSelection();
+}
+
+// The grid's selection as the page shows it: the tiles, the count and the buttons (the grid itself is not drawn again, so it keeps its scroll).
+function showSelection() {
+  const grid = $('photo-grid');
+  for (const tile of grid.children) tile.classList.toggle('selected', selection.has(tile.dataset.id));
+  grid.classList.toggle('selecting', selectMode || selection.size > 0);
+  $('grid-select').setAttribute('aria-pressed', String(selectMode));
+  $('grid-selection').hidden = !(selectMode || selection.size > 0);
+  const n = selection.size;
+  $('grid-sel-count').textContent = n ? `${n} selected` : 'Click photos to pick them';
+  $('grid-delete').disabled = n === 0;
+  $('grid-select-all').disabled = gridOrder.length === 0 || n === gridOrder.length;
+}
+
+function setSelectMode(on) {
+  selectMode = on;
+  if (!on) selection.clear();
+  showSelection();
+}
+
+$('grid-select').onclick = () => setSelectMode(!selectMode);
+$('grid-select-all').onclick = () => {
+  selection.selectAll(gridOrder);
+  showSelection();
+};
+$('grid-delete').onclick = () => deleteSelected();
+document.addEventListener('keydown', (e) => {
+  if ($('grid-view').hidden || document.querySelector('dialog[open]')) return;
+  const t = e.target;
+  if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
+  if (menuEl && !menuEl.hidden && menuEl.contains(document.activeElement)) return;
+  if ((e.key === 'Delete' || e.key === 'Backspace') && selection.size) {
+    e.preventDefault();
+    deleteSelected();
+  } else if (e.key === 'Escape' && (selection.size || selectMode)) {
+    setSelectMode(false);
+  } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a' && t && t.closest && t.closest('#photo-grid')) {
+    e.preventDefault();
+    selection.selectAll(gridOrder);
+    showSelection();
+  }
+});
+
+// Where deleted photos go, in words (the same for one photo and for several).
+function deletionWhere() {
+  return state.lib.store.kind === 'folder'
+    ? 'Their folders (each photo and its edits) are moved to the trash.'
+    : 'The photos and their edits are deleted from this browser’s storage.';
+}
+
+// Asks, by the Delete button, before deleting the picked photos.
+function deleteSelected() {
+  const photos = state.lib.photos.filter((p) => selection.has(p.id));
+  if (!photos.length) return;
+  const n = photos.length;
+  const label = state.lib.persistent ? `Delete ${n}` : `Remove ${n}`;
+  showMenu($('grid-delete'), []);
+  confirmInMenu(
+    `${state.lib.persistent ? 'Delete' : 'Remove'} ${n} photo${n === 1 ? '' : 's'} from the library? ${state.lib.persistent ? deletionWhere() : 'They go from the list; their files are not touched.'}`,
+    label,
+    () => removePhotos(photos),
+  );
+}
+
+// Takes photos out of the library, one after the other (a folder that cannot go to the trash is asked about once, then the rest go the same way).
+async function removePhotos(list) {
+  let permanent = false;
+  for (const photo of list) {
+    // Nothing pending may write the photo's folder again once it is gone (edits are not flushed: the photo is deleted).
+    cancelSaves(photo);
+    try {
+      await state.lib.remove([photo.id], permanent ? { permanent: true } : undefined);
+    } catch (err) {
+      // The desktop app does not delete for good behind the user's back: when the trash is not available (network drives, some Linux systems) it asks first.
+      if (!/could not be moved to the trash/i.test(String((err && err.message) || err))) throw err;
+      if (!window.confirm(`${err.message}`)) break;
+      permanent = true;
+      await state.lib.remove([photo.id], { permanent: true });
+    }
+    const url = thumbs.get(photo.id);
+    if (url) URL.revokeObjectURL(url);
+    thumbs.delete(photo.id);
+    selection.ids.delete(photo.id);
+    if (state.current && state.current.photo === photo) closePhoto();
+  }
+  renderLibrary();
 }
 
 // An inline text field in place of `li`'s contents (new album, rename).
@@ -726,23 +840,7 @@ function photoMenu(photo, button, at = null) {
     label: state.lib.persistent ? 'Delete from library…' : 'Remove from list',
     danger: true,
     action: () => {
-      const remove = async () => {
-        // Nothing pending may write the photo's folder again once it is gone (edits are not flushed: the photo is deleted).
-        cancelSaves(photo);
-        try {
-          await state.lib.remove([photo.id]);
-        } catch (err) {
-          // The desktop app does not delete for good behind the user's back: when the trash is not available (network drives, some Linux systems) it asks first.
-          if (!/could not be moved to the trash/i.test(String((err && err.message) || err))) throw err;
-          if (!window.confirm(`${err.message}`)) return;
-          await state.lib.remove([photo.id], { permanent: true });
-        }
-        const url = thumbs.get(photo.id);
-        if (url) URL.revokeObjectURL(url);
-        thumbs.delete(photo.id);
-        if (state.current && state.current.photo === photo) closePhoto();
-        renderLibrary();
-      };
+      const remove = () => removePhotos([photo]);
       if (!state.lib.persistent) return remove();
       return confirmInMenu(`Delete ${photo.name} from the library? ${where}`, 'Delete', remove);
     },
