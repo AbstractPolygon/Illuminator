@@ -4,6 +4,8 @@
 
 Every photo you open, drop or import is copied into the library, each in a separate folder with its edits next to it. Your original files are never changed.
 
+A photo that is being opened for the first time takes a while (the light field is decoded, then its depth is measured and its refocus views prepared). While that happens its row in the sidebar and its tile in the grid show a small spinner, the picture area says what is going on (*Opening…*, then *Rendering the first picture…*), and the bar under the picture shows the steps. The spinner goes when the first picture is drawn and the preparation is done.
+
 - **Desktop app:** the library is a folder, `Pictures/Illuminator` by default (a library already in `Pictures/ILLUMinator` stays there). Change it in **Settings → Library location → Choose folder…**.
 - **Processed version:** next to each photo the desktop app keeps what it measured (the depth map and the focus offset, `processed.illuminator.bin`) the last few full sensor renders, and the last two full sensor pictures before their color pass (so changing Process or Optics settings on a reopened photo does not combine the sensor's rays again), so reopening a photo is quicker. They are made again when the photo's settings or the app version change.
 - **Open in Explorer / Finder:** the photo's ••• menu in the left sidebar opens its folder (desktop app only).
@@ -24,9 +26,20 @@ Photos/Beach/raw.lfp                imported from Lytro Desktop
 
 The folders are the truth: copy a photo folder into `Photos/` and it appears in the library the next time it opens; delete one and it disappears. The same photo is never added twice (photos are recognized by their content, not their name).
 
+## Several libraries
+
+You can keep more than one library, each a separate set of photos and albums (one for a client, one for a trip, one on an external drive). The name at the top of the left sidebar is the library in use: click it for the list.
+
+- **Switch:** choose a library in the list. The photo that is open closes, and the sidebar and grid show the other library.
+- **Add one:** in the desktop app, *Add library folder…* chooses (or creates) a folder to keep a library in. In a browser, *New library…* asks for a name; each browser library is kept apart in the browser's storage.
+- **Rename:** *Rename this library…* changes its name in the list (not its folder).
+- **Remove:** in the desktop app, *Remove “name” from the list…* only takes it out of the list: its folder and photos stay where they are, and you can add the folder again later. In a browser a library is its storage, so *Delete library…* deletes its photos too, after asking. The library in use cannot be removed, and neither can a browser's first library.
+
+*Settings* still shows where the library in use is kept and lets you move to another folder; that folder is added to the list too.
+
 ## Albums
 
-Albums are listed at the top of the left sidebar.
+Albums are listed at the top of the left sidebar. The arrow beside the library name folds the list away: only *All photos* and the album you are looking at stay. The arrow shows it again, and what you chose is remembered.
 
 - **New album:** *+ New album*, type a name, Enter.
 - **Import a Lytro Desktop library:** *+ Import Lytro library…*, under *+ New album*. See [[Importing]].

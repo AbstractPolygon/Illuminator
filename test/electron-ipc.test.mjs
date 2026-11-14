@@ -531,3 +531,46 @@ test('import-from-camera: a partial failure keeps what was copied and says so', 
   await t.cleanup();
   await t2.cleanup();
 });
+
+test('several libraries: list, add, switch, rename and remove only change the list (never the folders)', async () => {
+  const t = await setup();
+  const lib2 = path.join(t.base, 'lib2');
+  // the library in use is always listed
+  let res = await t.h['libraries']();
+  assert.equal(res.current, t.lib);
+  assert.deepEqual(res.list.map((l) => l.dir), [t.lib]);
+  // add: a cancelled dialog changes nothing; a chosen folder is listed and used
+  assert.equal(await t.h['add-library'](), null);
+  assert.equal(t.calls.saved, 0);
+  t.state.dialogResult = { canceled: false, filePaths: [lib2] };
+  res = await t.h['add-library']();
+  assert.equal(res.current, lib2);
+  assert.deepEqual(res.list.map((l) => l.dir), [t.lib, lib2]);
+  assert.equal(t.settings.libraryDir, lib2);
+  // switch only to a listed folder
+  res = await t.h['switch-library'](t.lib);
+  assert.equal(res.current, t.lib);
+  await assert.rejects(t.h['switch-library'](path.join(t.base, 'elsewhere')), /not in the list/);
+  assert.equal(t.settings.libraryDir, t.lib);
+  // rename: the name in the list, not the folder
+  res = await t.h['rename-library'](lib2, '  Travel  ');
+  assert.equal(res.list.find((l) => l.dir === lib2).name, 'Travel');
+  await assert.rejects(t.h['rename-library'](lib2, '   '), /needs a name/);
+  assert.ok(fs.existsSync(lib2));
+  // remove: not the one in use; the folder and its files stay
+  await assert.rejects(t.h['remove-library'](t.lib), /Switch to another/);
+  res = await t.h['remove-library'](lib2);
+  assert.deepEqual(res.list.map((l) => l.dir), [t.lib]);
+  assert.ok(fs.existsSync(path.join(lib2, 'x.lfp')));
+  await t.cleanup();
+});
+
+test('choose-library-dir also lists the folder', async () => {
+  const t = await setup();
+  t.state.dialogResult = { canceled: false, filePaths: [path.join(t.base, 'lib2')] };
+  await t.h['choose-library-dir']();
+  const res = await t.h['libraries']();
+  assert.deepEqual(res.list.map((l) => path.basename(l.dir)).sort(), ['lib', 'lib2']);
+  assert.equal(t.calls.saved, 1);
+  await t.cleanup();
+});
