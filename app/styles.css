@@ -877,3 +877,6 @@ label.lut-amount { margin-top: 14px; }
 .lent-preview-stage { display: grid; place-items: center; background: #0d0f12; border-radius: 8px; min-height: 120px; overflow: hidden; }
 #lent-preview-canvas { display: block; max-width: 100%; max-height: 60vh; height: auto; }
 #lenticular-panel .lent-buttons { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; margin-top: 6px; }
+
+/* Retouch editor: the buttons at its end are apart */
+#rt-editor button.wide { margin-top: 8px; }
