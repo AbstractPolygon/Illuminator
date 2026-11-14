@@ -497,6 +497,63 @@
             <input id="hue-magenta" type="range" min="-100" max="100" step="1" value="0" data-default="0">
           </label>
         </details>
+        <details class="subpanel" id="grade-panel">
+          <summary><h3>Color Grading</h3></summary>
+          <div class="grade-wheels" role="group" aria-label="Tone wheels">
+      <div class="grade-wheel" data-zone="shadows">
+        <canvas class="wheel" width="96" height="96" role="img" aria-label="Shadows color wheel"></canvas>
+        <button type="button" class="wheel-name" aria-pressed="false" title="Edit the shadows wheel with the sliders below">Shadows</button>
+      </div>
+      <div class="grade-wheel" data-zone="mids">
+        <canvas class="wheel" width="96" height="96" role="img" aria-label="Midtones color wheel"></canvas>
+        <button type="button" class="wheel-name" aria-pressed="false" title="Edit the midtones wheel with the sliders below">Midtones</button>
+      </div>
+      <div class="grade-wheel" data-zone="highlights">
+        <canvas class="wheel" width="96" height="96" role="img" aria-label="Highlights color wheel"></canvas>
+        <button type="button" class="wheel-name" aria-pressed="false" title="Edit the highlights wheel with the sliders below">Highlights</button>
+      </div>
+          </div>
+    <div class="grade-sliders" data-zone="shadows">
+      <label title="The color's angle on the wheel: 0 is red, 120 green, 240 blue">Shadows hue <output for="grade-shadows-hue" data-for="grade-shadows-hue">0°</output>
+        <input id="grade-shadows-hue" type="range" min="0" max="360" step="1" value="0" data-default="0">
+      </label>
+      <label title="How strongly the darkest parts are tinted. 0: not at all">Shadows saturation <output for="grade-shadows-sat" data-for="grade-shadows-sat">0</output>
+        <input id="grade-shadows-sat" type="range" min="0" max="100" step="1" value="0" data-default="0">
+      </label>
+      <label title="Brightens or darkens the darkest parts">Shadows luminance <output for="grade-shadows-lum" data-for="grade-shadows-lum">0</output>
+        <input id="grade-shadows-lum" type="range" min="-100" max="100" step="1" value="0" data-default="0">
+      </label>
+    </div>
+    <div class="grade-sliders" data-zone="mids" hidden>
+      <label title="The color's angle on the wheel: 0 is red, 120 green, 240 blue">Midtones hue <output for="grade-mids-hue" data-for="grade-mids-hue">0°</output>
+        <input id="grade-mids-hue" type="range" min="0" max="360" step="1" value="0" data-default="0">
+      </label>
+      <label title="How strongly the middle tones are tinted. 0: not at all">Midtones saturation <output for="grade-mids-sat" data-for="grade-mids-sat">0</output>
+        <input id="grade-mids-sat" type="range" min="0" max="100" step="1" value="0" data-default="0">
+      </label>
+      <label title="Brightens or darkens the middle tones">Midtones luminance <output for="grade-mids-lum" data-for="grade-mids-lum">0</output>
+        <input id="grade-mids-lum" type="range" min="-100" max="100" step="1" value="0" data-default="0">
+      </label>
+    </div>
+    <div class="grade-sliders" data-zone="highlights" hidden>
+      <label title="The color's angle on the wheel: 0 is red, 120 green, 240 blue">Highlights hue <output for="grade-highlights-hue" data-for="grade-highlights-hue">0°</output>
+        <input id="grade-highlights-hue" type="range" min="0" max="360" step="1" value="0" data-default="0">
+      </label>
+      <label title="How strongly the brightest parts are tinted. 0: not at all">Highlights saturation <output for="grade-highlights-sat" data-for="grade-highlights-sat">0</output>
+        <input id="grade-highlights-sat" type="range" min="0" max="100" step="1" value="0" data-default="0">
+      </label>
+      <label title="Brightens or darkens the brightest parts">Highlights luminance <output for="grade-highlights-lum" data-for="grade-highlights-lum">0</output>
+        <input id="grade-highlights-lum" type="range" min="-100" max="100" step="1" value="0" data-default="0">
+      </label>
+    </div>
+          <label title="How softly the shadows, midtones and highlights run into each other">Blending <output for="grade-blend" data-for="grade-blend">50</output>
+            <input id="grade-blend" type="range" min="0" max="100" step="1" value="50" data-default="50">
+          </label>
+          <label title="Which way the split between shadows and highlights leans: toward the highlights above 0, toward the shadows below">Balance <output for="grade-balance" data-for="grade-balance">0</output>
+            <input id="grade-balance" type="range" min="-100" max="100" step="1" value="0" data-default="0">
+          </label>
+          <button id="grade-reset" type="button" class="wide" title="Takes the color away from all three wheels">Reset color grading</button>
+        </details>
         <details class="subpanel">
           <summary><h3>Color Matrix</h3></summary>
           <label>Matrix

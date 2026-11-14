@@ -13,6 +13,7 @@ export const TONES = ['contrast', 'highlights', 'shadows', 'whites', 'blacks'];
 export const HUE_SLIDERS = ['red', 'yellow', 'green', 'cyan', 'blue', 'magenta'];
 export const FRINGES = ['purple', 'green', 'red', 'blue'];
 export const CURVE_REGIONS = ['shadows', 'darks', 'lights', 'highlights'];
+export const GRADE_ZONES = ['shadows', 'mids', 'highlights'];
 
 // How a control's value is read: a name here, or a function (element, num) => value.
 const READ = {
@@ -103,6 +104,12 @@ export function readTable(table, c) {
 export function colorSettings(c) {
   const settings = readTable(COLOR_SETTINGS, c);
   settings.curve = { points: parsePoints(c.el('curve-points').value), regions: CURVE_REGIONS.map((k) => c.num(`curve-${k}`) / 100) };
+  // The three tone wheels: hue in degrees, saturation and luminance in percent.
+  settings.grade = {
+    zones: GRADE_ZONES.map((z) => ({ hue: c.num(`grade-${z}-hue`), sat: c.num(`grade-${z}-sat`) / 100, lum: c.num(`grade-${z}-lum`) / 100 })),
+    blend: c.num('grade-blend') / 100,
+    balance: c.num('grade-balance') / 100,
+  };
   settings.ccm = c.el('ccm-mode').value === 'custom' ? Array.from({ length: 9 }, (_, i) => +c.el(`ccm-${i}`).value || 0) : null;
   // [amount, hue] for purple, green, red and blue fringes.
   settings.defringe.colors = FRINGES.map((key) => [c.num(`fringe-${key}`), (c.num(`fringe-${key}-hue`) + 360) % 360]);

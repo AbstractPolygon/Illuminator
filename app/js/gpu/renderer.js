@@ -14,6 +14,7 @@
 // Results are read back as linear RGB (Float32Array, w * h * 3) so the rest
 // of the pipeline (depth of field, defringing, tone mapping) is unchanged.
 
+import { gradeUniforms } from '../core/grade.js';
 import { searchPlanner, DEPTH_FAST_SEARCH } from '../core/depth.js';
 
 import { ENGINE_USM, engineUsmMap, rangeSigma, chromaSigma, sharpenWindow, HALO_LIMIT, speckleThreshold, dustRadius, DUST_LOW, DUST_HIGH } from '../core/detail.js';
@@ -1276,6 +1277,9 @@ uniform vec4 uTone;        // contrast, highlights, shadows, whites
 uniform vec2 uTone2;       // blacks, vibrance
 uniform float uHues[6];    // red, yellow, green, cyan, blue, magenta
 uniform int uCurveOn;
+uniform int uGradeOn;      // color grading with the three tone wheels (core/grade.js)
+uniform vec3 uGrade[3];    // the shadows', midtones' and highlights' offsets, in gamma 2.2 space
+uniform vec3 uGradeSplit;  // where the zones split: low, high, width
 uniform float uCurve[65];  // tone curve table (core/curve.js)
 out vec4 outColor;
 
@@ -1368,6 +1372,14 @@ float toneCurve(float x) {
 vec3 applyLook(vec3 c) {
   float y = dot(c, vec3(0.2126, 0.7152, 0.0722));
   if (y > 1e-6) c *= pow(toneCurve(pow(y, 1.0 / 2.2)), 2.2) / y;
+  if (uGradeOn == 1) {
+    float gy = dot(c, vec3(0.2126, 0.7152, 0.0722));
+    float gx = pow(max(gy, 0.0), 1.0 / 2.2);
+    float ga = smoothstep(uGradeSplit.x - uGradeSplit.z, uGradeSplit.x + uGradeSplit.z, gx);
+    float gb = smoothstep(uGradeSplit.y - uGradeSplit.z, uGradeSplit.y + uGradeSplit.z, gx);
+    vec3 gd = (1.0 - ga) * uGrade[0] + (ga - gb) * uGrade[1] + gb * uGrade[2];
+    c = pow(max(pow(max(c, vec3(0.0)), vec3(1.0 / 2.2)) + gd, vec3(0.0)), vec3(2.2));
+  }
   float mx = max(c.r, max(c.g, c.b));
   float d = mx - min(c.r, min(c.g, c.b));
   if (d > 1e-6 && mx > 1e-6) {
@@ -4788,6 +4800,12 @@ export class GpuRenderer {
       gl.uniform1fv(P.u.uHues, Float32Array.from(look.hues));
       gl.uniform1i(P.u.uCurveOn, look.curve ? 1 : 0);
       if (look.curve) gl.uniform1fv(P.u.uCurve, look.curve);
+      gl.uniform1i(P.u.uGradeOn, look.grade ? 1 : 0);
+      if (look.grade) {
+        const grade = gradeUniforms(look.grade);
+        gl.uniform3fv(P.u.uGrade, grade.offsets);
+        gl.uniform3f(P.u.uGradeSplit, ...grade.split);
+      }
     }
     this.draw();
     if (toTexture) return null;

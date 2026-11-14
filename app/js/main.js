@@ -6,6 +6,7 @@ import { Engine, toImageData } from './engine.js';
 import { PreviewMirror } from './ui/previewmirror.js';
 import { initRetouch } from './ui/retouch.js';
 import { Selection } from './ui/selection.js';
+import { initColorGrading } from './ui/colorwheel.js';
 import { listLibraries, addLibrary, switchLibrary, renameLibrary, removeLibrary, librariesAreFolders } from './library/libraries.js';
 import { Timings, formatDuration, speedLimits, reportText } from './core/speedreport.js';
 import { initScriptingApi } from './ui/api.js';
@@ -4472,6 +4473,7 @@ const { showColorMatrix } = initColorMatrix({ $, state, applySettings: (...a) =>
 const { getMasks, setMasks, maskLabel, TRASH_ICON, renderMasks, localSettings, setDepthRange, pickDepthRange, selectedDepthMask } = initLocalAdjustments({ $, applySettingsSoon: (...a) => applySettingsSoon(...a), scheduleSave: (...a) => scheduleSave(...a), state, clearSelection: (...a) => clearSelection(...a), saveAnimation: (...a) => saveAnimation(...a), renderTimeline: (...a) => renderTimeline(...a), showMenu: (...a) => showMenu(...a), confirmInMenu: (...a) => confirmInMenu(...a), editName: (...a) => editName(...a), canRender: (...a) => canRender(...a), showSliderValue: (...a) => showSliderValue(...a), updateKeyButtons: (...a) => updateKeyButtons(...a), autoKey: (...a) => autoKey(...a), canvas, engine, sourceFraction: (...a) => sourceFraction(...a), stillDepth: () => (apertureFor(fNumber()).aperture > 0 ? +$('focus').value || 0 : 0), showError: (...a) => showError(...a), retouchTool: (t) => retouchUi && retouchUi.setTool(t) });
 // Retouch (spot removal): the spots over the picture, and the tool that places them.
 retouchUi = initRetouch({ $, state, canvas, engine, applySettingsSoon: (...a) => applySettingsSoon(...a), scheduleSave: (...a) => scheduleSave(...a), viewPoint: (...a) => viewPoint(...a), sourceFraction: (...a) => sourceFraction(...a), canRender: (...a) => canRender(...a), showError: (...a) => showError(...a), applyMatrix, stillDepth: () => (!state.retouchTool && apertureFor(fNumber()).aperture > 0 ? +$('focus').value || 0 : 0), refocus: () => { if (state.fullRes) setFullRes(false, { restore: false }); if (!state.depthShown && canRender()) renderCamera(); } });
+const colorGrading = initColorGrading({ $, applySettingsSoon: (...a) => applySettingsSoon(...a), showSliderValue: (...a) => showSliderValue(...a) });
 
 // keyframes: ui/keyframes.js
 const { MASK_LIMITS, parseMaskTrack, trackGroups, tracks, KEY_CONTROLS, settingControl, updateKeyButtons, groupCollapsed, shownTracks, groupHidden, trackName, tlSel, tlCurves, keyframesOn, animLength, loadAnimation, saveAnimation, liveFraming, combineMotion, showValue, previewAt, autoKey, playheadTime, clearSelection, selectKey, selectedKeys, moveKeys, selectedKey, viewWindow, tickStep, updatePlayhead, groupHeading, renderTimeline, timeAt, seekTimeline, seekTo, showAnimationLength, keyframeFrames } = initKeyframes({ $, getMasks, maskLabel, state, canRender: (...a) => canRender(...a), F_STOPS, scheduleSave: (...a) => scheduleSave(...a), invalidateAnimation: (...a) => invalidateAnimation(...a), backToCamera: (...a) => backToCamera(...a), renderCamera: (...a) => renderCamera(...a), showSliderValue: (...a) => showSliderValue(...a), setMasks, renderMasks, showFNumber: (...a) => showFNumber(...a), showFocusPoint: (...a) => showFocusPoint(...a), applySettingsSoon: (...a) => applySettingsSoon(...a), cameraChanged: (...a) => cameraChanged(...a), layoutCanvas: (...a) => layoutCanvas(...a), drawCurves: (...a) => drawCurves(...a), stopProcessing: (...a) => stopProcessing(...a), setPlaying: (...a) => setPlaying(...a), showFrame: (...a) => showFrame(...a), updateFrameLabel: (...a) => updateFrameLabel(...a), plotBox: (...a) => plotBox(...a), animationSettingsChanged: (...a) => animationSettingsChanged(...a), draw: (...a) => draw(...a), apertureFor: (...a) => apertureFor(...a), view, bokehParams: (...a) => bokehParams(...a), colorSettings: (...a) => colorSettings(...a) });
@@ -5145,6 +5147,7 @@ async function applyEdits(info, saved) {
     for (const id of ['tilt', 'tilt-rotation', 'tilt-show']) $(id).disabled = !$('tilt-on').checked || $('tilt-on').disabled;
     $('pivot').disabled = !$('pivot-on').checked;
     curve.draw();
+    colorGrading.redraw();
     showColorMatrix();
     $('flare-amount').disabled = !$('flare-on').checked;
     state.customFps = false;
@@ -5410,6 +5413,8 @@ function showSliderValue(input) {
   else if (input.id === 'tilt-rotation' || input.id === 'bokeh-rotation') out.textContent = `${v}°`;
   else if (input.id === 'straighten') out.textContent = `${v.toFixed(1)}°`;
   else if (input.id === 'ml-angle') out.textContent = `${v}°`;
+  else if (/^grade-.*-hue$/.test(input.id)) out.textContent = `${v}°`;
+  else if (/^grade-.*-sat$/.test(input.id) || input.id === 'grade-blend') out.textContent = `${v}`;
   else if (input.id === 'frame-zoom' || input.id === 'view-reach' || input.id === 'lent-depth') out.textContent = `${v}%`;
   else if (input.id === 'video-quality') out.textContent = `${v} Mbit/s`;
   else if (['photo-quality', 'bokeh-blades', 'stereo-baseline', 'upscale-sharpen', 'upscale-strength', 'upscale-lobes', 'upscale-denoise', 'upscale-grain', 'depth-model-smooth', 'depth-model-curve', 'lattice-strength', 'lattice-detect'].includes(input.id)) out.textContent = `${v}`;
