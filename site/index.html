@@ -432,8 +432,7 @@ footer { border-top: 1px solid var(--line); padding-block: 32px 48px; color: var
     <p class="eyebrow">Side by side</p>
     <h2>Desktop Classic vs. Illuminator.</h2>
     <div class="gal-head">
-      <div class="gal-mode" role="group" aria-label="What to compare"><button type="button" data-mode="photo" aria-pressed="true">Photo</button><button type="button" data-mode="depth" aria-pressed="false">Depth</button></div>
-      <div class="gal-mode gal-style" role="group" aria-label="Depth style" hidden><button type="button" data-style="classic" aria-pressed="true">Classic</button><button type="button" data-style="illuminator" aria-pressed="false">Illuminator</button></div>
+      <div class="gal-mode" role="group" aria-label="What to compare"><button type="button" data-mode="photo" aria-pressed="true">Photo</button><button type="button" data-mode="depth" aria-pressed="false">Classic Depth</button><button type="button" data-mode="illuminator" aria-pressed="false">Illuminator</button></div>
     </div>
     <div class="gal-stage">
       <img class="gal-under" src="gallery/a1-photo-ours.jpg" alt="" decoding="async">
@@ -779,9 +778,7 @@ footer { border-top: 1px solid var(--line); padding-block: 32px 48px; color: var
   const under = stage.querySelector('.gal-under');
   const top = stage.querySelector('.gal-top');
   const slider = stage.querySelector('input');
-  const modeButtons = [...root.querySelectorAll('.gal-mode:not(.gal-style) button')];
-  const styleBox = root.querySelector('.gal-style');
-  const styleButtons = [...styleBox.querySelectorAll('button')];
+  const modeButtons = [...root.querySelectorAll('.gal-mode button')];
   // One endless ribbon: copies of the thumbnails sit on both sides of the
   // real ones, and the ribbon jumps a whole set back to the middle whenever it
   // rests, so scrolling can go on in either direction without a visible seam.
@@ -796,29 +793,25 @@ footer { border-top: 1px solid var(--line); padding-block: 32px 48px; color: var
     strip.append(...copies());
   }
   const thumbs = [...strip.children];
-  let mode = 'photo';
-  let style = 'classic';
+  let mode = 'photo'; // 'photo', 'depth' (Classic Desktop depth) or 'illuminator' (Illuminator depth)
   let current = 0;
   const show = () => {
     const it = items[current];
-    // Depth comes in two styles: Classic (the Lytro Desktop look) and Illuminator's own; the choice shows only when the photos have the second.
-    const hasStyles = !!(it.depth && it.depth.illuminator);
-    // Both depth styles are always offered. A photo without a picture for the Illuminator style shows Classic, and says so.
-    styleBox.hidden = mode !== 'depth';
-    styleButtons.forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.style === style)));
+    // Three views: the photo, Classic Desktop depth, and Illuminator's own depth, each against Lytro Desktop. A photo without the Illuminator depth picture yet shows Classic, and says so.
+    const kind = mode === 'photo' ? 'photo' : 'depth';
+    const hasIll = !!(it.depth && it.depth.illuminator);
+    const fallback = mode === 'illuminator' && !hasIll;
     const tagR = stage.querySelector('.gal-tag.r');
     if (!tagR.dataset.text) tagR.dataset.text = tagR.textContent;
-    const fallback = mode === 'depth' && style === 'illuminator' && !hasStyles;
-    tagR.textContent = fallback ? 'Classic (Illuminator depth not rendered yet)' : tagR.dataset.text;
-    const own = mode === 'depth' && style === 'illuminator' && hasStyles ? it.depth.illuminator : it[mode].ours;
-    top.src = it[mode].lytro;
-    under.src = own;
-    top.alt = 'Lytro Desktop ' + mode + ' of ' + it.title;
-    under.alt = 'Illuminator ' + mode + ' of ' + it.title;
+    tagR.textContent = fallback ? 'Classic (Illuminator depth not rendered yet)' : mode === 'photo' ? tagR.dataset.text : mode === 'depth' ? 'Illuminator: Classic Desktop depth' : 'Illuminator: Illuminator depth';
+    top.src = it[kind].lytro;
+    under.src = mode === 'illuminator' && hasIll ? it.depth.illuminator : it[kind].ours;
+    top.alt = 'Lytro Desktop ' + kind + ' of ' + it.title;
+    under.alt = (mode === 'illuminator' && hasIll ? 'Illuminator depth' : 'Illuminator ' + kind) + ' of ' + it.title;
     thumbs.forEach((b) => {
       b.setAttribute('aria-pressed', String(+b.dataset.i === current));
-      // With Illuminator depth chosen, the photos that do not have it yet are greyed out.
-      const missing = mode === 'depth' && style === 'illuminator' && !(items[+b.dataset.i].depth && items[+b.dataset.i].depth.illuminator);
+      // With the Illuminator view chosen, the photos that do not have its depth yet are greyed out.
+      const missing = mode === 'illuminator' && !(items[+b.dataset.i].depth && items[+b.dataset.i].depth.illuminator);
       b.classList.toggle('no-depth', missing);
     });
     modeButtons.forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.mode === mode)));
@@ -845,7 +838,6 @@ footer { border-top: 1px solid var(--line); padding-block: 32px 48px; color: var
   slider.addEventListener('input', () => place(+slider.value));
   thumbs.forEach((b) => b.addEventListener('click', () => { current = +b.dataset.i; show(); }));
   modeButtons.forEach((b) => b.addEventListener('click', () => { mode = b.dataset.mode; show(); }));
-  styleButtons.forEach((b) => b.addEventListener('click', () => { style = b.dataset.style; show(); }));
   const prev = root.querySelector('.gal-arrow.prev');
   const next = root.querySelector('.gal-arrow.next');
   const step = () => originals[1].offsetLeft - originals[0].offsetLeft;
