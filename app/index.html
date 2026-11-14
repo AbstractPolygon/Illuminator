@@ -281,6 +281,13 @@
           <button id="rt-redeye-tool" type="button" class="icon-only mask-icon" aria-pressed="false" title="Red-eye: click a red pupil" aria-label="Red-eye">
             <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><circle cx="12" cy="12" r="3" fill="currentColor"/></svg>
           </button>
+          <span class="spacer"></span>
+          <button id="rt-copy" type="button" class="icon-only mask-icon" title="Copy the spots, to paste on another photo (sensor dust is in the same place)" aria-label="Copy spots">
+            <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><rect x="8.500" y="8.500" width="11" height="11" rx="1.800" fill="none" stroke="currentColor" stroke-width="1.600"/><path d="M15.500 8.500V6.300a1.800 1.800 0 0 0-1.800-1.800H6.300a1.800 1.800 0 0 0-1.800 1.800v7.400a1.800 1.800 0 0 0 1.800 1.800h2.200" fill="none" stroke="currentColor" stroke-width="1.600"/></svg>
+          </button>
+          <button id="rt-paste" type="button" class="icon-only mask-icon" title="Add the copied spots to this photo" aria-label="Paste spots">
+            <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><rect x="5" y="5.500" width="14" height="15" rx="1.800" fill="none" stroke="currentColor" stroke-width="1.600"/><path d="M9 5.500V4.500a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v1M8.500 12h7M8.500 15.500h7" fill="none" stroke="currentColor" stroke-width="1.600" stroke-linecap="round"/></svg>
+          </button>
         </div>
         <div class="row check-row">
           <label class="check" title="Draws the spots on the picture"><input id="rt-show" type="checkbox" checked> Show spots</label>
@@ -289,10 +296,6 @@
         <label id="rt-vis-row" title="How bright the fine detail is shown" hidden>Sensitivity <output data-for="rt-vis-gain" for="rt-vis-gain">20</output>
           <input id="rt-vis-gain" type="range" min="0" max="100" step="1" value="20" data-default="20">
         </label>
-        <div class="row mask-pick">
-          <button id="rt-copy" type="button" title="Copies the spots, to paste on another photo (sensor dust is in the same place)">Copy spots</button>
-          <button id="rt-paste" type="button" title="Adds the copied spots to this photo">Paste spots</button>
-        </div>
         <ul id="rt-list" class="mask-list"></ul>
         <div id="rt-editor" hidden>
           <label title="Heal matches the color around the blemish; Clone copies the source as it is; Red-eye makes red pupils dark and neutral">Mode
