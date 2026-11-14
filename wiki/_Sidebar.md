@@ -5,6 +5,7 @@
 - [[Importing]]
 - [[Editing]]
   - [[Histogram and Info]]
+  - [[Retouch]]
   - [[Crop]]
   - [[Process]]
   - [[Local Adjustments]]

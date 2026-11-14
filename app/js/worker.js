@@ -53,6 +53,7 @@ import { engineLensShift } from './core/lensshift.js';
 import { estimateVeil, subtractVeil } from './core/flare.js';
 import { lensParams, applyLens, withoutDistortion, fitDistortion, lensWarp } from './core/lens.js';
 import { parseMasks, activeMasks, packMasks, resolveMasks, hasSpatial, applySpatial } from './core/local.js';
+import { parseSpots, resolveSpots, packSpots, applySpots } from './core/retouch.js';
 import { GpuRenderer } from './gpu/renderer.js';
 import { lytroSplatGpu } from './gpu/lytroengine.js';
 import { debugFlags, hook, setHook } from './core/debugflags.js';
@@ -298,6 +299,9 @@ function updateColor() {
   const show = s.local && s.local.show >= 0 && masks[s.local.show] ? s.local.show : -1;
   state.masks = masks.filter((m, i) => i === show || activeMasks([m]).length);
   state.maskShow = show >= 0 ? state.masks.indexOf(masks[show]) : -1;
+  // Retouching: the spots that are on (kept as the text too, for the cache keys).
+  state.spots = parseSpots(s.local && s.local.spots).filter((x) => x.on);
+  state.spotsKey = state.spots.length ? s.local.spots : null;
   // The Lytro Desktop look applies saturation after its curve (toneMap).
   const camCcm = engineCcm(s);
   const exactColor = s.lytroLook !== false && !!state.engineScale && Array.isArray(camCcm) && camCcm.length === 9 && s.engineColor !== false;
@@ -417,6 +421,19 @@ function colorState(color) {
 
 // Local adjustments for a w x h picture (core/local.js), or null. `ctx`:
 // { focus, overrides } of this picture (see resolveMasks).
+// The spots for one picture (`ctx` as for the masks: the focus and the viewpoint), anchored to the scene: null when there are none.
+function spotsFor(ctx) {
+  if (!state.spots || !state.spots.length) return null;
+  const view = (ctx && ctx.view) || {};
+  const total = ctx && Array.isArray(ctx.total) ? ctx.total : [view.u || 0, view.v || 0];
+  return resolveSpots(state.spots, { u: total[0] || 0, v: total[1] || 0, focus: Number.isFinite(ctx && ctx.ref) ? ctx.ref : Number.isFinite(ctx && ctx.focus) ? ctx.focus : 0, k: anchorScale() });
+}
+
+// How far a point of the scene one focus unit from the focus moves, in picture fractions, per unit of viewpoint (see core/retouch.js).
+function anchorScale() {
+  return state.sampler ? state.settings.detail / state.sampler.outW : 0;
+}
+
 function localFor(w, h, ctx) {
   if (!state.masks || !state.masks.length) return null;
   const d = state.depth && state.sampler ? { depth: state.depth.alpha, dw: state.sampler.outW, dh: state.sampler.outH } : {};
@@ -446,6 +463,8 @@ function engineNrOn(cs, w) {
 function toPixels(rgb, w, h, ctx, cs = state, distortionCorrected = false, onGpu = false, skipNr = false) {
   // (from the GPU path the detail pass, the spatial effects and the depth of field are already in the picture)
   if (!onGpu) rgb = applyDetail(rgb, w, h, detailForSize(state.detail, w, lensColumns()));
+  // (retouching: the spots, before the rest; from the GPU path they are already in the picture)
+  if (!onGpu) rgb = applySpots(rgb, w, h, spotsFor(ctx));
   rgb = subtractVeil(rgb, w, h, cs.veil, cs.veilAmount);
   rgb = applyLens(rgb, w, h, distortionCorrected ? withoutDistortion(cs.lens) : cs.lens);
   const exposure = cs.baseExposure * Math.pow(2, cs.settings.ev);
@@ -603,6 +622,8 @@ async function presentGpu(id, tex, w, h, { alpha = 0, dof = 0, bokeh = {}, pxPer
     });
   }
   if (state.detail) tex = gpu.details(tex, w, h, detailForSize(state.detail, w, lensColumns()));
+  const spots = spotsFor(masks);
+  if (spots && spots.length) tex = gpu.retouch(tex, w, h, packSpots(spots));
   const packed = packedMasks(masks);
   if (packed && packed.spatial) tex = gpu.localSpatial(tex, w, h, packed);
   if (keep) state.kept = { key: keep, tex: gpu.keep(tex, w, h), w, h };
@@ -1066,7 +1087,7 @@ async function frames({ id, job, path, alpha = 0, aperture = 0, dof = 0, bokeh, 
       await tick();
       if (state.jobs.frames !== job) return { cancelled: true };
       const unseen = holes ? await holesFor(id, split, f.aperture > 0 ? f.alpha : 0) : null;
-      await presentGpu(id, tex, outW, outH, { alpha: f.alpha, dof: f.dof, bokeh: f.bokeh, color: f.color, pxPerUnit: viewPxPerUnit(), parallax: true, masks: { focus: f.alpha, overrides: f.masks, view: viewOf(at.u, at.v) } }, { id, type: 'frame', index: i, ...(unseen ? { holes: unseen } : {}) });
+      await presentGpu(id, tex, outW, outH, { alpha: f.alpha, dof: f.dof, bokeh: f.bokeh, color: f.color, pxPerUnit: viewPxPerUnit(), parallax: true, masks: { focus: f.alpha, ref: f.aperture > 0 ? f.alpha : 0, total: [f.u, f.v], overrides: f.masks, view: viewOf(at.u, at.v) } }, { id, type: 'frame', index: i, ...(unseen ? { holes: unseen } : {}) });
       await tick();
       continue;
     }
@@ -1077,7 +1098,7 @@ async function frames({ id, job, path, alpha = 0, aperture = 0, dof = 0, bokeh, 
     await tick();
     if (state.jobs.frames !== job) return { cancelled: true };
     rgb = await applyParallax(id, rgb, outW, outH, at.u, at.v);
-    frameMessage(id, i, await withDepthOfField(id, rgb, outW, outH, f.alpha, f.dof, 1, f.bokeh), { focus: f.alpha, overrides: f.masks, view: viewOf(at.u, at.v) }, colorState(f.color), holes ? await holesFor(id, split, f.aperture > 0 ? f.alpha : 0) : null);
+    frameMessage(id, i, await withDepthOfField(id, rgb, outW, outH, f.alpha, f.dof, 1, f.bokeh), { focus: f.alpha, ref: f.aperture > 0 ? f.alpha : 0, total: [f.u, f.v], overrides: f.masks, view: viewOf(at.u, at.v) }, colorState(f.color), holes ? await holesFor(id, split, f.aperture > 0 ? f.alpha : 0) : null);
     await tick();
   }
   return { done: true };
@@ -1301,6 +1322,7 @@ async function refocusFrames({ id, job, alphas, u, v, aperture, dof = 0, bokeh }
   state.jobs.refocus = job;
   if (!(await ensureRefocusViews(id))) return { cancelled: true };
   const { outW, outH } = state.sampler;
+  const total = [u, v];
   const split = splitView(u, v);
   if (split) ({ u, v } = split);
   const opts = apertureOptions({ u, v, aperture });
@@ -1310,7 +1332,7 @@ async function refocusFrames({ id, job, alphas, u, v, aperture, dof = 0, bokeh }
       const tex = await extendGpu(id, state.gpu.refocusTo(alphas[i], opts), outW, outH, split, alphas[i]);
       await tick();
       if (state.jobs.refocus !== job) return { cancelled: true };
-      await presentGpu(id, tex, outW, outH, { alpha: alphas[i], dof, bokeh, pxPerUnit: viewPxPerUnit(), parallax: true, masks: { focus: alphas[i], view: viewOf(u, v) } }, { id, type: 'frame', index: i });
+      await presentGpu(id, tex, outW, outH, { alpha: alphas[i], dof, bokeh, pxPerUnit: viewPxPerUnit(), parallax: true, masks: { focus: alphas[i], ref: alphas[i], total, view: viewOf(u, v) } }, { id, type: 'frame', index: i });
       await tick();
       continue;
     }
@@ -1318,7 +1340,7 @@ async function refocusFrames({ id, job, alphas, u, v, aperture, dof = 0, bokeh }
     await tick();
     if (state.jobs.refocus !== job) return { cancelled: true };
     rgb = await applyParallax(id, rgb, outW, outH, u, v);
-    frameMessage(id, i, await withDepthOfField(id, rgb, outW, outH, alphas[i], dof, 1, bokeh), { focus: alphas[i], view: viewOf(u, v) });
+    frameMessage(id, i, await withDepthOfField(id, rgb, outW, outH, alphas[i], dof, 1, bokeh), { focus: alphas[i], ref: alphas[i], total, view: viewOf(u, v) });
     await tick();
   }
   return { done: true };
@@ -1370,7 +1392,7 @@ async function superResPreview({ id, job, alpha = 0, u = 0, v = 0, aperture = 0,
   });
   if (!tex) return { none: true };
   if (state.jobs.preview !== job) return { cancelled: true };
-  const stillCtx = { focus: alpha, overrides: masks, view: viewOf(u, v) };
+  const stillCtx = { focus: alpha, ref: aperture > 0 ? alpha : 0, overrides: masks, view: viewOf(u, v) };
   await presentGpu(id, tex, params.W, params.H, { alpha, dof, bokeh, color, pxPerUnit: 14, masks: stillCtx, distortionCorrected: true }, { id, type: 'result', preview: true });
   return undefined;
 }
@@ -1448,7 +1470,7 @@ async function superRes({ id, job, alpha = 0, scale, u = 0, v = 0, aperture = 0,
     if (state.jobs.superres !== job || samplerJob.stale()) return { cancelled: true };
   }
   // The same picture was made just before (only color settings changed since): its color pass again, from the kept picture.
-  const stillCtx = { focus: alpha, overrides: masks, view: viewOf(u, v) };
+  const stillCtx = { focus: alpha, ref: aperture > 0 ? alpha : 0, overrides: masks, view: viewOf(u, v) };
   let keepStill = null;
   let baseKey = null;
   let diskHash = null;
@@ -1457,7 +1479,7 @@ async function superRes({ id, job, alpha = 0, scale, u = 0, v = 0, aperture = 0,
     const lensKey = csKept.lens ? [csKept.lens.k || 0, csKept.lens.k2 || 0, csKept.lens.edge || 0, csKept.lens.zoom || 1] : null;
     const packedKept = packedMasks(stillCtx);
     const { W: keptW, H: keptH } = superResParams(sampler, { scale });
-    const keyParts = ['sr', scale, passes, alpha, u, v, aperture, dof, bokeh || null, state.detail, packedKept && packedKept.spatial ? packedKept : null, lensKey];
+    const keyParts = ['sr', scale, passes, alpha, u, v, aperture, dof, bokeh || null, state.detail, packedKept && packedKept.spatial ? packedKept : null, state.spotsKey, lensKey];
     keepStill = stillKey(keyParts);
     // What the all in focus picture depends on: not the focus, the blur or the effects (only for the depth-based blur, aperture 0).
     if (allInFocus) {
@@ -1533,12 +1555,12 @@ async function superRes({ id, job, alpha = 0, scale, u = 0, v = 0, aperture = 0,
   if (state.jobs.superres !== job) return { cancelled: true };
   if (state.gpu) {
     const tex = state.gpu.uploadRGB(sr.rgb, sr.width, sr.height, { full: bits16Ids.has(id) });
-    await presentGpu(id, tex, sr.width, sr.height, { alpha, dof, bokeh, color, pxPerUnit: 14 * scale, masks: { focus: alpha, overrides: masks, view: viewOf(u, v) }, distortionCorrected: sr.distortionCorrected }, { id, type: 'result' });
+    await presentGpu(id, tex, sr.width, sr.height, { alpha, dof, bokeh, color, pxPerUnit: 14 * scale, masks: { focus: alpha, ref: aperture > 0 ? alpha : 0, overrides: masks, view: viewOf(u, v) }, distortionCorrected: sr.distortionCorrected }, { id, type: 'result' });
     return undefined;
   }
   if (dof > 0) progress('Applying depth of field', 1);
   const rgb = await withDepthOfField(id, sr.rgb, sr.width, sr.height, alpha, dof, scale / state.settings.detail, bokeh);
-  const pixels = toPixels(rgb, sr.width, sr.height, { focus: alpha, overrides: masks, view: viewOf(u, v) }, cs, sr.distortionCorrected);
+  const pixels = toPixels(rgb, sr.width, sr.height, { focus: alpha, ref: aperture > 0 ? alpha : 0, overrides: masks, view: viewOf(u, v) }, cs, sr.distortionCorrected);
   post({ id, type: 'result', width: sr.width, height: sr.height, pixels: pixels.buffer }, [pixels.buffer]);
   return undefined;
 }
@@ -1908,13 +1930,13 @@ async function view({ id, u, v, alpha = 0, aperture = 0, dof = 0, bokeh, draft =
   if (split) ({ u, v } = split);
   if (state.gpu) {
     const { outW, outH } = state.sampler;
-    const masks = { focus: alpha, view: viewOf(u, v) };
+    const masks = { focus: alpha, ref: aperture > 0 ? alpha : 0, total: asked, view: viewOf(u, v) };
     // Everything that decides the picture before the color pass. When only
     // color settings changed since the last view, redraw from the kept
     // picture instead of rendering it again.
     if (dof > 0 && !(await ensureViewDepth(id))) return { cancelled: true };
     const packed = packedMasks(masks);
-    const key = JSON.stringify([state.gen, asked, alpha, aperture, dof, dof > 0 && draft, bokeh || null, state.settings.mvDenoise, state.detail, packed && packed.spatial ? packed : null]);
+    const key = JSON.stringify([state.gen, asked, alpha, aperture, dof, dof > 0 && draft, bokeh || null, state.settings.mvDenoise, state.detail, packed && packed.spatial ? packed : null, state.spotsKey]);
     // The GPU time of each view, for the photo info (where available).
     const message = { id, type: 'result', gpuMs: state.gpu.gpuMs() };
     if (holes) {
@@ -1952,7 +1974,7 @@ async function view({ id, u, v, alpha = 0, aperture = 0, dof = 0, bokeh, draft =
   rgb = await applyParallax(id, rgb, state.sampler.outW, state.sampler.outH, u, v);
   rgb = await withDepthOfField(id, rgb, state.sampler.outW, state.sampler.outH, alpha, dof, 1, bokeh);
   const skipNr = draft || deferNr;
-  const pixels = toPixels(rgb, state.sampler.outW, state.sampler.outH, { focus: alpha, view: viewOf(u, v) }, state, false, false, skipNr);
+  const pixels = toPixels(rgb, state.sampler.outW, state.sampler.outH, { focus: alpha, ref: aperture > 0 ? alpha : 0, total: asked, view: viewOf(u, v) }, state, false, false, skipNr);
   const unseen = holes ? await holesFor(id, split, aperture > 0 ? alpha : 0) : null;
   post({ id, type: 'result', width: state.sampler.outW, height: state.sampler.outH, pixels: pixels.buffer, nrDeferred: deferNr && !draft && engineNrOn(state, state.sampler.outW), ...(unseen ? { holes: unseen } : {}) }, [pixels.buffer]);
   return undefined;

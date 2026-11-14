@@ -18,6 +18,7 @@ import { searchPlanner, DEPTH_FAST_SEARCH } from '../core/depth.js';
 
 import { ENGINE_USM, engineUsmMap, rangeSigma, chromaSigma, sharpenWindow, HALO_LIMIT, speckleThreshold, dustRadius, DUST_LOW, DUST_HIGH } from '../core/detail.js';
 import { MAX_MASKS } from '../core/local.js';
+import { MAX_SPOTS, RING_RADIUS, RING_TAPS } from '../core/retouch.js';
 import { bokehKernel } from '../core/dof.js';
 import { CHROMA_EDGE } from '../core/render.js';
 import { LYTRO_CURVE, LYTRO_HUE, CURVE_START, CURVE_STEP, ENGINE_SPLINE, FIRST_SPLINE, PROPHOTO, PROPHOTO_INV } from '../core/base.js';
@@ -1126,6 +1127,50 @@ void main() {
       vec3 fill = (0.65 * base + 0.35 * lum(base)) * 1.25 * (1.0 - 0.85 * edge);
       c = mix(c, fill, w * e.w);
     }
+  }
+  outColor = vec4(c, 1.0);
+}`;
+
+const RETOUCH = `#version 300 es
+precision highp float;
+precision highp int;
+uniform sampler2D uSrc;
+uniform int uCount;
+uniform vec4 uA[${MAX_SPOTS}];  // x, y, radius (a fraction of the longer side), feather
+uniform vec4 uB[${MAX_SPOTS}];  // source x, source y, opacity, heal
+out vec4 outColor;
+vec3 at(vec2 q, ivec2 size) {
+  return texelFetch(uSrc, clamp(ivec2(floor(q)), ivec2(0), size - 1), 0).rgb;
+}
+void main() {
+  ivec2 size = textureSize(uSrc, 0);
+  vec2 sz = vec2(size);
+  ivec2 p = ivec2(gl_FragCoord.xy);
+  vec2 fp = vec2(p) + 0.5;
+  float big = max(sz.x, sz.y);
+  vec3 c = texelFetch(uSrc, p, 0).rgb;
+  for (int i = 0; i < ${MAX_SPOTS}; i++) {
+    if (i >= uCount) break;
+    vec4 a = uA[i];
+    vec4 b = uB[i];
+    float R = a.z * big;
+    vec2 ctr = a.xy * sz;
+    float d = length(fp - ctr) / R;
+    if (d >= 1.0) continue;
+    float t = clamp((d - (1.0 - a.w)) / max(a.w, 1e-6), 0.0, 1.0);
+    float wgt = b.z * (1.0 - t * t * (3.0 - 2.0 * t));
+    if (wgt <= 0.0) continue;
+    vec2 off = (b.xy - a.xy) * sz;
+    vec3 shift = vec3(0.0);
+    if (b.w > 0.5) {
+      for (int k = 0; k < ${RING_TAPS}; k++) {
+        float ang = 6.2831853 * float(k) / ${RING_TAPS}.0;
+        vec2 o = vec2(cos(ang), sin(ang)) * R * ${RING_RADIUS.toFixed(2)};
+        shift += (at(ctr + o, size) - at(ctr + o + off, size)) / ${RING_TAPS}.0;
+      }
+    }
+    vec3 src = max(at(fp + off, size) + shift, vec3(0.0));
+    c = mix(c, src, wgt);
   }
   outColor = vec4(c, 1.0);
 }`;
@@ -2665,6 +2710,7 @@ export class GpuRenderer {
       usmApply: program(gl, USM_APPLY),
       present: program(gl, PRESENT),
       localSpatial: program(gl, LOCAL_SPATIAL),
+      retouch: program(gl, RETOUCH),
       splat: program(gl, SPLAT_FRAGMENT, SPLAT_VERTEX),
       lensProbe: program(gl, LENS_PROBE_FRAGMENT, SPLAT_VERTEX),
       srPrep: program(gl, SR_PREP),
@@ -4545,6 +4591,22 @@ export class GpuRenderer {
     const rgba = new Float32Array(w * h * 4);
     for (let i = 0; i < w * h; i++) rgba.set([data[3 * i], data[3 * i + 1], data[3 * i + 2], 1], 4 * i);
     gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, w, h, gl.RGBA, gl.FLOAT, rgba);
+  }
+
+  // Spot removal (core/retouch.js packSpots): returns a new texture with the spots applied.
+  retouch(src, w, h, spots) {
+    const gl = this.gl;
+    const out = this.scratch(w, h, 'retouch');
+    const P = this.programs.retouch;
+    this.target(out, w, h);
+    gl.useProgram(P.p);
+    gl.uniform1i(P.u.uSrc, 1);
+    this.bindTex(1, src);
+    gl.uniform1i(P.u.uCount, spots.count);
+    gl.uniform4fv(P.u.uA, spots.a);
+    gl.uniform4fv(P.u.uB, spots.b);
+    this.draw();
+    return out;
   }
 
   // Blur, pixelate and sketch of local adjustments (`local` from
