@@ -15,6 +15,7 @@
 // neither is available the photos are only held for this session.
 
 import { native, NativeFile } from '../platform.js';
+import { activeWebLibrary, opfsLibraryPath } from './libraries.js';
 
 const parts = (path) => path.split('/').filter(Boolean);
 
@@ -80,9 +81,9 @@ async function opfsWrite(root, path, data) {
 
 const missing = (err) => err && (err.name === 'NotFoundError' || err.name === 'TypeMismatchError');
 
-export async function browserStorage() {
+export async function browserStorage(id = activeWebLibrary()) {
   if (!navigator.storage || !navigator.storage.getDirectory) throw new Error('No private file system');
-  const root = await opfsDir(await navigator.storage.getDirectory(), 'library', true);
+  const root = await opfsDir(await navigator.storage.getDirectory(), opfsLibraryPath(id), true);
   // Writing needs createWritable (not available everywhere): try it once.
   await opfsWrite(root, '.probe', 'ok');
   await root.removeEntry('.probe');

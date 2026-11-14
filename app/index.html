@@ -61,7 +61,12 @@
         <ul id="camera-rows" class="albums"></ul>
         <button id="camera-show" type="button" hidden>Show photos…</button>
       </section>
-      <h2>Library</h2>
+      <h2 id="library-head" class="library-head">
+        <button id="albums-toggle" type="button" class="chevron" aria-expanded="true" aria-controls="album-list" aria-label="Collapse the albums" title="Collapse the albums">
+          <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+        <button id="library-switch" type="button" class="library-name" aria-haspopup="menu" title="Libraries: switch, add or rename. Each is a separate set of photos and albums"><span id="library-name">Library</span><span class="caret" aria-hidden="true">▾</span></button>
+      </h2>
       <ul id="album-list" class="albums"></ul>
       <button id="album-new" type="button" class="link-button">+ New album</button>
       <button id="library-import" type="button" class="link-button" title="Brings in the photos, edits and albums of a Lytro Desktop library">+ Import Lytro library…</button>

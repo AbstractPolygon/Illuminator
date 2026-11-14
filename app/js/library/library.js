@@ -213,6 +213,12 @@ export class Library {
     if (this.saveTimer.unref) this.saveTimer.unref();
   }
 
+  // Everything still waiting is written: called before another library takes the place of this one, so nothing of it lands in that one.
+  async close() {
+    await this.save();
+    await this.saving;
+  }
+
   save() {
     if (this.saveTimer) {
       clearTimeout(this.saveTimer);

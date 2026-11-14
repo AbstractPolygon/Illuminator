@@ -41,6 +41,25 @@ function createIpc(deps) {
     return fs.existsSync(legacy) ? legacy : path.join(app.getPath('pictures'), 'Illuminator');
   }
 
+  // The libraries the person has added: { dir, name } in settings.libraries. The one in use is always listed.
+  const sameDir = (a, b) => path.resolve(String(a || '')) === path.resolve(String(b || ''));
+  function libraryList() {
+    const saved = Array.isArray(settings().libraries) ? settings().libraries.filter((l) => l && typeof l.dir === 'string' && l.dir) : [];
+    const list = [];
+    for (const l of saved) if (!list.some((x) => sameDir(x.dir, l.dir))) list.push({ dir: l.dir, name: String(l.name || '').trim() || path.basename(l.dir) });
+    const current = libraryDir();
+    if (!list.some((l) => sameDir(l.dir, current))) list.unshift({ dir: current, name: path.basename(current) });
+    return { current, list };
+  }
+  // Puts a folder in the list (or renames it there).
+  function rememberLibrary(dir, name) {
+    const { list } = libraryList();
+    const at = list.findIndex((l) => sameDir(l.dir, dir));
+    if (at < 0) list.push({ dir, name: name || path.basename(dir) });
+    else if (name) list[at].name = name;
+    settings().libraries = list.map(({ dir: d, name: n }) => ({ dir: d, name: n }));
+  }
+
   // The real location of a path that may not exist yet: its nearest existing ancestor, resolved through symlinks, plus the
   // names below it. A dangling symlink counts as outside (writing through it would create a file wherever it points).
   async function realOf(p, outsideMessage) {
@@ -276,9 +295,57 @@ function createIpc(deps) {
         properties: ['openDirectory', 'createDirectory'],
       }));
       if (res.canceled || !res.filePaths.length) return null;
+      // (the library in use now stays in the list)
+      rememberLibrary(res.filePaths[0]);
       settings().libraryDir = res.filePaths[0];
       await saveSettings();
       return libraryDir();
+    },
+
+    // Several libraries: each is a folder. The page lists them, adds one (a folder the person chooses or creates), switches to one, renames one (only its name in the list),
+    // and takes one out of the list (the folder and its photos are never touched). The page can only switch to a folder that is in the list.
+    'libraries': async () => libraryList(),
+
+    'add-library': async () => {
+      const res = await dialog.showOpenDialog(...withWin({
+        title: 'Add a library folder',
+        defaultPath: libraryDir(),
+        properties: ['openDirectory', 'createDirectory'],
+      }));
+      if (res.canceled || !res.filePaths.length) return null;
+      const dir = res.filePaths[0];
+      rememberLibrary(dir);
+      settings().libraryDir = dir;
+      await saveSettings();
+      return libraryList();
+    },
+
+    'switch-library': async (dir) => {
+      const entry = libraryList().list.find((l) => sameDir(l.dir, dir));
+      if (!entry) throw new Error('That library is not in the list');
+      rememberLibrary(entry.dir);
+      settings().libraryDir = entry.dir;
+      await saveSettings();
+      return libraryList();
+    },
+
+    'rename-library': async (dir, name) => {
+      const clean = String(name || '').trim().slice(0, 60);
+      if (!clean) throw new Error('A library needs a name');
+      const entry = libraryList().list.find((l) => sameDir(l.dir, dir));
+      if (!entry) throw new Error('That library is not in the list');
+      rememberLibrary(entry.dir, clean);
+      await saveSettings();
+      return libraryList();
+    },
+
+    'remove-library': async (dir) => {
+      const cur = libraryList();
+      if (sameDir(cur.current, dir)) throw new Error('Switch to another library first');
+      if (!cur.list.some((l) => sameDir(l.dir, dir))) return cur;
+      settings().libraries = cur.list.filter((l) => !sameDir(l.dir, dir)).map(({ dir: d, name }) => ({ dir: d, name }));
+      await saveSettings();
+      return libraryList();
     },
 
     // Copies photos off a camera reached over adb into the library's staging folder; the app then adds them to the library (and empties it).

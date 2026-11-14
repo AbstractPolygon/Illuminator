@@ -6,6 +6,7 @@ import { Engine, toImageData } from './engine.js';
 import { PreviewMirror } from './ui/previewmirror.js';
 import { initRetouch } from './ui/retouch.js';
 import { Selection } from './ui/selection.js';
+import { listLibraries, addLibrary, switchLibrary, renameLibrary, removeLibrary, librariesAreFolders } from './library/libraries.js';
 import { Timings, formatDuration, speedLimits, reportText } from './core/speedreport.js';
 import { initScriptingApi } from './ui/api.js';
 import { tiltPreset } from './core/tiltpresets.js';
@@ -137,11 +138,77 @@ const lensView = { x: null, y: null, z: 4 };
 const PREVIEW_IDS = ['pv-res', 'pv-render', 'pv-first', 'pv-prev', 'pv-stop', 'pv-play', 'pv-next', 'pv-last', 'pv-loop', 'pv-scrub'];
 let previewing = false;
 
+// Photos being processed (opened and prepared for the first time): their rows and tiles show a spinner, and the picture area says what is going on.
+const busy = new Map(); // photo id -> { stage, progress }
+let processing = null; // { photo, my, drawn, prepared } for the photo being opened
+
+function showBusy() {
+  const mark = (el, id) => {
+    const b = busy.get(id);
+    el.classList.toggle('busy', !!b);
+    if (b) el.setAttribute('aria-busy', 'true');
+    else el.removeAttribute('aria-busy');
+    const badge = el.querySelector('.busy-badge');
+    if (badge) badge.title = b ? `${b.stage}…` : '';
+  };
+  for (const li of $('library-list').children) mark(li, li.dataset.photoId);
+  for (const tile of $('photo-grid').children) mark(tile, tile.dataset.id);
+}
+
+// A spinner on a row or tile (shown while the photo is busy).
+const busyBadge = () => {
+  const b = Object.assign(document.createElement('span'), { className: 'busy-badge' });
+  b.setAttribute('aria-hidden', 'true');
+  return b;
+};
+
+function beginProcessing(photo, my) {
+  endProcessing();
+  processing = { photo, my, drawn: false, prepared: false };
+  busy.set(photo.id, { stage: 'Opening', progress: null });
+  showBusy();
+  showProgress(`Opening ${photo.name}`, null);
+  // With no picture on show yet the area would stay blank until the first one is drawn.
+  if (!state.info || canvas.classList.contains('hidden')) {
+    const ph = $('placeholder');
+    ph.hidden = false;
+    const text = Object.assign(document.createElement('p'), { textContent: `Opening ${photo.name}…` });
+    ph.replaceChildren(Object.assign(document.createElement('div'), { className: 'spinner' }), text);
+  }
+}
+
+function updateProcessing(my, stage, p) {
+  if (!processing || processing.my !== my) return;
+  busy.set(processing.photo.id, { stage, progress: p });
+  showBusy();
+}
+
+// `what`: 'drawn' (the first picture is on screen) or 'prepared' (the background preparation is done). The mark goes when both are.
+const FIRST_PICTURE = 'Rendering the first picture';
+function processingStep(my, what) {
+  if (!processing || processing.my !== my) return;
+  processing[what] = true;
+  if (what === 'drawn') {
+    if ($('progress-text').textContent === FIRST_PICTURE) hideProgress();
+    if ($('placeholder').querySelector('.spinner')) $('placeholder').hidden = true;
+  }
+  if (processing.drawn && processing.prepared) endProcessing(my);
+}
+
+function endProcessing(my) {
+  if (!processing || (my != null && processing.my !== my)) return;
+  busy.delete(processing.photo.id);
+  processing = null;
+  showBusy();
+}
+
 function showProgress(stage, p) {
-  emitEvent('progress', { stage, progress: p || 0 });
+  emitEvent('progress', { stage, progress: p ?? 0 });
   $('progress').hidden = false;
+  // No known amount (opening): a moving bar rather than an empty one.
+  $('progress').classList.toggle('indeterminate', p == null);
   $('progress-text').textContent = stage;
-  $('progress-fill').style.width = `${Math.round((p || 0) * 100)}%`;
+  $('progress-fill').style.width = p == null ? '' : `${Math.round(p * 100)}%`;
 }
 
 function hideProgress() {
@@ -202,6 +269,7 @@ async function openLibrary() {
   }
   if (state.album && !state.lib.album(state.album)) state.album = null;
   renderLibrary();
+  renderLibraryHead();
   return state.lib;
 }
 
@@ -313,7 +381,8 @@ function renderLibrary() {
       photoMenu(photo, more);
     };
     const mark = marks && marks.badge(photo);
-    li.append(img, name, more);
+    li.append(img, name, more, busyBadge());
+    if (busy.has(photo.id)) li.classList.add('busy');
     if (marks) li.append(marks.rater(photo));
     if (mark) li.append(mark);
     li.onclick = (e) => {
@@ -352,6 +421,129 @@ function renderLibrary() {
   else empty.textContent = EMPTY_LIBRARY;
 }
 
+// ------------------------------------------------ libraries and the albums list
+
+// The albums list can be folded away (kept for the next start).
+const ALBUMS_COLLAPSED_KEY = 'illuminator.albumsCollapsed';
+let albumsCollapsed = (() => {
+  try {
+    return localStorage.getItem(ALBUMS_COLLAPSED_KEY) === '1';
+  } catch {
+    return false;
+  }
+})();
+
+function showAlbumsToggle() {
+  const b = $('albums-toggle');
+  b.setAttribute('aria-expanded', String(!albumsCollapsed));
+  const label = albumsCollapsed ? 'Show the albums' : 'Collapse the albums';
+  b.title = label;
+  b.setAttribute('aria-label', label);
+}
+
+$('albums-toggle').onclick = () => {
+  albumsCollapsed = !albumsCollapsed;
+  try {
+    localStorage.setItem(ALBUMS_COLLAPSED_KEY, albumsCollapsed ? '1' : '0');
+  } catch {
+    // (not kept)
+  }
+  showAlbumsToggle();
+  renderAlbums();
+};
+showAlbumsToggle();
+
+// Which libraries there are (library/libraries.js), for the name at the top of the sidebar and its menu.
+let libraryInfo = null;
+
+async function renderLibraryHead() {
+  try {
+    libraryInfo = await listLibraries();
+  } catch (err) {
+    console.warn('Could not list the libraries', err);
+    libraryInfo = null;
+  }
+  const cur = libraryInfo && libraryInfo.list.find((l) => l.id === libraryInfo.current);
+  $('library-name').textContent = cur ? cur.name : 'Library';
+  $('library-switch').title = cur && cur.detail ? `${cur.detail}\nLibraries: switch, add or rename. Each is a separate set of photos and albums` : 'Libraries: switch, add or rename. Each is a separate set of photos and albums';
+}
+
+// A text field in the sidebar's heading, for the name of a library (restored when done).
+function askLibraryName(value, label, onName) {
+  const head = $('library-head');
+  const kids = [...head.childNodes];
+  editName(head, value, async (name) => {
+    head.replaceChildren(...kids);
+    if (name) {
+      try {
+        await onName(name);
+      } catch (err) {
+        showError(err);
+      }
+    }
+  }, label);
+}
+
+// Another library takes the place of this one: everything of this photo and library is written first, so nothing of it lands in the next.
+async function useLibrary(change) {
+  await flushSave();
+  await flushProcessed();
+  if (state.lib) await state.lib.close().catch((err) => console.warn('Could not close the library', err));
+  const result = await change();
+  if (result === null) return; // (cancelled: this library stays in use)
+  closePhoto();
+  setSelectMode(false);
+  state.album = null;
+  state.cameraView = false;
+  libReady = openLibrary();
+  calReady = libReady.then(() => sendCalibrations()).catch(() => {});
+  await libReady;
+  showGrid(true);
+}
+
+function libraryMenu() {
+  renderLibraryHead().then(() => {
+    const info = libraryInfo;
+    if (!info) return;
+    const memory = state.lib && state.lib.store.kind === 'memory';
+    const items = [];
+    if (memory) {
+      items.push({ label: 'This browser cannot keep several libraries', disabled: true, action: () => {} });
+    } else {
+      for (const l of info.list) {
+        items.push({ label: l.name, checked: l.id === info.current, action: () => useLibrary(() => (l.id === info.current ? null : switchLibrary(l.id))).catch((err) => showError(err)) });
+      }
+      items.push('-');
+      items.push({
+        label: librariesAreFolders() ? 'Add library folder…' : 'New library…',
+        action: () => {
+          if (librariesAreFolders()) return useLibrary(() => addLibrary()).catch((err) => showError(err));
+          askLibraryName('', 'Library name', (name) => useLibrary(() => addLibrary(name)));
+        },
+      });
+      const cur = info.list.find((l) => l.id === info.current);
+      if (cur) items.push({ label: 'Rename this library…', action: () => askLibraryName(cur.name, 'Library name', async (name) => { await renameLibrary(cur.id, name); await renderLibraryHead(); }) });
+      for (const l of info.list.filter((x) => x.id !== info.current)) {
+        const folders = librariesAreFolders();
+        items.push({
+          label: folders ? `Remove “${l.name}” from the list…` : `Delete library “${l.name}”…`,
+          danger: true,
+          action: () => confirmInMenu(
+            folders ? `Remove “${l.name}” from the list? Its folder and photos stay where they are.` : `Delete the library “${l.name}” and all its photos from this browser?`,
+            folders ? 'Remove' : 'Delete',
+            async () => {
+              await removeLibrary(l.id);
+              await renderLibraryHead();
+            },
+          ),
+        });
+      }
+    }
+    showMenu($('library-switch'), items);
+  });
+}
+$('library-switch').onclick = () => libraryMenu();
+
 function renderAlbums() {
   const list = $('album-list');
   if (!state.lib) {
@@ -362,6 +554,8 @@ function renderAlbums() {
   list.replaceChildren(...rows.map((row) => {
     const li = document.createElement('li');
     li.classList.toggle('current', !state.cameraView && state.album === row.id);
+    // Collapsed, the list keeps All photos and the album being shown.
+    li.hidden = albumsCollapsed && row.id !== null && state.album !== row.id;
     const b = Object.assign(document.createElement('button'), { type: 'button', className: 'album' });
     const name = Object.assign(document.createElement('span'), { className: 'name', textContent: row.name });
     const count = Object.assign(document.createElement('span'), { className: 'count', textContent: row.count });
@@ -468,9 +662,11 @@ function renderGrid(photos, album) {
       e.dataTransfer.effectAllowed = 'copy';
     };
     const frame = Object.assign(document.createElement('div'), { className: 'frame' });
+    frame.append(busyBadge());
+    if (busy.has(photo.id)) tile.classList.add('busy');
     const url = thumbFor(photo);
     const thumb = url ? Object.assign(document.createElement('img'), { src: url, alt: '' }) : null;
-    if (thumb) frame.append(thumb);
+    if (thumb) frame.prepend(thumb);
     const name = Object.assign(document.createElement('div'), { className: 'name', textContent: photo.name, title: photo.name });
     const more = Object.assign(document.createElement('button'), { className: 'more', type: 'button', textContent: '•••', title: 'Albums, copy and paste settings, delete' });
     more.setAttribute('aria-label', `Actions for ${photo.name}`);
@@ -945,6 +1141,7 @@ async function openItem(photo) {
   const my = openSeq.next();
   state.scripted = false;
   closeMenu();
+  beginProcessing(photo, my);
   // The photo on show keeps its last change before the view is reset or the controls are rewritten.
   await flushSave();
   if (openSeq.superseded(my)) return;
@@ -953,6 +1150,7 @@ async function openItem(photo) {
   const file = await state.lib.file(photo).catch(() => null);
   if (openSeq.superseded(my)) return;
   if (!file) {
+    endProcessing(my);
     showOpenError(new Error(`${photo.name} is missing from the library folder.`));
     return;
   }
@@ -1009,7 +1207,8 @@ function flushProcessed() {
   processedTimer = null;
   const p = pendingProcessed;
   pendingProcessed = null;
-  if (p && state.lib) state.lib.saveProcessed(p.photo, encodeProcessed(p.cache)).catch((err) => console.warn('Could not save the processed version', err));
+  if (p && state.lib) return state.lib.saveProcessed(p.photo, encodeProcessed(p.cache)).catch((err) => console.warn('Could not save the processed version', err));
+  return Promise.resolve();
 }
 const saveProcessed = (msg) => {
   if (staleSeq(msg.openSeq)) return;
@@ -1093,6 +1292,7 @@ function resetView() {
 
 function closePhoto() {
   // Its last change is kept, and nothing in flight (an open, a render) lands on the empty view.
+  endProcessing();
   flushSave();
   flushProcessed();
   openSeq.next();
@@ -1123,11 +1323,20 @@ async function openWith(args, transfer, my = openSeq.next()) {
   // After the reset, so a picture of the photo before cannot become this one's saved thumbnail.
   state.wantThumb = !!(state.current && state.current.photo && !state.current.photo.thumb);
   try {
-    const info = await engine.request('open', { ...args, openSeq: my }, { transfer, onProgress: progressFor(my) });
+    const shown = progressFor(my);
+    const info = await engine.request('open', { ...args, openSeq: my }, { transfer, onProgress: (stage, p) => { shown(stage, p); updateProcessing(my, stage, p); } });
     if (openSeq.superseded(my)) return;
     hideProgress();
     state.info = info;
-    $('placeholder').hidden = true;
+    // The photo is open but its first picture is not drawn yet (the depth may still have to be measured): say so.
+    if (processing && processing.my === my && !processing.drawn) {
+      showProgress(FIRST_PICTURE, null);
+      // With no picture on screen, the spinner stays in the empty area until it is drawn.
+      if (canvas.classList.contains('hidden')) {
+        const text = Object.assign(document.createElement('p'), { textContent: `${FIRST_PICTURE}…` });
+        $('placeholder').replaceChildren(Object.assign(document.createElement('div'), { className: 'spinner' }), text);
+      } else $('placeholder').hidden = true;
+    } else $('placeholder').hidden = true;
     await restoreEdits(info);
     if (openSeq.superseded(my)) return;
     showAutoFringe();
@@ -1135,10 +1344,28 @@ async function openWith(args, transfer, my = openSeq.next()) {
     if (!info.hasRaw && !info.processed) throw new Error('The file contains no light field image.');
     setMode(state.mode);
     if (state.notice) showNotice(...state.notice);
-    if (info.hasRaw) engine.request('prepare').catch(() => {});
+    if (info.hasRaw) {
+      // The background preparation of the photo (refocus views, depth) is part of its first processing: the bar and the spinner stay until it is done.
+      let last = null;
+      engine.request('prepare', {}, {
+        onProgress: (stage, p) => {
+          if (openSeq.superseded(my)) return;
+          last = stage;
+          showProgress(stage, p);
+          updateProcessing(my, stage, p);
+        },
+      }).catch(() => {}).finally(() => {
+        if (openSeq.superseded(my)) return;
+        if (last && $('progress-text').textContent === last) hideProgress();
+        processingStep(my, 'prepared');
+      });
+    } else processingStep(my, 'prepared');
     emitEvent('photoOpened', { name: state.current ? state.current.name : null, raw: !!info.hasRaw });
   } catch (err) {
-    if (!openSeq.superseded(my)) showOpenError(err);
+    if (!openSeq.superseded(my)) {
+      endProcessing(my);
+      showOpenError(err);
+    }
   }
 }
 
@@ -1162,6 +1389,7 @@ function cancelSaves(photo) {
 // `gen`: the open generation the picture was asked for in; a picture of the photo before is dropped.
 function draw(img, gen = openSeq.current()) {
   if (!img || openSeq.superseded(gen)) return;
+  processingStep(gen, 'drawn');
   state.enlarged = false;
   if (img.pair) return drawPair(img);
   startNoticeTimer();
@@ -3859,13 +4087,7 @@ $('about-dialog').addEventListener('close', () => $('about-btn').setAttribute('a
 
 $('library-choose').onclick = async () => {
   if (!native) return;
-  const dir = await native.chooseLibraryDir();
-  if (!dir) return;
-  closePhoto();
-  state.album = null;
-  state.cameraView = false;
-  libReady = openLibrary();
-  calReady = libReady.then(() => sendCalibrations()).catch(() => {});
+  await useLibrary(() => native.chooseLibraryDir()).catch((err) => showError(err));
   await showLibraryLocation();
 };
 
