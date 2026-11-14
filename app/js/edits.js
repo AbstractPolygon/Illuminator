@@ -16,6 +16,7 @@ export const EDITS_VERSION = 1;
 
 const HUES = ['red', 'yellow', 'green', 'cyan', 'blue', 'magenta'];
 const FRINGES = ['purple', 'green', 'red', 'blue'];
+const GRADE = ['shadows', 'mids', 'highlights'].flatMap((z) => [`grade-${z}-hue`, `grade-${z}-sat`, `grade-${z}-lum`]);
 
 // Controls saved with a photo, by panel. Every Render Settings control is one
 // (Full sensor, Auto render and 3D included); view toggles (show depth map,
@@ -24,7 +25,8 @@ export const EDIT_GROUPS = {
   process: ['lut-data', 'lut-amount', 'awb', 'wb-temperature', 'wb-tint', 'base-look', 'ev', 'tone-contrast', 'tone-highlights', 'tone-shadows', 'tone-whites',
     'tone-blacks', 'saturation', 'vibrance', ...HUES.map((h) => `hue-${h}`),
     'ccm-mode', ...Array.from({ length: 9 }, (_, i) => `ccm-${i}`),
-    'curve-points', 'curve-highlights', 'curve-lights', 'curve-darks', 'curve-shadows'],
+    'curve-points', 'curve-highlights', 'curve-lights', 'curve-darks', 'curve-shadows',
+    ...GRADE, 'grade-blend', 'grade-balance'],
   camera: ['fstop', 'focus', 'dof-depth', 'depth-smooth', 'depth-hq', 'depth-style', 'depth-blend', 'depth-model-blend', 'depth-model-smooth', 'depth-model-curve', 'depth-model-params', 'depth-objects', 'depth-objects-soft', 'depth-contrast', 'depth-contrast-persp', 'lytro-depth', 'spread', 'spread-smooth', 'spread-blur', 'tilt-on', 'tilt', 'tilt-rotation', 'pivot-on', 'pivot', 'view-reach', 'bokeh', 'bokeh-blades', 'bokeh-oval', 'bokeh-rotation', 'bokeh-onion', 'highlights'],
   details: ['sharp-amount', 'sharp-radius', 'sharp-detail', 'sharp-masking', 'mv-on', 'mv-blend', 'nr-luminance', 'nr-color', 'nr-dust', 'nr-speckle', 'nr-speckle-size', 'nr-hot'],
   defringe: ['lens-auto', 'lens-distortion', 'lens-vignetting', 'lens-midpoint', 'flare-on', 'flare-amount', 'fringe-on', 'fringe-auto', 'fringe-radius', 'fringe-threshold', ...FRINGES.flatMap((k) => [`fringe-${k}`, `fringe-${k}-hue`])],

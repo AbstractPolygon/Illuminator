@@ -915,3 +915,11 @@ label.lut-amount { margin-top: 14px; }
   .busy-badge, .spinner { animation-duration: 2.4s; }
   .progress.indeterminate #progress-fill { animation-duration: 3s; }
 }
+
+/* Color Grading: three tone wheels */
+.grade-wheels { display: flex; justify-content: space-between; gap: 6px; margin: 4px 0 8px; }
+.grade-wheel { display: flex; flex-direction: column; align-items: center; gap: 4px; min-width: 0; }
+.grade-wheel canvas { display: block; border-radius: 50%; background: #15181c; cursor: crosshair; touch-action: none; box-shadow: 0 0 0 1px #2b3038; }
+.grade-wheel.active canvas { box-shadow: 0 0 0 2px var(--accent); }
+.grade-wheel .wheel-name { background: none; border: 0; padding: 2px 6px; border-radius: 5px; color: var(--muted); font-size: 12px; cursor: pointer; }
+.grade-wheel.active .wheel-name { color: var(--text, #e6e8eb); background: #262b33; }

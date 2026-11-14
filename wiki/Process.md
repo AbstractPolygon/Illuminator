@@ -33,6 +33,18 @@ A curve over brightness, from black (left) to white (right): click to add a poin
 
 *Saturation*, *Vibrance* (boosts muted colors more than strong ones), and saturation for *Red*, *Yellow*, *Green*, *Cyan*, *Blue* and *Magenta*.
 
+## Color Grading
+
+Three tone wheels tint the shadows, the midtones and the highlights separately: cool shadows and warm highlights, a green cast in the middle, or any other split. It sits between *Color* and *Color Matrix*.
+
+- **The wheels:** drag on a wheel to choose a color. The angle is the hue (red at the top, going clockwise), the distance from the middle is how strongly the zone is tinted. In the middle there is no tint. Double-click a wheel to take its color away.
+- **The sliders:** the wheel you used (or the one whose name you click) shows its *Hue*, *Saturation* and *Luminance* sliders below. Hue and Saturation are the wheel in numbers, for fine steps; *Luminance* brightens or darkens that zone only.
+- **Blending:** how softly the three zones run into each other. Low is a sharper split, high a gentler one.
+- **Balance:** which way the split leans. Above 0 more of the picture counts as highlights, below 0 more counts as shadows.
+- **Reset color grading** clears all three wheels.
+
+The tint keeps the light of each pixel, so grading changes color and not brightness (use *Luminance* for that). Color grading is saved with the photo and is part of a look you save.
+
 ## Color Matrix
 
 How the camera's colors become screen colors: *Camera* (the matrix the camera recorded), *None* (the sensor's colors as they are) or *Custom*, an editable 3 × 3 matrix that starts from the camera's (rows are output red, green and blue; columns camera red, green and blue).

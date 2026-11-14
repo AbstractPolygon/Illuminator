@@ -6,6 +6,7 @@
 // RGB after exposure (see applyLook; gpu/renderer.js mirrors it):
 //   tone: contrast, highlights, shadows, whites and blacks reshape a curve on
 //         luminance in a gamma 2.2 space, keeping each pixel's hue
+//   color grading: three tone wheels tint the shadows, midtones and highlights (core/grade.js)
 //   saturation: vibrance (favours muted colors) and six hue ranges
 // The overall saturation slider is part of the color matrix.
 
@@ -53,6 +54,7 @@ export function whiteBalanceGains(kelvin, asShot, tint = 0) {
 }
 
 import { curveTable, curveAt } from './curve.js';
+import { gradeParams, applyGrade } from './grade.js';
 
 export const DEFAULT_KELVIN = 5500;
 
@@ -87,9 +89,11 @@ export function makeLook(settings = {}) {
     hues: HUES.map((h) => sat[h] || 0),
     // Tone curve table (core/curve.js), or null.
     curve: settings.curve ? curveTable(settings.curve) : null,
+    // Color grading with the three tone wheels (core/grade.js), or null.
+    grade: gradeParams(settings.grade),
   };
   const active = look.contrast || look.highlights || look.shadows || look.whites || look.blacks
-    || look.vibrance || look.hues.some((v) => v) || look.curve;
+    || look.vibrance || look.hues.some((v) => v) || look.curve || look.grade;
   return active ? look : null;
 }
 
@@ -135,6 +139,11 @@ export function applyLook(px, look) {
     r *= k;
     g *= k;
     b *= k;
+  }
+  if (look.grade) {
+    const p = [r, g, b];
+    applyGrade(p, look.grade);
+    [r, g, b] = p;
   }
   const mx = Math.max(r, g, b);
   const mn = Math.min(r, g, b);
