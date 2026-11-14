@@ -58,7 +58,7 @@ export function initKeyframes({ $, getMasks, maskLabel, state, canRender, F_STOP
   // Every setting of a local adjustment (living filters included) has a
   // track too: 'mask:<id>:<attr>'.
   const MASK_FX = ['exposure', 'contrast', 'saturation', 'temperature', 'tint', 'haze', 'blur', 'pixelate', 'sketch'];
-  const MASK_SHAPE = { radial: ['x', 'y', 'w', 'h', 'feather'], linear: ['x', 'y', 'angle', 'width'], depth: ['near', 'far', 'feather'] };
+  const MASK_SHAPE = { radial: ['x', 'y', 'w', 'h', 'feather'], linear: ['x', 'y', 'angle', 'width'], depth: ['near', 'far', 'feather'], brush: [] };
   const MASK_ATTR_NAMES = {
     strength: 'Strength', exposure: 'Exposure', contrast: 'Contrast', saturation: 'Saturation', temperature: 'Temperature', tint: 'Tint', haze: 'Haze', blur: 'Blur', pixelate: 'Pixelate', sketch: 'Sketch',
     x: 'Center X', y: 'Center Y', w: 'Width', h: 'Height', feather: 'Feather', angle: 'Angle', width: 'Width', near: 'Near', far: 'Far',

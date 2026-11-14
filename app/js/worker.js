@@ -424,9 +424,14 @@ function colorState(color) {
 // The spots for one picture (`ctx` as for the masks: the focus and the viewpoint), anchored to the scene: null when there are none.
 function spotsFor(ctx) {
   if (!state.spots || !state.spots.length) return null;
+  return resolveSpots(state.spots, sceneAnchor(ctx));
+}
+
+// The viewpoint and focus a picture is seen from, and the scale of the scene's movement, for anything stuck to the scene (spots, painted masks).
+function sceneAnchor(ctx) {
   const view = (ctx && ctx.view) || {};
   const total = ctx && Array.isArray(ctx.total) ? ctx.total : [view.u || 0, view.v || 0];
-  return resolveSpots(state.spots, { u: total[0] || 0, v: total[1] || 0, focus: Number.isFinite(ctx && ctx.ref) ? ctx.ref : Number.isFinite(ctx && ctx.focus) ? ctx.focus : 0, k: anchorScale() });
+  return { u: total[0] || 0, v: total[1] || 0, focus: Number.isFinite(ctx && ctx.ref) ? ctx.ref : Number.isFinite(ctx && ctx.focus) ? ctx.focus : 0, k: anchorScale() };
 }
 
 // How far a point of the scene one focus unit from the focus moves, in picture fractions, per unit of viewpoint (see core/retouch.js).
@@ -437,7 +442,7 @@ function anchorScale() {
 function localFor(w, h, ctx) {
   if (!state.masks || !state.masks.length) return null;
   const d = state.depth && state.sampler ? { depth: state.depth.alpha, dw: state.sampler.outW, dh: state.sampler.outH } : {};
-  return { masks: resolveMasks(state.masks, ctx), w, h, show: state.maskShow, ...d };
+  return { masks: resolveMasks(state.masks, { ...ctx, anchor: sceneAnchor(ctx) }), w, h, show: state.maskShow, ...d };
 }
 
 // Lens columns across the picture at one pixel per lens (the view at Resolution 1).
@@ -633,7 +638,7 @@ async function presentGpu(id, tex, w, h, { alpha = 0, dof = 0, bokeh = {}, pxPer
 
 // Local adjustments resolved for a picture, packed for the GPU, or null.
 function packedMasks(ctx) {
-  const resolved = state.masks && state.masks.length ? resolveMasks(state.masks, ctx) : null;
+  const resolved = state.masks && state.masks.length ? resolveMasks(state.masks, { ...ctx, anchor: sceneAnchor(ctx) }) : null;
   return resolved ? { ...packMasks(resolved), show: state.maskShow, spatial: hasSpatial(resolved) } : null;
 }
 

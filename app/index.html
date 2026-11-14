@@ -505,7 +505,19 @@
           <button id="mask-add-depth" type="button" class="icon-only mask-icon" title="Add a depth mask: full effect between a near and a far depth" aria-label="Add a depth mask">
             <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><rect x="3" y="7" width="12" height="12" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M9 7V5.5A1.5 1.5 0 0 1 10.5 4h8A1.5 1.5 0 0 1 20 5.5v8a1.5 1.5 0 0 1-1.5 1.5H15" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>
           </button>
+          <button id="mask-add-brush" type="button" class="icon-only mask-icon" title="Add a brush mask: paint where the effect goes" aria-label="Add a brush mask">
+            <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" d="M20 4l-9 9"/><path fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" d="M9.5 12.5c-2 0-3.5 1.5-3.5 3.5 0 1.5-1 2.5-2 3 3 1 7 0 7-3.5"/></svg>
+          </button>
           <span class="spacer"></span>
+          <select id="mask-brushes" class="mask-filter" aria-label="Add an adjustment brush" title="Adjustment brushes: a brush mask with the effect already set, ready to paint">
+            <option value="">Brushes…</option>
+            <option value="soften">Soften skin</option>
+            <option value="noise">Reduce noise</option>
+            <option value="teeth">Whiten teeth</option>
+            <option value="iris">Iris pop</option>
+            <option value="dodge">Dodge (lighten)</option>
+            <option value="burn">Burn (darken)</option>
+          </select>
           <select id="mask-filter" class="mask-filter" aria-label="Add a filter" title="Filters: looks built from masks around the current focus">
             <option value="">Filters…</option>
             <option value="pop">Color pop</option>
@@ -579,6 +591,25 @@
               <button id="mask-depth-focus" type="button" title="Sets the range to the sharp range around the focus (the Focus Spread)">From focus</button>
             </div>
             <p class="hint">Or Shift-drag on the depth ruler (Camera &gt; Depth) to choose the range.</p>
+          </div>
+          <div id="mask-shape-brush" class="mask-shape" hidden>
+            <div class="row mask-pick">
+              <button id="mb-paint" type="button" title="Paint on the picture: the effect goes where you paint. Esc stops">Paint</button>
+              <button id="mb-erase" type="button" title="Erase from the picture what you painted">Erase</button>
+              <button id="mb-undo" type="button" title="Undo the last stroke">Undo stroke</button>
+              <button id="mb-clear" type="button" title="Remove all strokes">Clear</button>
+            </div>
+            <label title="Size of the brush">Size <output data-for="mb-size" for="mb-size">4</output>
+              <input id="mb-size" type="range" min="1" max="25" step="1" value="4" data-default="4">
+            </label>
+            <label title="How softly the brush fades at its edge">Feather <output data-for="mb-feather" for="mb-feather">60</output>
+              <input id="mb-feather" type="range" min="0" max="100" step="1" value="60" data-default="60">
+            </label>
+            <label class="check" title="Only affect what is at about the depth you painted on, so the effect stays off the background"><input id="mb-limit" type="checkbox"> Stay within depth</label>
+            <label title="How far from the painted depth the effect still reaches">Depth range <output data-for="mb-tol" for="mb-tol">30</output>
+              <input id="mb-tol" type="range" min="2" max="100" step="1" value="30" data-default="30">
+            </label>
+            <p class="hint">The paint sticks to the scene: it moves with what you painted on when the viewpoint or focus changes.</p>
           </div>
           <h3 class="mask-fx-title">Effect</h3>
             <label title="Brightens or darkens what the mask covers">Exposure <output data-for="mx-exposure" for="mx-exposure">0</output>

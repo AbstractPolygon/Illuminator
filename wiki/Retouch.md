@@ -1,6 +1,6 @@
 # Retouch
 
-The **Retouch** section (above Crop) removes blemishes and red-eye: dust on the sensor, a spot on a face, a scratch or a wire, red pupils. It has three tools, as icons: spot removal, the healing brush and red-eye. A brush mask and adjustment brushes will join it.
+The **Retouch** section (above Crop) removes blemishes and red-eye: dust on the sensor, a spot on a face, a scratch or a wire, red pupils. It has three tools, as icons: spot removal, the healing brush and red-eye. The brush mask and the adjustment brushes (soften skin, whiten teeth and others) are in Local Adjustments: see [Local Adjustments](Local-Adjustments).
 
 ## Spot removal
 

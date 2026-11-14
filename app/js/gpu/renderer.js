@@ -1058,6 +1058,21 @@ const MASK_WEIGHT = `float maskWeight(int i, vec2 n, float aspect) {
     float d = texelFetch(uDepth, clamp(ivec2(n * vec2(dsz)), ivec2(0), dsz - 1), 0).r;
     float f = max(1e-4, s.z);
     w = smoothstep(s.x - f, s.x, d) * (1.0 - smoothstep(s.y, s.y + f, d));
+  } else if (kind == 3) {
+    // a painted mask: its channel of uBrush (rows top to bottom), moved by (dx, dy), within a depth range when s.w > 0
+    vec4 cover = textureLod(uBrush, n - s.xy, 0.0);
+    int ch = int(s.z + 0.5);
+    w = ch == 0 ? cover.r : ch == 1 ? cover.g : ch == 2 ? cover.b : cover.a;
+    if (any(lessThan(n - s.xy, vec2(0.0))) || any(greaterThan(n - s.xy, vec2(1.0)))) w = 0.0;
+    if (s.w > 0.0 && uDepthOn != 0) {
+      ivec2 dsz = textureSize(uDepth, 0);
+      float d = texelFetch(uDepth, clamp(ivec2(n * vec2(dsz)), ivec2(0), dsz - 1), 0).r;
+      float c = uMaskExtra[i].z;
+      float f = max(1e-4, 0.5 * s.w);
+      w *= smoothstep(c - s.w - f, c - s.w, d) * (1.0 - smoothstep(c + s.w, c + s.w + f, d));
+    }
+  } else {
+    return 0.0;
   }
   return uMaskExtra[i].w > 0.5 ? 1.0 - w : w;
 }
@@ -1074,6 +1089,7 @@ uniform int uMaskKind[${MAX_MASKS}];
 uniform vec4 uMaskShape[${MAX_MASKS}];
 uniform vec4 uMaskExtra[${MAX_MASKS}];
 uniform vec4 uMaskFx2[${MAX_MASKS}];  // tint, blur, pixelate, sketch
+uniform sampler2D uBrush;  // painted masks' coverage, one per channel
 uniform highp sampler2D uDepth;
 uniform int uDepthOn;
 out vec4 outColor;
@@ -1218,12 +1234,13 @@ uniform float uLensK2;     // r^4 term of the distortion
 uniform float uLensEdge;   // easing of the correction past r = 0.75
 // Local adjustments (core/local.js).
 uniform int uMaskCount;
-uniform int uMaskKind[${MAX_MASKS}];  // 0 radial, 1 linear, 2 depth
+uniform int uMaskKind[${MAX_MASKS}];  // 0 radial, 1 linear, 2 depth, 3 brush
 uniform vec4 uMaskShape[${MAX_MASKS}];
 uniform vec4 uMaskExtra[${MAX_MASKS}]; // feather (radial), haze, -, invert
 uniform vec4 uMaskFx[${MAX_MASKS}];   // exposure, contrast, saturation, temperature
 uniform vec4 uMaskFx2[${MAX_MASKS}];  // tint
 uniform int uMaskShow;
+uniform sampler2D uBrush;  // painted masks' coverage, one per channel
 uniform highp sampler2D uDepth;
 uniform int uDepthOn;
 uniform int uFringeOn;
@@ -2828,6 +2845,7 @@ export class GpuRenderer {
     }
     if (this.usmTex) gl.deleteTexture(this.usmTex.tex);
     this.depthTex = this.parallaxTex = this.rayTex = this.usmTex = null;
+    this.brushTex = this.brushKey = null;
     this.depthSize = this.parallaxSize = this.depthRange = null;
   }
 
@@ -4650,8 +4668,24 @@ export class GpuRenderer {
     gl.uniform1i(P.u.uDepthOn, this.depthTex ? 1 : 0);
     gl.uniform1i(P.u.uDepth, 3);
     this.bindTex(3, this.depthTex || src);
+    this.bindBrush(P, local, src);
     this.draw();
     return out;
+  }
+
+  // The painted masks' coverage (`local.brush` from packMasks) on unit 5, uploaded again only when it changes (without any, `fallback` stands in).
+  bindBrush(P, local, fallback) {
+    const gl = this.gl;
+    const b = local && local.brush;
+    if (b && (!this.brushTex || this.brushKey !== b.key)) {
+      if (!this.brushTex) this.brushTex = this.texture(b.n, b.n, gl.RGBA8, gl.LINEAR);
+      gl.activeTexture(gl.TEXTURE0 + SPARE_UNIT);
+      gl.bindTexture(gl.TEXTURE_2D, this.brushTex);
+      gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, b.n, b.n, gl.RGBA, gl.UNSIGNED_BYTE, b.data);
+      this.brushKey = b.key;
+    }
+    gl.uniform1i(P.u.uBrush, 5);
+    this.bindTex(5, b ? this.brushTex : fallback);
   }
 
   // `toTexture`: only the colour matrix, lens and flare, as linear colour into that RGBA32F texture (for the noise reduction, which runs between this and the finishing present).
@@ -4690,6 +4724,7 @@ export class GpuRenderer {
     gl.uniform1i(P.u.uDepthOn, local && this.depthTex ? 1 : 0);
     gl.uniform1i(P.u.uDepth, 3);
     this.bindTex(3, this.depthTex || src);
+    this.bindBrush(P, local, src);
     gl.uniform4f(P.u.uLens, lens ? lens.k : 0, lens ? lens.zoom : 1, lens ? lens.vig : 0, lens ? lens.start : 0);
     gl.uniform1f(P.u.uLensK2, lens && lens.k2 ? lens.k2 : 0);
     gl.uniform1f(P.u.uLensEdge, lens && lens.edge ? lens.edge : 0);

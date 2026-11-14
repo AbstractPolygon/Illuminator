@@ -10,6 +10,10 @@
 //           other, fading over `width`
 //   depth   { near, far, feather }    by the depth map (focus values): full
 //           effect between near and far, fading over `feather`
+//   brush   { strokes, size, feather, aspect, depth, u0, v0, focus0, limit, tol }
+//           painted by hand: strokes ({ erase, size, feather, points }) rasterized into a coverage map
+//           (brushRaster). It sticks to the scene like a retouch spot (the spot's `depth`, `u0`, `v0`, `focus0`, see
+//           core/retouch.js); with `limit` set it also stays within `tol` of that depth.
 // Each mask: { id, kind, on, invert, strength (0..1, scales the effects),
 // ...shape, fx: { exposure (EV), contrast, saturation, temperature, tint
 // (each -1..1); haze (-1..1: fog toward a soft blue-gray airlight, or
@@ -20,7 +24,11 @@
 // with the viewpoint, like the edge of a lens seen from off center.
 
 export const MAX_MASKS = 16;
-export const MASK_KINDS = ['radial', 'linear', 'depth'];
+export const MASK_KINDS = ['radial', 'linear', 'depth', 'brush'];
+export const MAX_BRUSH_MASKS = 4; // one channel each of the GPU's brush texture
+export const MAX_STROKES = 64;
+export const MAX_STROKE_POINTS = 400;
+export const BRUSH_RES = 512;
 
 const newId = () => Math.random().toString(36).slice(2, 10);
 
@@ -28,6 +36,7 @@ export function defaultMask(kind) {
   const base = { id: newId(), kind, on: true, invert: false, strength: 1, follow: false, anchor: 0, fx: { exposure: 0, contrast: 0, saturation: 0, temperature: 0, tint: 0, haze: 0, blur: 0, pixelate: 0, sketch: 0 } };
   if (kind === 'radial') return { ...base, x: 0.5, y: 0.5, w: 0.25, h: 0.25, feather: 0.5 };
   if (kind === 'linear') return { ...base, x: 0.5, y: 0.5, angle: 90, width: 0.3 };
+  if (kind === 'brush') return { ...base, strokes: [], size: 0.04, feather: 0.6, aspect: 1.5, depth: 0, u0: 0, v0: 0, focus0: 0, limit: false, tol: 0.3 };
   return { ...base, near: -0.3, far: 0.3, feather: 0.2 };
 }
 
@@ -54,8 +63,28 @@ export function parseMasks(text) {
         else if (typeof def === 'boolean' && typeof m[k] !== 'boolean') out[k] = def;
       }
       if ('followView' in out && typeof out.followView !== 'boolean') delete out.followView;
+      if (out.kind === 'brush') out.strokes = sanitizeStrokes(m.strokes);
       return out;
     });
+}
+
+// Strokes from a saved file: only well-formed ones, with points in 0..1 and numbers in range.
+function sanitizeStrokes(list) {
+  if (!Array.isArray(list)) return [];
+  const num = (v, lo, hi, def) => (typeof v === 'number' && Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : def);
+  return list
+    .filter((s) => s && Array.isArray(s.points))
+    .slice(0, MAX_STROKES)
+    .map((s) => ({
+      erase: s.erase === true,
+      size: num(s.size, 0.005, 0.3, 0.04),
+      feather: num(s.feather, 0, 1, 0.6),
+      points: s.points
+        .filter((p) => Array.isArray(p) && Number.isFinite(p[0]) && Number.isFinite(p[1]))
+        .slice(0, MAX_STROKE_POINTS)
+        .map((p) => [num(p[0], -0.5, 1.5, 0), num(p[1], -0.5, 1.5, 0)]),
+    }))
+    .filter((s) => s.points.length);
 }
 
 function sanitizeFx(defaults, saved) {
@@ -71,7 +100,7 @@ function sanitizeFx(defaults, saved) {
 // an animation's values for this frame: strength, shape or effect) applied,
 // effects scaled by the strength, and depth masks that follow the focus
 // moved to `focus`.
-export function resolveMasks(masks, { focus = null, overrides = null, view = null } = {}) {
+export function resolveMasks(masks, { focus = null, overrides = null, view = null, anchor = null } = {}) {
   return (masks || []).map((m) => {
     const out = { ...m, fx: { ...m.fx } };
     for (const [a, v] of Object.entries((overrides && overrides[m.id]) || {})) {
@@ -85,6 +114,13 @@ export function resolveMasks(masks, { focus = null, overrides = null, view = nul
       out.x += 0.12 * (view.u / view.r);
       out.y += 0.12 * (view.v / view.r);
     }
+    if (out.kind === 'brush') {
+      out.raster = brushRaster(out);
+      // Moved for the viewpoint and the focus like a spot at its depth (resolveSpots in core/retouch.js).
+      const a = anchor || { u: 0, v: 0, focus: 0, k: 0 };
+      out.dx = a.k * (a.u * (out.depth - a.focus) - out.u0 * (out.depth - out.focus0));
+      out.dy = a.k * (a.v * (out.depth - a.focus) - out.v0 * (out.depth - out.focus0));
+    }
     if (out.kind === 'depth' && out.follow && Number.isFinite(focus)) {
       const shift = focus - (out.anchor || 0);
       out.near += shift;
@@ -92,6 +128,89 @@ export function resolveMasks(masks, { focus = null, overrides = null, view = nul
     }
     return out;
   });
+}
+
+// The strokes of a brush mask as a BRUSH_RES x BRUSH_RES coverage map over the picture (rows top to bottom), 0..255. A dab is an ellipse so that it is round on the picture: `size` is its
+// radius in fractions of the long side. Kept for the last few brushes: painting is slow and every frame asks again.
+const rasterCache = new Map();
+let rasterSerial = 0;
+export function brushRaster(m) {
+  const aspect = m.aspect > 0 ? m.aspect : 1;
+  const key = `${aspect}|${JSON.stringify(m.strokes || [])}`;
+  const hit = rasterCache.get(key);
+  if (hit) {
+    rasterCache.delete(key);
+    rasterCache.set(key, hit);
+    return hit;
+  }
+  const N = BRUSH_RES;
+  const acc = new Float32Array(N * N);
+  const stamp = aspect >= 1 ? [1, aspect] : [1 / aspect, 1]; // normalized units per long-side unit: x, y
+  for (const stroke of m.strokes || []) {
+    const rx = stroke.size * stamp[0];
+    const ry = stroke.size * stamp[1];
+    const pts = stroke.points;
+    const pxr = Math.max(1, Math.min(rx, ry) * N); // radius in pixels (the smaller axis)
+    const spacing = Math.max(0.5, pxr * 0.25) / N; // normalized
+    const dabs = [];
+    dabs.push(pts[0]);
+    let carry = 0;
+    for (let i = 1; i < pts.length; i++) {
+      const [ax, ay] = pts[i - 1];
+      const [bx, by] = pts[i];
+      const seg = Math.hypot((bx - ax) * N, (by - ay) * N) / N;
+      if (!seg) continue;
+      let t = spacing - carry;
+      while (t <= seg) {
+        dabs.push([ax + ((bx - ax) * t) / seg, ay + ((by - ay) * t) / seg]);
+        t += spacing;
+      }
+      carry = (carry + seg) % spacing;
+    }
+    const soft = Math.min(0.999, stroke.feather);
+    for (const [cx, cy] of dabs) {
+      const x0 = Math.max(0, Math.floor((cx - rx) * N));
+      const x1 = Math.min(N - 1, Math.ceil((cx + rx) * N));
+      const y0 = Math.max(0, Math.floor((cy - ry) * N));
+      const y1 = Math.min(N - 1, Math.ceil((cy + ry) * N));
+      for (let y = y0; y <= y1; y++) {
+        const dy = ((y + 0.5) / N - cy) / ry;
+        for (let x = x0; x <= x1; x++) {
+          const dx = ((x + 0.5) / N - cx) / rx;
+          const d = Math.sqrt(dx * dx + dy * dy);
+          if (d >= 1) continue;
+          const a = 1 - smooth(1 - soft, 1, d);
+          const i = y * N + x;
+          // painting grows toward 1 without ever passing it; erasing fades toward 0
+          acc[i] = stroke.erase ? acc[i] * (1 - a) : acc[i] + (1 - acc[i]) * a;
+        }
+      }
+    }
+  }
+  const data = new Uint8Array(N * N);
+  for (let i = 0; i < data.length; i++) data[i] = Math.round(Math.min(1, acc[i]) * 255);
+  const out = { n: N, data, serial: ++rasterSerial };
+  rasterCache.set(key, out);
+  if (rasterCache.size > 8) rasterCache.delete(rasterCache.keys().next().value);
+  return out;
+}
+
+// Bilinear coverage 0..1 of a raster at (nx, ny) (fractions of the picture; outside is 0).
+function sampleRaster(r, nx, ny) {
+  const N = r.n;
+  if (nx < 0 || ny < 0 || nx > 1 || ny > 1) return 0;
+  const fx = Math.min(N - 1, Math.max(0, nx * N - 0.5));
+  const fy = Math.min(N - 1, Math.max(0, ny * N - 0.5));
+  const x0 = Math.floor(fx);
+  const y0 = Math.floor(fy);
+  const x1 = Math.min(N - 1, x0 + 1);
+  const y1 = Math.min(N - 1, y0 + 1);
+  const ax = fx - x0;
+  const ay = fy - y0;
+  const d = r.data;
+  const top = d[y0 * N + x0] * (1 - ax) + d[y0 * N + x1] * ax;
+  const bot = d[y1 * N + x0] * (1 - ax) + d[y1 * N + x1] * ax;
+  return (top * (1 - ay) + bot * ay) / 255;
 }
 
 // Masks that change something.
@@ -121,6 +240,13 @@ export function maskWeight(m, nx, ny, aspect, depth) {
     if (depth == null) return 0;
     const f = Math.max(1e-4, m.feather);
     w = smooth(m.near - f, m.near, depth) * (1 - smooth(m.far, m.far + f, depth));
+  } else if (m.kind === 'brush') {
+    const r = m.raster || brushRaster(m);
+    w = sampleRaster(r, nx - (m.dx || 0), ny - (m.dy || 0));
+    if (m.limit && depth != null) {
+      const f = Math.max(1e-4, 0.5 * m.tol);
+      w *= smooth(m.depth - m.tol - f, m.depth - m.tol, depth) * (1 - smooth(m.depth + m.tol, m.depth + m.tol + f, depth));
+    }
   }
   return m.invert ? 1 - w : w;
 }
@@ -199,16 +325,40 @@ export function packMasks(masks) {
   const extra = new Float32Array(MAX_MASKS * 4); // feather, haze, -, invert
   const fx = new Float32Array(MAX_MASKS * 4);
   const fx2 = new Float32Array(MAX_MASKS * 4);
+  const brushes = [];
   masks.slice(0, MAX_MASKS).forEach((m, i) => {
     kinds[i] = MASK_KINDS.indexOf(m.kind);
+    let depthCenter = 0;
     if (m.kind === 'radial') shape.set([m.x, m.y, m.w, m.h], 4 * i);
     else if (m.kind === 'linear') shape.set([m.x, m.y, m.angle, m.width], 4 * i);
-    else shape.set([m.near, m.far, m.feather, 0], 4 * i);
-    extra.set([m.kind === 'radial' ? m.feather : 0, m.fx.haze || 0, 0, m.invert ? 1 : 0], 4 * i);
+    else if (m.kind === 'brush') {
+      // (dx, dy, channel of the brush texture, depth range or -1 when not limited); the range's middle goes in extra.z
+      const channel = brushes.length;
+      if (channel >= MAX_BRUSH_MASKS) kinds[i] = -1;
+      else brushes.push(m.raster || brushRaster(m));
+      shape.set([m.dx || 0, m.dy || 0, channel, m.limit ? Math.max(1e-3, m.tol) : -1], 4 * i);
+      depthCenter = m.depth || 0;
+    } else shape.set([m.near, m.far, m.feather, 0], 4 * i);
+    extra.set([m.kind === 'radial' ? m.feather : 0, m.fx.haze || 0, depthCenter, m.invert ? 1 : 0], 4 * i);
     fx.set([m.fx.exposure, m.fx.contrast, m.fx.saturation, m.fx.temperature], 4 * i);
     fx2.set([m.fx.tint, m.fx.blur || 0, m.fx.pixelate || 0, m.fx.sketch || 0], 4 * i);
   });
-  return { count: Math.min(MAX_MASKS, masks.length), kinds, shape, extra, fx, fx2 };
+  return { count: Math.min(MAX_MASKS, masks.length), kinds, shape, extra, fx, fx2, brush: packBrushes(brushes) };
+}
+
+// The brush masks' coverage maps as the channels of one RGBA8 picture for the GPU (`key` says when it changes), or null.
+let lastAtlas = null;
+function packBrushes(rasters) {
+  if (!rasters.length) return null;
+  const key = rasters.map((r) => r.serial).join(',');
+  if (lastAtlas && lastAtlas.key === key) return lastAtlas;
+  const N = BRUSH_RES;
+  const data = new Uint8Array(N * N * 4);
+  rasters.forEach((r, c) => {
+    for (let i = 0; i < N * N; i++) data[4 * i + c] = r.data[i];
+  });
+  lastAtlas = { key, n: N, data };
+  return lastAtlas;
 }
 
 // ---------------------------------------------------------------- spatial
