@@ -101,6 +101,12 @@
         <div class="grid-bar">
           <h2 id="grid-title"></h2>
           <span id="grid-count" class="hint"></span>
+          <button id="grid-select" type="button" aria-pressed="false" title="Pick photos to delete. In this mode a click picks a photo; Shift-click picks a range. Ctrl-click (Cmd on a Mac) picks at any time">Select</button>
+          <span id="grid-selection" class="grid-selection" hidden>
+            <span id="grid-sel-count" class="hint"></span>
+            <button id="grid-select-all" type="button">Select all</button>
+            <button id="grid-delete" type="button" class="danger" title="Deletes the picked photos from the library (Delete key)">Delete…</button>
+          </span>
           <button id="grid-import-all" type="button" hidden>Import all</button>
           <span class="spacer"></span>
           <div class="thumb-size" role="group" aria-label="Thumbnail size">

@@ -38,6 +38,7 @@ Albums are listed at the top of the left sidebar.
 - **Copy settings to other photos:** on the photo with the look you want, **•••** → *Copy settings*; then on each other photo, **•••** → *Paste settings from …*. Every setting comes across except the focus point clicked and the viewpoint, which belong to each scene.
 - **Reset a photo's settings:** **•••** on the photo → *Reset settings…* puts every setting in the right sidebar back to how a newly opened photo starts: adjustments, keyframes, local adjustments, crop and export settings. Edits from Lytro Desktop are not applied again.
 - **Delete a photo:** **•••** on the photo → *Delete from library…*. In the desktop app its folder goes to the trash.
+- **Delete several photos at once:** in the thumbnail grid (choose *All photos* or an album), press **Select** and click the photos to pick them, or hold **Ctrl** (**Cmd** on a Mac) while you click to pick any photo, and **Shift** to pick a range from the last one you clicked. **Select all** picks every photo shown. The bar shows how many are picked; **Delete…** (or the Delete key) asks once, then deletes them all, and in the desktop app their folders go to the trash. **Esc** clears the picks.
 
 ## Looks
 

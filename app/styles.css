@@ -880,3 +880,13 @@ label.lut-amount { margin-top: 14px; }
 
 /* Retouch editor: the buttons at its end are apart */
 #rt-editor button.wide { margin-top: 8px; }
+
+/* Library grid: picking several photos */
+.grid-bar #grid-select[aria-pressed="true"] { background: var(--accent-soft, rgba(75, 152, 229, 0.16)); border-color: var(--accent); }
+.grid-selection { display: inline-flex; align-items: center; gap: 8px; }
+.grid-bar button.danger { color: #ff8a80; border-color: #8a3a35; }
+.photo-grid .tile { user-select: none; -webkit-user-select: none; }
+.photo-grid .tile.selected { background: rgba(75, 152, 229, 0.16); border-color: var(--accent); }
+.photo-grid .tile.selected .name { color: var(--text, #e6e8eb); }
+.photo-grid .tile.selected .name::before { content: '\2713  '; color: var(--accent); }
+.photo-grid.selecting .tile { cursor: cell; }
