@@ -15,6 +15,7 @@ Because a Lytro photo is a light field, it keeps working like a camera after the
 - [[Importing]]
 - [[Editing]]
   - [[Histogram and Info]]
+  - [[Retouch]]
   - [[Crop]]
   - [[Process]]
   - [[Local Adjustments]]

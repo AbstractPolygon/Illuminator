@@ -4,6 +4,7 @@ import { readEdits, writeEdits, editsStore, EDITS_FORMAT, EDITS_VERSION, EDIT_GR
 const EDIT_GROUPS_CAMERA = new Set(EDIT_GROUPS.camera);
 import { Engine, toImageData } from './engine.js';
 import { PreviewMirror } from './ui/previewmirror.js';
+import { initRetouch } from './ui/retouch.js';
 import { Timings, formatDuration, speedLimits, reportText } from './core/speedreport.js';
 import { initScriptingApi } from './ui/api.js';
 import { tiltPreset } from './core/tiltpresets.js';
@@ -79,6 +80,8 @@ engine.onRecreate = () => { if (native) engine.request('stillStore', { on: true 
 let emitEvent = () => {};
 // Ratings, flags and keywords of the library (ui/marks.js), set once the page is ready.
 let marks = null;
+// The Retouch section (ui/retouch.js), set once the page is ready.
+let retouchUi = null;
 // The render queue panel (ui/queue.js).
 let queueUi = null;
 let looks = null;
@@ -1000,6 +1003,10 @@ function closePhoto() {
   state.editsKey = null;
   resetView();
   renderMasks();
+  if (retouchUi) {
+    retouchUi.setTool(false);
+    retouchUi.renderList();
+  }
   $('histogram').getContext('2d').clearRect(0, 0, 256, 80);
   state.current = null;
   canvas.classList.add('hidden');
@@ -1085,6 +1092,7 @@ function draw(img, gen = openSeq.current()) {
   scheduleHistogram();
   if (state.wantThumb && state.mode === 'camera') saveThumbnail();
   emitEvent('rendered', { width: w, height: h });
+  if (retouchUi) retouchUi.drawOverlay();
 }
 
 // A stereo pair next to each other (left eye first, or right eye first for
@@ -2109,7 +2117,7 @@ async function stillFromFile(file) {
 
 // What decides the full sensor picture before its color pass, from the page's side (the worker keeps the picture under the same idea, worker.js): the settings that are not
 // color settings, the camera and the render's size. A change that leaves it alone only needs the color pass again.
-function stillPreKey(settings = buildRenderSettings({ el: $, num: (id) => +$(id).value }, localSettings())) {
+function stillPreKey(settings = buildRenderSettings({ el: $, num: (id) => +$(id).value }, { ...localSettings(), spots: $('retouch-spots').value })) {
   const photo = state.current && state.current.photo;
   return preColorKey(settings, [photo ? photo.photoId || photo.id : null, state.stillFrame ? 1 : 0], [state.stillFrame || cameraParams(), +$('still-scale').value, +$('still-passes').value]);
 }
@@ -2863,6 +2871,7 @@ function layoutCanvas() {
   const overlay = $('spread-overlay');
   for (const k of ['width', 'height', 'left', 'top']) overlay.style[k] = canvas.style[k];
   for (const k of ['width', 'height', 'left', 'top']) $('peaking-overlay').style[k] = canvas.style[k];
+  if (retouchUi) retouchUi.drawOverlay();
   canvas.classList.toggle('pannable', view.k > 1 && state.mode !== 'camera');
   $('zoom-label').textContent = view.k === 1 ? 'Fit' : `${Math.round(scale * 100)}%`;
   positionCropBox();
@@ -3056,7 +3065,7 @@ window.addEventListener('pointercancel', () => {
 canvas.addEventListener('click', (event) => {
   const press = pressed;
   pressed = null;
-  if (cropState.editing) return;
+  if (cropState.editing || state.retouchTool) return;
   if (state.picking) {
     pickWhiteBalance(event);
     return;
@@ -4139,6 +4148,8 @@ const { showColorMatrix } = initColorMatrix({ $, state, applySettings: (...a) =>
 
 // local adjustments: ui/localadjust.js
 const { getMasks, setMasks, maskLabel, TRASH_ICON, renderMasks, localSettings, setDepthRange, pickDepthRange, selectedDepthMask } = initLocalAdjustments({ $, applySettingsSoon: (...a) => applySettingsSoon(...a), scheduleSave: (...a) => scheduleSave(...a), state, clearSelection: (...a) => clearSelection(...a), saveAnimation: (...a) => saveAnimation(...a), renderTimeline: (...a) => renderTimeline(...a), showMenu: (...a) => showMenu(...a), confirmInMenu: (...a) => confirmInMenu(...a), editName: (...a) => editName(...a), canRender: (...a) => canRender(...a), showSliderValue: (...a) => showSliderValue(...a), updateKeyButtons: (...a) => updateKeyButtons(...a), autoKey: (...a) => autoKey(...a) });
+// Retouch (spot removal): the spots over the picture, and the tool that places them.
+retouchUi = initRetouch({ $, state, canvas, engine, applySettingsSoon: (...a) => applySettingsSoon(...a), scheduleSave: (...a) => scheduleSave(...a), viewPoint: (...a) => viewPoint(...a), sourceFraction: (...a) => sourceFraction(...a), canRender: (...a) => canRender(...a), showError: (...a) => showError(...a), applyMatrix, stillDepth: () => (apertureFor(fNumber()).aperture > 0 ? +$('focus').value || 0 : 0) });
 
 // keyframes: ui/keyframes.js
 const { MASK_LIMITS, parseMaskTrack, trackGroups, tracks, KEY_CONTROLS, settingControl, updateKeyButtons, groupCollapsed, shownTracks, groupHidden, trackName, tlSel, tlCurves, keyframesOn, animLength, loadAnimation, saveAnimation, liveFraming, combineMotion, showValue, previewAt, autoKey, playheadTime, clearSelection, selectKey, selectedKeys, moveKeys, selectedKey, viewWindow, tickStep, updatePlayhead, groupHeading, renderTimeline, timeAt, seekTimeline, seekTo, showAnimationLength, keyframeFrames } = initKeyframes({ $, getMasks, maskLabel, state, canRender: (...a) => canRender(...a), F_STOPS, scheduleSave: (...a) => scheduleSave(...a), invalidateAnimation: (...a) => invalidateAnimation(...a), backToCamera: (...a) => backToCamera(...a), renderCamera: (...a) => renderCamera(...a), showSliderValue: (...a) => showSliderValue(...a), setMasks, renderMasks, showFNumber: (...a) => showFNumber(...a), showFocusPoint: (...a) => showFocusPoint(...a), applySettingsSoon: (...a) => applySettingsSoon(...a), cameraChanged: (...a) => cameraChanged(...a), layoutCanvas: (...a) => layoutCanvas(...a), drawCurves: (...a) => drawCurves(...a), stopProcessing: (...a) => stopProcessing(...a), setPlaying: (...a) => setPlaying(...a), showFrame: (...a) => showFrame(...a), updateFrameLabel: (...a) => updateFrameLabel(...a), plotBox: (...a) => plotBox(...a), animationSettingsChanged: (...a) => animationSettingsChanged(...a), draw: (...a) => draw(...a), apertureFor: (...a) => apertureFor(...a), view, bokehParams: (...a) => bokehParams(...a), colorSettings: (...a) => colorSettings(...a) });
@@ -4678,7 +4689,7 @@ async function applySettings() {
 
 async function applySettingsNow(gen) {
   await sendLut();
-  const settings = buildRenderSettings({ el: $, num: (id) => +$(id).value }, localSettings());
+  const settings = buildRenderSettings({ el: $, num: (id) => +$(id).value }, { ...localSettings(), spots: $('retouch-spots').value });
   setHook('appliedSettings', settings); // for tests: what the page sends the engine
   $('fringe-controls').disabled = !settings.defringe.on;
   $('fringe-auto').disabled = !settings.defringe.on;
@@ -4827,6 +4838,11 @@ async function applyEdits(info, saved) {
     state.maskSel = getMasks().length ? 0 : -1;
     $('mask-show').checked = false;
     renderMasks();
+    if (retouchUi) {
+      retouchUi.setTool(false);
+      state.retouchSel = retouchUi.getSpots().length ? 0 : -1;
+      retouchUi.renderList();
+    }
     resetTemperature(info, { keep: !!saved });
     state.camera = { ...view };
     state.focusPoint = { ...focusPoint };

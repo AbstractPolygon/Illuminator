@@ -168,6 +168,7 @@
       <div id="drop-zone" class="viewer">
         <canvas id="view"></canvas>
         <canvas id="spread-overlay" hidden></canvas>
+        <canvas id="retouch-overlay" hidden></canvas>
         <canvas id="peaking-overlay" hidden></canvas>
         <div id="crop-box" class="crop-box" hidden>
           <div class="crop-grid"></div>
@@ -260,6 +261,40 @@
           <ul id="speed-limits" class="speed-limits"></ul>
           <button id="speed-copy" type="button" class="wide" title="Copies this report as text, for a message about slowness">Copy speed report</button>
         </section>
+      </details>
+
+      <details class="panel" data-panel="camera" id="retouch-panel">
+        <summary><h2>Retouch</h2></summary>
+        <div class="row">
+          <button id="rt-spot-tool" type="button" class="wide" aria-pressed="false" title="Click a blemish; drag its circle, or the source circle, to move them">Spot removal</button>
+        </div>
+        <label class="check" title="Draws the spots on the picture"><input id="rt-show" type="checkbox" checked> Show spots</label>
+        <ul id="rt-list" class="mask-list"></ul>
+        <div id="rt-editor" hidden>
+          <label title="Heal matches the color around the blemish; Clone copies the source as it is">Mode
+            <select id="rt-mode">
+              <option value="heal">Heal</option>
+              <option value="clone">Clone</option>
+            </select>
+          </label>
+          <label title="Radius of the spot">Size <output for="rt-size">3%</output>
+            <input id="rt-size" type="range" min="2" max="150" step="1" value="30">
+          </label>
+          <label title="How much of the edge fades out">Feather <output for="rt-feather">50%</output>
+            <input id="rt-feather" type="range" min="0" max="100" step="1" value="50">
+          </label>
+          <label title="How much of the copy shows">Opacity <output for="rt-opacity">100%</output>
+            <input id="rt-opacity" type="range" min="0" max="100" step="1" value="100">
+          </label>
+          <label title="How far the blemish is, from the depth map: drag it if the spot slips when the viewpoint moves">Depth <output for="rt-depth">0.00</output>
+            <input id="rt-depth" type="range" min="-3" max="3" step="0.01" value="0">
+          </label>
+          <label title="How far the source is: drag it if the copy slips when the viewpoint moves">Source depth <output for="rt-sdepth">0.00</output>
+            <input id="rt-sdepth" type="range" min="-3" max="3" step="0.01" value="0">
+          </label>
+          <button id="rt-delete" type="button" class="wide" title="Removes the selected spot">Delete spot</button>
+        </div>
+        <input id="retouch-spots" type="hidden" value="[]" data-text>
       </details>
 
       <details class="panel geometry-panel" data-panel="camera">
