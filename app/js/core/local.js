@@ -17,8 +17,8 @@
 // Each mask: { id, kind, on, invert, strength (0..1, scales the effects),
 // ...shape, fx: { exposure (EV), contrast, saturation, temperature, tint
 // (each -1..1); haze (-1..1: fog toward a soft blue-gray airlight, or
-// dehaze below 0); blur, pixelate, sketch (each 0..1: spatial effects, see
-// applySpatial) } }. A depth mask with `follow` set moves with the focus:
+// dehaze below 0); blur, pixelate, sketch, denoise (each 0..1: spatial effects, see
+// applySpatial; denoise is an edge-keeping noise reduction) } }. A depth mask with `follow` set moves with the focus:
 // near and far shift by how far the focus is from `anchor`, the focus the
 // mask was made at. A radial mask with `followView` set moves a little
 // with the viewpoint, like the edge of a lens seen from off center.
@@ -33,7 +33,7 @@ export const BRUSH_RES = 512;
 const newId = () => Math.random().toString(36).slice(2, 10);
 
 export function defaultMask(kind) {
-  const base = { id: newId(), kind, on: true, invert: false, strength: 1, follow: false, anchor: 0, fx: { exposure: 0, contrast: 0, saturation: 0, temperature: 0, tint: 0, haze: 0, blur: 0, pixelate: 0, sketch: 0 } };
+  const base = { id: newId(), kind, on: true, invert: false, strength: 1, follow: false, anchor: 0, fx: { exposure: 0, contrast: 0, saturation: 0, temperature: 0, tint: 0, haze: 0, blur: 0, pixelate: 0, sketch: 0, denoise: 0 } };
   if (kind === 'radial') return { ...base, x: 0.5, y: 0.5, w: 0.25, h: 0.25, feather: 0.5 };
   if (kind === 'linear') return { ...base, x: 0.5, y: 0.5, angle: 90, width: 0.3 };
   if (kind === 'brush') return { ...base, strokes: [], size: 0.04, feather: 0.6, aspect: 1.5, depth: 0, u0: 0, v0: 0, focus0: 0, limit: false, tol: 0.3 };
@@ -325,6 +325,7 @@ export function packMasks(masks) {
   const extra = new Float32Array(MAX_MASKS * 4); // feather, haze, -, invert
   const fx = new Float32Array(MAX_MASKS * 4);
   const fx2 = new Float32Array(MAX_MASKS * 4);
+  const fx3 = new Float32Array(MAX_MASKS * 4); // denoise
   const brushes = [];
   masks.slice(0, MAX_MASKS).forEach((m, i) => {
     kinds[i] = MASK_KINDS.indexOf(m.kind);
@@ -342,8 +343,9 @@ export function packMasks(masks) {
     extra.set([m.kind === 'radial' ? m.feather : 0, m.fx.haze || 0, depthCenter, m.invert ? 1 : 0], 4 * i);
     fx.set([m.fx.exposure, m.fx.contrast, m.fx.saturation, m.fx.temperature], 4 * i);
     fx2.set([m.fx.tint, m.fx.blur || 0, m.fx.pixelate || 0, m.fx.sketch || 0], 4 * i);
+    fx3.set([m.fx.denoise || 0, 0, 0, 0], 4 * i);
   });
-  return { count: Math.min(MAX_MASKS, masks.length), kinds, shape, extra, fx, fx2, brush: packBrushes(brushes) };
+  return { count: Math.min(MAX_MASKS, masks.length), kinds, shape, extra, fx, fx2, fx3, brush: packBrushes(brushes) };
 }
 
 // The brush masks' coverage maps as the channels of one RGBA8 picture for the GPU (`key` says when it changes), or null.
@@ -365,7 +367,7 @@ function packBrushes(rasters) {
 
 // Masks with an effect that looks at neighbouring pixels.
 export function hasSpatial(masks) {
-  return (masks || []).some((m) => m.fx.blur > 0 || m.fx.pixelate > 0 || m.fx.sketch > 0);
+  return (masks || []).some((m) => m.fx.blur > 0 || m.fx.pixelate > 0 || m.fx.sketch > 0 || m.fx.denoise > 0);
 }
 
 // Box blur of radius r, twice (close to a Gaussian), of 3-channel rgb.
@@ -410,8 +412,8 @@ export function applySpatial(rgb, w, h, local) {
   const aspect = w / h;
   let out = rgb;
   for (const m of local.masks) {
-    const { blur = 0, pixelate = 0, sketch = 0 } = m.fx;
-    if (!(blur > 0 || pixelate > 0 || sketch > 0)) continue;
+    const { blur = 0, pixelate = 0, sketch = 0, denoise = 0 } = m.fx;
+    if (!(blur > 0 || pixelate > 0 || sketch > 0 || denoise > 0)) continue;
     const weight = new Float32Array(w * h);
     let any = false;
     for (let y = 0; y < h; y++) {
@@ -433,6 +435,40 @@ export function applySpatial(rgb, w, h, local) {
       next[3 * i + 1] += (g - next[3 * i + 1]) * k;
       next[3 * i + 2] += (b - next[3 * i + 2]) * k;
     };
+    if (denoise > 0) {
+      // Noise reduction: a bilateral filter, averaging the neighbors that look like the pixel (so edges stay). Radius 1 to 4 and the tolerance grow with the amount; the tolerance follows the brightness.
+      const R = 1 + Math.floor(denoise * 3.99);
+      const sp = 0.5 * R + 0.5;
+      const at = (x, y, c) => src[3 * (Math.min(h - 1, Math.max(0, y)) * w + Math.min(w - 1, Math.max(0, x))) + c];
+      for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+          const i = y * w + x;
+          if (!(weight[i] > 0)) continue;
+          const r0 = src[3 * i];
+          const g0 = src[3 * i + 1];
+          const b0 = src[3 * i + 2];
+          const sig = (0.03 + 0.15 * denoise) * (lum(src, 3 * i) + 0.02);
+          let sr = 0;
+          let sg = 0;
+          let sb = 0;
+          let sw = 0;
+          for (let dy = -R; dy <= R; dy++) {
+            for (let dx = -R; dx <= R; dx++) {
+              const r = at(x + dx, y + dy, 0);
+              const g = at(x + dx, y + dy, 1);
+              const b = at(x + dx, y + dy, 2);
+              const dc = (r - r0) ** 2 + (g - g0) ** 2 + (b - b0) ** 2;
+              const k = Math.exp(-(dx * dx + dy * dy) / (2 * sp * sp) - dc / (2 * sig * sig));
+              sr += k * r;
+              sg += k * g;
+              sb += k * b;
+              sw += k;
+            }
+          }
+          blend(i, sr / sw, sg / sw, sb / sw, weight[i]);
+        }
+      }
+    }
     if (blur > 0) {
       const b = boxBlur(src, w, h, Math.max(1, Math.round(blur * 0.02 * big * 0.5)));
       for (let i = 0; i < w * h; i++) if (weight[i] > 0) blend(i, b[3 * i], b[3 * i + 1], b[3 * i + 2], weight[i]);

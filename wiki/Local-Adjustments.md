@@ -12,7 +12,7 @@ Masks that change part of the picture. A photo can have up to 16.
 
 **Brush:** paint where the effect goes. Add one with the brush button (or pick a ready-made one from *Brushes…*), then press *Paint* and drag over the picture; *Erase* takes away what you painted, *Undo stroke* removes the last stroke and *Clear* all of them. *Size* and *Feather* are the brush's for the strokes you paint next. Esc stops painting. The paint sticks to the scene, like a retouch spot: it moves with what you painted on when the viewpoint or the focus changes (paint it at one viewpoint for the best result). *Stay within depth* keeps the effect to what is near the depth you started painting on (*Depth range* is how far), so it does not spill onto the background. A photo can have up to four brush masks.
 
-The ready-made brushes are Soften skin, Reduce noise, Whiten teeth, Iris pop, Dodge and Burn: each is a brush mask with its effect already set, which you can change like any other mask. (Reduce noise and Soften skin use a light blur.)
+The ready-made brushes are Soften skin, Reduce noise, Whiten teeth, Iris pop, Dodge and Burn: each is a brush mask with its effect already set, which you can change like any other mask. (Soften skin and Reduce noise use the *Noise reduction* effect, which smooths noise but keeps edges.)
 
 Click a mask in the list to edit it.
 
@@ -36,6 +36,7 @@ Click a mask in the list to edit it.
 - *Blur* softens what the mask covers.
 - *Pixelate* breaks it into square tiles.
 - *Sketch* turns it into a colored-pencil drawing.
+- *Noise reduction* smooths noise but keeps edges (a bilateral filter, up to 4 pixels wide).
 
 ## Filters
 

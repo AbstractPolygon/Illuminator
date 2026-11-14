@@ -53,3 +53,18 @@ test('saved files are sanitized and packing makes one channel per brush', () => 
   assert.ok(packed.brush.data[(256 * 512 + 256) * 4] > 240);
   assert.equal(brushRaster(list[0]), brushRaster(list[1]));
 });
+
+test('noise reduction smooths noise but keeps an edge', async () => {
+  const { applySpatial, hasSpatial } = await import('../app/js/core/local.js');
+  const w = 24, h = 8;
+  const rgb = new Float32Array(w * h * 3);
+  let seed = 1;
+  const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647 - 0.5;
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) for (let c = 0; c < 3; c++) rgb[3 * (y * w + x) + c] = (x < 12 ? 0.1 : 0.6) + 0.02 * rnd();
+  const m = { ...defaultMask('radial'), x: 0.5, y: 0.5, w: 2, h: 2, feather: 0, fx: { ...defaultMask('radial').fx, denoise: 0.8 } };
+  assert.ok(hasSpatial([m]));
+  const out = applySpatial(rgb, w, h, { masks: [m] });
+  const spread = (a, x0, x1) => { let lo = 9, hi = -9; for (let y = 2; y < 6; y++) for (let x = x0; x < x1; x++) { lo = Math.min(lo, a[3 * (y * w + x)]); hi = Math.max(hi, a[3 * (y * w + x)]); } return hi - lo; };
+  assert.ok(spread(out, 3, 9) < 0.5 * spread(rgb, 3, 9));
+  assert.ok(out[3 * (4 * w + 15)] - out[3 * (4 * w + 8)] > 0.4);
+});
