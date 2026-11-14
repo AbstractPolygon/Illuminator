@@ -1089,6 +1089,7 @@ uniform int uMaskKind[${MAX_MASKS}];
 uniform vec4 uMaskShape[${MAX_MASKS}];
 uniform vec4 uMaskExtra[${MAX_MASKS}];
 uniform vec4 uMaskFx2[${MAX_MASKS}];  // tint, blur, pixelate, sketch
+uniform vec4 uMaskFx3[${MAX_MASKS}];  // denoise
 uniform sampler2D uBrush;  // painted masks' coverage, one per channel
 uniform highp sampler2D uDepth;
 uniform int uDepthOn;
@@ -1114,10 +1115,30 @@ void main() {
   for (int i = 0; i < ${MAX_MASKS}; i++) {
     if (i >= uMaskCount) break;
     vec4 e = uMaskFx2[i];
-    if (e.y <= 0.0 && e.z <= 0.0 && e.w <= 0.0) continue;
+    float dn = uMaskFx3[i].x;
+    if (e.y <= 0.0 && e.z <= 0.0 && e.w <= 0.0 && dn <= 0.0) continue;
     float w = maskWeight(i, n, aspect);
     if (w <= 0.0) continue;
     vec3 base = texelFetch(uSrc, p, 0).rgb;
+    if (dn > 0.0) {
+      // edge-keeping noise reduction (core/local.js applySpatial)
+      int R = 1 + int(floor(dn * 3.99));
+      float sp = 0.5 * float(R) + 0.5;
+      float sig = (0.03 + 0.15 * dn) * (lum(base) + 0.02);
+      vec3 acc = vec3(0.0);
+      float sw = 0.0;
+      for (int dy = -4; dy <= 4; dy++) {
+        for (int dx = -4; dx <= 4; dx++) {
+          if (abs(dy) > R || abs(dx) > R) continue;
+          vec3 q = at(fp + vec2(dx, dy), size);
+          vec3 d3 = q - base;
+          float k = exp(-float(dx * dx + dy * dy) / (2.0 * sp * sp) - dot(d3, d3) / (2.0 * sig * sig));
+          acc += k * q;
+          sw += k;
+        }
+      }
+      c = mix(c, acc / sw, w);
+    }
     if (e.y > 0.0) {
       float r = e.y * 0.02 * big;
       vec3 acc = vec3(0.0);
@@ -4665,6 +4686,7 @@ export class GpuRenderer {
     gl.uniform4fv(P.u.uMaskShape, local.shape);
     gl.uniform4fv(P.u.uMaskExtra, local.extra);
     gl.uniform4fv(P.u.uMaskFx2, local.fx2);
+    gl.uniform4fv(P.u.uMaskFx3, local.fx3);
     gl.uniform1i(P.u.uDepthOn, this.depthTex ? 1 : 0);
     gl.uniform1i(P.u.uDepth, 3);
     this.bindTex(3, this.depthTex || src);

@@ -12,7 +12,7 @@ export function initLocalAdjustments({ $, applySettingsSoon, scheduleSave, state
     depth: { near: ['md-near', 100], far: ['md-far', 100], feather: ['md-feather', 100] },
     brush: { size: ['mb-size', 100], feather: ['mb-feather', 100], tol: ['mb-tol', 100] },
   };
-  const FX_SLIDERS = { exposure: 'mx-exposure', contrast: 'mx-contrast', saturation: 'mx-saturation', temperature: 'mx-temperature', tint: 'mx-tint', haze: 'mx-haze', blur: 'mx-blur', pixelate: 'mx-pixelate', sketch: 'mx-sketch' };
+  const FX_SLIDERS = { exposure: 'mx-exposure', contrast: 'mx-contrast', saturation: 'mx-saturation', temperature: 'mx-temperature', tint: 'mx-tint', haze: 'mx-haze', blur: 'mx-blur', pixelate: 'mx-pixelate', sketch: 'mx-sketch', denoise: 'mx-denoise' };
 
   function getMasks() {
     return parseMasks($('local-masks').value);
@@ -174,8 +174,8 @@ export function initLocalAdjustments({ $, applySettingsSoon, scheduleSave, state
   // ---------------------------------------------------------------- brush masks
   // Adjustment brushes: a brush mask with its effect already set (the Brushes menu).
   const BRUSHES = {
-    soften: { name: 'Soften skin', fx: { blur: 0.25, contrast: -0.15 } },
-    noise: { name: 'Reduce noise', fx: { blur: 0.1 } },
+    soften: { name: 'Soften skin', fx: { denoise: 0.5, blur: 0.12, contrast: -0.15 } },
+    noise: { name: 'Reduce noise', fx: { denoise: 0.6 } },
     teeth: { name: 'Whiten teeth', fx: { saturation: -0.5, exposure: 0.25 } },
     iris: { name: 'Iris pop', fx: { contrast: 0.3, saturation: 0.3, exposure: 0.2 } },
     dodge: { name: 'Dodge', fx: { exposure: 0.4 } },

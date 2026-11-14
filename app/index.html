@@ -639,6 +639,9 @@
             <label title="Turns what the mask covers into a pencil drawing">Sketch <output data-for="mx-sketch" for="mx-sketch">0</output>
               <input id="mx-sketch" type="range" min="0" max="100" step="1" value="0" data-default="0">
             </label>
+            <label title="Smooths noise in what the mask covers, keeping edges">Noise reduction <output data-for="mx-denoise" for="mx-denoise">0</output>
+              <input id="mx-denoise" type="range" min="0" max="100" step="1" value="0" data-default="0">
+            </label>
           <button id="mask-delete" type="button" class="wide mask-delete">Delete mask</button>
         </div>
         <input id="local-masks" type="hidden" value="[]" data-text>
