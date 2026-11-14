@@ -327,6 +327,7 @@ footer { border-top: 1px solid var(--line); padding-block: 32px 48px; color: var
 .gal-mode { display: inline-flex; border: 1px solid var(--line); border-radius: 9px; overflow: hidden; }
 .gal-mode button { background: var(--panel); color: var(--muted); border: 0; padding: 7px 16px; font: 600 13px var(--display); cursor: pointer; }
 .gal-mode button[aria-pressed="true"] { background: var(--raised); color: var(--fg); box-shadow: inset 0 -2px 0 var(--accent); }
+.gal-mode button:disabled { opacity: .45; cursor: default; }
 .gal-mode button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .gal-stage { position: relative; line-height: 0; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: #000; touch-action: pan-y; user-select: none; cursor: ew-resize; aspect-ratio: 1100 / 764; }
 .gal-stage img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; border: 0; border-radius: 0; }
@@ -440,7 +441,7 @@ footer { border-top: 1px solid var(--line); padding-block: 32px 48px; color: var
       <div class="gal-handle"></div>
     </div>
     <div class="gal-strip"><button type="button" class="gal-arrow prev" aria-label="Previous photos">‹</button><div class="gal-thumbs"><button type="button" aria-label="Workshop" aria-pressed="false"><img src="gallery/a1-thumb.jpg" alt="" loading="lazy" decoding="async"></button><button type="button" aria-label="Glass jars" aria-pressed="false"><img src="gallery/a2-thumb.jpg" alt="" loading="lazy" decoding="async"></button><button type="button" aria-label="Old camera" aria-pressed="false"><img src="gallery/a3-thumb.jpg" alt="" loading="lazy" decoding="async"></button><button type="button" aria-label="Peeling wall" aria-pressed="false"><img src="gallery/a5-thumb.jpg" alt="" loading="lazy" decoding="async"></button><button type="button" aria-label="Workbench" aria-pressed="false"><img src="gallery/a6-thumb.jpg" alt="" loading="lazy" decoding="async"></button><button type="button" aria-label="Shop shelves" aria-pressed="false"><img src="gallery/a8-thumb.jpg" alt="" loading="lazy" decoding="async"></button></div><button type="button" class="gal-arrow next" aria-label="More photos">›</button></div>
-    <script type="application/json">[{"title": "Workshop", "photo": {"lytro": "gallery/a1-photo-lytro.jpg", "ours": "gallery/a1-photo-ours.jpg"}, "depth": {"lytro": "gallery/a1-depth-lytro.jpg", "ours": "gallery/a1-depth-ours.jpg"}}, {"title": "Glass jars", "photo": {"lytro": "gallery/a2-photo-lytro.jpg", "ours": "gallery/a2-photo-ours.jpg"}, "depth": {"lytro": "gallery/a2-depth-lytro.jpg", "ours": "gallery/a2-depth-ours.jpg"}}, {"title": "Old camera", "photo": {"lytro": "gallery/a3-photo-lytro.jpg", "ours": "gallery/a3-photo-ours.jpg"}, "depth": {"lytro": "gallery/a3-depth-lytro.jpg", "ours": "gallery/a3-depth-ours.jpg"}}, {"title": "Peeling wall", "photo": {"lytro": "gallery/a5-photo-lytro.jpg", "ours": "gallery/a5-photo-ours.jpg"}, "depth": {"lytro": "gallery/a5-depth-lytro.jpg", "ours": "gallery/a5-depth-ours.jpg"}}, {"title": "Workbench", "photo": {"lytro": "gallery/a6-photo-lytro.jpg", "ours": "gallery/a6-photo-ours.jpg"}, "depth": {"lytro": "gallery/a6-depth-lytro.jpg", "ours": "gallery/a6-depth-ours.jpg"}}, {"title": "Shop shelves", "photo": {"lytro": "gallery/a8-photo-lytro.jpg", "ours": "gallery/a8-photo-ours.jpg"}, "depth": {"lytro": "gallery/a8-depth-lytro.jpg", "ours": "gallery/a8-depth-ours.jpg"}}]</script>
+    <script type="application/json">[{"title": "Workshop", "photo": {"lytro": "gallery/a1-photo-lytro.jpg", "ours": "gallery/a1-photo-ours.jpg"}, "depth": {"lytro": "gallery/a1-depth-lytro.jpg", "ours": "gallery/a1-depth-ours.jpg"}}, {"title": "Glass jars", "photo": {"lytro": "gallery/a2-photo-lytro.jpg", "ours": "gallery/a2-photo-ours.jpg"}, "depth": {"lytro": "gallery/a2-depth-lytro.jpg", "ours": "gallery/a2-depth-ours.jpg"}}, {"title": "Old camera", "photo": {"lytro": "gallery/a3-photo-lytro.jpg", "ours": "gallery/a3-photo-ours.jpg"}, "depth": {"lytro": "gallery/a3-depth-lytro.jpg", "ours": "gallery/a3-depth-ours.jpg", "illuminator": "gallery/a3-depth-illuminator.jpg"}}, {"title": "Peeling wall", "photo": {"lytro": "gallery/a5-photo-lytro.jpg", "ours": "gallery/a5-photo-ours.jpg"}, "depth": {"lytro": "gallery/a5-depth-lytro.jpg", "ours": "gallery/a5-depth-ours.jpg"}}, {"title": "Workbench", "photo": {"lytro": "gallery/a6-photo-lytro.jpg", "ours": "gallery/a6-photo-ours.jpg"}, "depth": {"lytro": "gallery/a6-depth-lytro.jpg", "ours": "gallery/a6-depth-ours.jpg"}}, {"title": "Shop shelves", "photo": {"lytro": "gallery/a8-photo-lytro.jpg", "ours": "gallery/a8-photo-ours.jpg"}, "depth": {"lytro": "gallery/a8-depth-lytro.jpg", "ours": "gallery/a8-depth-ours.jpg"}}]</script>
   </div>
 </section>
 
@@ -800,9 +801,17 @@ footer { border-top: 1px solid var(--line); padding-block: 32px 48px; color: var
     const it = items[current];
     // Depth comes in two styles: Classic (the Lytro Desktop look) and Illuminator's own; the choice shows only when the photos have the second.
     const hasStyles = !!(it.depth && it.depth.illuminator);
-    styleBox.hidden = mode !== 'depth' || !hasStyles;
-    styleButtons.forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.style === style)));
-    const own = mode === 'depth' && style === 'illuminator' && hasStyles ? it.depth.illuminator : it[mode].ours;
+    // Both depth styles are always offered; a photo without a picture for the Illuminator style shows Classic and the choice is dimmed.
+    const shown = hasStyles ? style : 'classic';
+    styleBox.hidden = mode !== 'depth';
+    styleButtons.forEach((b) => {
+      b.setAttribute('aria-pressed', String(b.dataset.style === shown));
+      if (b.dataset.style === 'illuminator') {
+        b.disabled = !hasStyles;
+        b.title = hasStyles ? '' : 'Not rendered for this photo yet';
+      }
+    });
+    const own = mode === 'depth' && shown === 'illuminator' ? it.depth.illuminator : it[mode].ours;
     top.src = it[mode].lytro;
     under.src = own;
     top.alt = 'Lytro Desktop ' + mode + ' of ' + it.title;
