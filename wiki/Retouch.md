@@ -41,7 +41,7 @@ Press the **Content-aware fill** icon and paint over an object or a blemish too 
 
 ## Copy and paste spots
 
-**Copy spots** keeps the spots of the photo; **Paste spots** adds them to the photo that is open. Dust on the sensor is in the same place in every photo from one camera, so one set of spots can clean a whole series. The spots keep their positions and depths; check them (the select tool helps) and move any that land on something else. The copy is kept for the next start too.
+The **Copy** icon keeps the spots of the photo; the **Paste** icon adds them to the photo that is open. Dust on the sensor is in the same place in every photo from one camera, so one set of spots can clean a whole series. The spots keep their positions and depths; check them (the select tool helps) and move any that land on something else. The copy is kept for the next start too.
 
 ## The picture while you retouch
 

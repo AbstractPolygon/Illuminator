@@ -602,6 +602,8 @@ li:hover > .more, .more:focus-visible, .more[aria-expanded="true"] { opacity: 1;
 .mask-add { margin: 2px 0 8px; }
 .mask-add { gap: 4px; }
 .mask-add .mask-icon { padding: 5px; border-radius: 6px; }
+#retouch-panel .mask-add { gap: 1px; }
+#retouch-panel .mask-add .mask-icon { padding: 4px; }
 .mask-add .mask-icon svg { width: 20px; height: 20px; display: block; }
 .mask-add .mask-icon:hover:not(:disabled) { background: #22262c; }
 .mask-list { list-style: none; margin: 0 0 8px; padding: 0; display: flex; flex-direction: column; gap: 2px; }
