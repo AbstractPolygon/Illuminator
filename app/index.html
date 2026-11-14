@@ -275,11 +275,24 @@
           <button id="rt-brush-tool" type="button" class="icon-only mask-icon" aria-pressed="false" title="Healing brush: paint over a blemish or a line, then drag the dashed copy to a clean area" aria-label="Healing brush">
             <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M5 19c0-3 2-4 4-4 0 2-1 4-4 4z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M9.5 14.5 18 6l1.5 1.5-8.5 8.5z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
           </button>
+          <button id="rt-fill-tool" type="button" class="icon-only mask-icon" aria-pressed="false" title="Content-aware fill: paint over an object, it is replaced with matching surroundings" aria-label="Content-aware fill">
+            <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="2" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M8 16l3-4 2 2.500 2-3 3 4.500z" fill="currentColor"/><circle cx="9" cy="9" r="1.500" fill="currentColor"/></svg>
+          </button>
           <button id="rt-redeye-tool" type="button" class="icon-only mask-icon" aria-pressed="false" title="Red-eye: click a red pupil" aria-label="Red-eye">
             <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><circle cx="12" cy="12" r="3" fill="currentColor"/></svg>
           </button>
         </div>
-        <label class="check" title="Draws the spots on the picture"><input id="rt-show" type="checkbox" checked> Show spots</label>
+        <div class="row check-row">
+          <label class="check" title="Draws the spots on the picture"><input id="rt-show" type="checkbox" checked> Show spots</label>
+          <label class="check" title="Shows the picture as fine detail only, so dust and blemishes stand out"><input id="rt-visualize" type="checkbox"> Visualize spots</label>
+        </div>
+        <label id="rt-vis-row" title="How bright the fine detail is shown" hidden>Sensitivity <output data-for="rt-vis-gain" for="rt-vis-gain">20</output>
+          <input id="rt-vis-gain" type="range" min="0" max="100" step="1" value="20" data-default="20">
+        </label>
+        <div class="row mask-pick">
+          <button id="rt-copy" type="button" title="Copies the spots, to paste on another photo (sensor dust is in the same place)">Copy spots</button>
+          <button id="rt-paste" type="button" title="Adds the copied spots to this photo">Paste spots</button>
+        </div>
         <ul id="rt-list" class="mask-list"></ul>
         <div id="rt-editor" hidden>
           <label title="Heal matches the color around the blemish; Clone copies the source as it is; Red-eye makes red pupils dark and neutral">Mode
@@ -304,6 +317,7 @@
           <label id="rt-sdepth-row" title="How far the source is: drag it if the copy slips when the viewpoint moves">Source depth <output for="rt-sdepth">0.00</output>
             <input id="rt-sdepth" type="range" min="-3" max="3" step="0.01" value="0">
           </label>
+          <button id="rt-autosource" type="button" class="wide" title="Looks for the part of the picture that fits best around the spot, and copies from there">Find best source</button>
           <button id="rt-delete" type="button" class="wide" title="Removes the selected spot">Delete spot</button>
         </div>
         <input id="retouch-spots" type="hidden" value="[]" data-text>
