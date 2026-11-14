@@ -432,7 +432,7 @@ footer { border-top: 1px solid var(--line); padding-block: 32px 48px; color: var
     <p class="eyebrow">Side by side</p>
     <h2>Desktop Classic vs. Illuminator.</h2>
     <div class="gal-head">
-      <div class="gal-mode" role="group" aria-label="What to compare"><button type="button" data-mode="photo" aria-pressed="true">Photo</button><button type="button" data-mode="depth" aria-pressed="false">Classic Depth</button><button type="button" data-mode="illuminator" aria-pressed="false">Illuminator</button></div>
+      <div class="gal-mode" role="group" aria-label="What to compare"><button type="button" data-mode="photo" aria-pressed="true">Photo</button><button type="button" data-mode="depth" aria-pressed="false">Lytro Depth</button><button type="button" data-mode="illuminator" aria-pressed="false">Illuminator</button></div>
     </div>
     <div class="gal-stage">
       <img class="gal-under" src="gallery/a1-photo-ours.jpg" alt="" decoding="async">
@@ -793,17 +793,17 @@ footer { border-top: 1px solid var(--line); padding-block: 32px 48px; color: var
     strip.append(...copies());
   }
   const thumbs = [...strip.children];
-  let mode = 'photo'; // 'photo', 'depth' (Classic Desktop depth) or 'illuminator' (Illuminator depth)
+  let mode = 'photo'; // 'photo', 'depth' (Lytro depth) or 'illuminator' (Illuminator depth)
   let current = 0;
   const show = () => {
     const it = items[current];
-    // Three views: the photo, Classic Desktop depth, and Illuminator's own depth, each against Lytro Desktop. A photo without the Illuminator depth picture yet shows Classic, and says so.
+    // Three views: the photo, Classic Desktop depth, and Illuminator's own depth, each against Lytro Desktop. A photo without the Illuminator depth picture yet shows Lytro depth, and says so.
     const kind = mode === 'photo' ? 'photo' : 'depth';
     const hasIll = !!(it.depth && it.depth.illuminator);
     const fallback = mode === 'illuminator' && !hasIll;
     const tagR = stage.querySelector('.gal-tag.r');
     if (!tagR.dataset.text) tagR.dataset.text = tagR.textContent;
-    tagR.textContent = fallback ? 'Classic (Illuminator depth not rendered yet)' : mode === 'photo' ? tagR.dataset.text : mode === 'depth' ? 'Illuminator: Classic Desktop depth' : 'Illuminator: Illuminator depth';
+    tagR.textContent = fallback ? 'Lytro depth (Illuminator depth not rendered yet)' : mode === 'photo' ? tagR.dataset.text : mode === 'depth' ? 'Illuminator: Lytro-style depth' : 'Illuminator: Illuminator depth';
     top.src = it[kind].lytro;
     under.src = mode === 'illuminator' && hasIll ? it.depth.illuminator : it[kind].ours;
     top.alt = 'Lytro Desktop ' + kind + ' of ' + it.title;
