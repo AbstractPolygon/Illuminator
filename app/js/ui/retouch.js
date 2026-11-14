@@ -7,8 +7,8 @@ export function initRetouch({ $, state, canvas, engine, applySettingsSoon, sched
   const getSpots = () => parseSpots($('retouch-spots').value);
 
   state.retouchSel = -1;
-  state.retouchTool = null; // 'spot' | 'brush' | 'redeye'
-  const TOOLS = { spot: 'rt-spot-tool', brush: 'rt-brush-tool', redeye: 'rt-redeye-tool' };
+  state.retouchTool = null; // 'select' | 'spot' | 'brush' | 'redeye'
+  const TOOLS = { select: 'rt-select-tool', spot: 'rt-spot-tool', brush: 'rt-brush-tool', redeye: 'rt-redeye-tool' };
   const BRUSH_SIZE = 0.015;
   const EYE_SIZE = 0.012;
 
@@ -131,7 +131,7 @@ export function initRetouch({ $, state, canvas, engine, applySettingsSoon, sched
       $(id).classList.toggle('active', state.retouchTool === name);
       $(id).setAttribute('aria-pressed', String(state.retouchTool === name));
     }
-    canvas.style.cursor = state.retouchTool ? 'crosshair' : '';
+    canvas.style.cursor = state.retouchTool === 'select' ? 'default' : state.retouchTool ? 'crosshair' : '';
     if (state.retouchTool) document.dispatchEvent(new Event('retouch-tool'));
     drawOverlay();
   }
@@ -157,7 +157,7 @@ export function initRetouch({ $, state, canvas, engine, applySettingsSoon, sched
     const g = o.getContext('2d');
     g.clearRect(0, 0, o.width, o.height);
     const big = Math.max(srcW(), srcH()) * canvasScale();
-    const line = Math.max(1.5, o.width / 600);
+    const line = Math.max(1, o.width / 1400);
     const trace = (pts, R, alpha) => {
       g.lineCap = 'round';
       g.lineJoin = 'round';
@@ -179,27 +179,39 @@ export function initRetouch({ $, state, canvas, engine, applySettingsSoon, sched
         // a stroke: the painted band, and its dashed copy at the source
         const pts = s.path.map(([px, py]) => toCanvas(px, py));
         g.strokeStyle = sel ? '#4da3ff' : '#ffffff';
-        trace(pts, R, sel ? 0.28 : 0.18);
+        trace(pts, R, sel ? 0.2 : 0.12);
+        g.lineWidth = line;
+        g.setLineDash([]);
+        g.beginPath();
+        g.arc(pts[0][0], pts[0][1], R, 0, 2 * Math.PI);
+        g.stroke();
         const off = [s.sx - s.x, s.sy - s.y];
         const spts = s.path.map(([px, py]) => toCanvas(px + off[0], py + off[1]));
         g.strokeStyle = color;
-        g.lineWidth = line * (sel ? 1.6 : 1);
-        g.setLineDash([line * 3, line * 3]);
+        g.lineWidth = line * (sel ? 1.4 : 1);
+        g.setLineDash([line * 4, line * 4]);
         g.lineCap = 'butt';
         g.beginPath();
         spts.forEach(([px, py], n) => (n ? g.lineTo(px, py) : g.moveTo(px, py)));
         g.stroke();
         g.setLineDash([]);
+        g.globalAlpha = 0.6;
+        g.lineWidth = line;
+        g.beginPath();
+        g.moveTo(pts[0][0], pts[0][1]);
+        g.lineTo(spts[0][0], spts[0][1]);
+        g.stroke();
+        g.globalAlpha = 1;
         return;
       }
       const [x, y] = toCanvas(s.x, s.y);
-      g.lineWidth = sel ? line * 1.6 : line;
+      g.lineWidth = sel ? line * 1.4 : line;
       g.beginPath();
       g.arc(x, y, R, 0, 2 * Math.PI);
       g.stroke();
       if (s.mode === 'redeye') return;
       const [sx, sy] = toCanvas(s.sx, s.sy);
-      g.setLineDash([line * 3, line * 3]);
+      g.setLineDash([line * 4, line * 4]);
       g.beginPath();
       g.arc(sx, sy, R, 0, 2 * Math.PI);
       g.stroke();
@@ -213,7 +225,20 @@ export function initRetouch({ $, state, canvas, engine, applySettingsSoon, sched
     });
     if (painting) {
       g.strokeStyle = '#4da3ff';
-      trace(painting.points.map(([px, py]) => toCanvas(px, py)), BRUSH_SIZE * big, 0.3);
+      trace(painting.points.map(([px, py]) => toCanvas(px, py)), BRUSH_SIZE * big, 0.2);
+      // where its source will be (the dashed copy beside the stroke)
+      const gap = sourceGap(Math.max(...painting.points.map((p) => p[0])), BRUSH_SIZE);
+      g.lineWidth = line;
+      g.setLineDash([line * 4, line * 4]);
+      g.lineCap = 'butt';
+      g.beginPath();
+      painting.points.forEach(([px, py], n) => {
+        const [cx, cy] = toCanvas(px + gap, py);
+        if (n) g.lineTo(cx, cy);
+        else g.moveTo(cx, cy);
+      });
+      g.stroke();
+      g.setLineDash([]);
     }
   }
 
@@ -305,7 +330,10 @@ export function initRetouch({ $, state, canvas, engine, applySettingsSoon, sched
     for (const i of order) {
       const s = spots[i];
       const reach = Math.max(s.r * big, 8);
-      const grab = s.mode !== 'redeye' && distanceTo(s, fx, fy, [s.sx - s.x, s.sy - s.y]) <= reach ? 'source' : distanceTo(s, fx, fy) <= reach ? 'spot' : null;
+      // whichever of the spot and its source is nearer (they can overlap)
+      const dSpot = distanceTo(s, fx, fy);
+      const dSource = s.mode !== 'redeye' ? distanceTo(s, fx, fy, [s.sx - s.x, s.sy - s.y]) : Infinity;
+      const grab = Math.min(dSpot, dSource) > reach ? null : dSource < dSpot ? 'source' : 'spot';
       if (grab) {
         state.retouchSel = i;
         renderList();
@@ -313,6 +341,13 @@ export function initRetouch({ $, state, canvas, engine, applySettingsSoon, sched
         canvas.setPointerCapture(event.pointerId);
         return;
       }
+    }
+    if (state.retouchTool === 'select') {
+      // nothing under the pointer: nothing selected
+      state.retouchSel = -1;
+      renderList();
+      drawOverlay();
+      return;
     }
     addSpot(state.retouchTool, [[x, y]]);
   }, true);
