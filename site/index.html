@@ -375,6 +375,7 @@ footer { border-top: 1px solid var(--line); padding-block: 32px 48px; color: var
       <a href="#download">Download</a>
       <a href="#updates">Updates</a>
       <a href="#about">About</a>
+      <a href="https://github.com/AbstractPolygon/Illuminator/wiki" target="_blank" rel="noopener">Guide</a>
     </nav>
   </div>
 </header>
@@ -420,6 +421,26 @@ footer { border-top: 1px solid var(--line); padding-block: 32px 48px; color: var
         </tbody>
       </table>
     </div>
+  </div>
+</section>
+
+<section class="band" id="compare">
+  <div class="wrap gallery" id="gallery">
+    <p class="eyebrow">Side by side</p>
+    <h2>The same photos, in Desktop Classic and in Illuminator.</h2>
+    <div class="gal-head">
+      <div class="gal-mode" role="group" aria-label="What to compare"><button type="button" data-mode="photo" aria-pressed="true">Photo</button><button type="button" data-mode="depth" aria-pressed="false">Depth</button></div>
+      <div class="gal-mode gal-style" role="group" aria-label="Depth style" hidden><button type="button" data-style="classic" aria-pressed="true">Classic</button><button type="button" data-style="illuminator" aria-pressed="false">Illuminator</button></div>
+    </div>
+    <div class="gal-stage">
+      <img class="gal-under" src="gallery/a1-photo-ours.jpg" alt="" decoding="async">
+      <img class="gal-top" src="gallery/a1-photo-lytro.jpg" alt="" decoding="async">
+      <span class="gal-tag l">Lytro Desktop</span><span class="gal-tag r">Illuminator {{version}}</span>
+      <input type="range" min="0" max="100" value="50" aria-label="Move the divider between Lytro Desktop and Illuminator">
+      <div class="gal-handle"></div>
+    </div>
+    <div class="gal-strip"><button type="button" class="gal-arrow prev" aria-label="Previous photos">‹</button><div class="gal-thumbs"><button type="button" aria-label="Workshop" aria-pressed="false"><img src="gallery/a1-thumb.jpg" alt="" loading="lazy" decoding="async"></button><button type="button" aria-label="Glass jars" aria-pressed="false"><img src="gallery/a2-thumb.jpg" alt="" loading="lazy" decoding="async"></button><button type="button" aria-label="Old camera" aria-pressed="false"><img src="gallery/a3-thumb.jpg" alt="" loading="lazy" decoding="async"></button><button type="button" aria-label="Peeling wall" aria-pressed="false"><img src="gallery/a5-thumb.jpg" alt="" loading="lazy" decoding="async"></button><button type="button" aria-label="Workbench" aria-pressed="false"><img src="gallery/a6-thumb.jpg" alt="" loading="lazy" decoding="async"></button><button type="button" aria-label="Shop shelves" aria-pressed="false"><img src="gallery/a8-thumb.jpg" alt="" loading="lazy" decoding="async"></button></div><button type="button" class="gal-arrow next" aria-label="More photos">›</button></div>
+    <script type="application/json">[{"title": "Workshop", "photo": {"lytro": "gallery/a1-photo-lytro.jpg", "ours": "gallery/a1-photo-ours.jpg"}, "depth": {"lytro": "gallery/a1-depth-lytro.jpg", "ours": "gallery/a1-depth-ours.jpg"}}, {"title": "Glass jars", "photo": {"lytro": "gallery/a2-photo-lytro.jpg", "ours": "gallery/a2-photo-ours.jpg"}, "depth": {"lytro": "gallery/a2-depth-lytro.jpg", "ours": "gallery/a2-depth-ours.jpg"}}, {"title": "Old camera", "photo": {"lytro": "gallery/a3-photo-lytro.jpg", "ours": "gallery/a3-photo-ours.jpg"}, "depth": {"lytro": "gallery/a3-depth-lytro.jpg", "ours": "gallery/a3-depth-ours.jpg"}}, {"title": "Peeling wall", "photo": {"lytro": "gallery/a5-photo-lytro.jpg", "ours": "gallery/a5-photo-ours.jpg"}, "depth": {"lytro": "gallery/a5-depth-lytro.jpg", "ours": "gallery/a5-depth-ours.jpg"}}, {"title": "Workbench", "photo": {"lytro": "gallery/a6-photo-lytro.jpg", "ours": "gallery/a6-photo-ours.jpg"}, "depth": {"lytro": "gallery/a6-depth-lytro.jpg", "ours": "gallery/a6-depth-ours.jpg"}}, {"title": "Shop shelves", "photo": {"lytro": "gallery/a8-photo-lytro.jpg", "ours": "gallery/a8-photo-ours.jpg"}, "depth": {"lytro": "gallery/a8-depth-lytro.jpg", "ours": "gallery/a8-depth-ours.jpg"}}]</script>
   </div>
 </section>
 
@@ -547,26 +568,6 @@ footer { border-top: 1px solid var(--line); padding-block: 32px 48px; color: var
         </div>
       </div>
     </div>
-  </div>
-</section>
-
-<section class="band" id="compare">
-  <div class="wrap gallery" id="gallery">
-    <p class="eyebrow">Side by side</p>
-    <h2>The same photos, in Desktop Classic and in Illuminator.</h2>
-    <div class="gal-head">
-      <div class="gal-mode" role="group" aria-label="What to compare"><button type="button" data-mode="photo" aria-pressed="true">Photo</button><button type="button" data-mode="depth" aria-pressed="false">Depth</button></div>
-      <div class="gal-mode gal-style" role="group" aria-label="Depth style" hidden><button type="button" data-style="classic" aria-pressed="true">Classic</button><button type="button" data-style="illuminator" aria-pressed="false">Illuminator</button></div>
-    </div>
-    <div class="gal-stage">
-      <img class="gal-under" src="gallery/a1-photo-ours.jpg" alt="" decoding="async">
-      <img class="gal-top" src="gallery/a1-photo-lytro.jpg" alt="" decoding="async">
-      <span class="gal-tag l">Lytro Desktop</span><span class="gal-tag r">Illuminator {{version}}</span>
-      <input type="range" min="0" max="100" value="50" aria-label="Move the divider between Lytro Desktop and Illuminator">
-      <div class="gal-handle"></div>
-    </div>
-    <div class="gal-strip"><button type="button" class="gal-arrow prev" aria-label="Previous photos">‹</button><div class="gal-thumbs"><button type="button" aria-label="Workshop" aria-pressed="false"><img src="gallery/a1-thumb.jpg" alt="" loading="lazy" decoding="async"></button><button type="button" aria-label="Glass jars" aria-pressed="false"><img src="gallery/a2-thumb.jpg" alt="" loading="lazy" decoding="async"></button><button type="button" aria-label="Old camera" aria-pressed="false"><img src="gallery/a3-thumb.jpg" alt="" loading="lazy" decoding="async"></button><button type="button" aria-label="Peeling wall" aria-pressed="false"><img src="gallery/a5-thumb.jpg" alt="" loading="lazy" decoding="async"></button><button type="button" aria-label="Workbench" aria-pressed="false"><img src="gallery/a6-thumb.jpg" alt="" loading="lazy" decoding="async"></button><button type="button" aria-label="Shop shelves" aria-pressed="false"><img src="gallery/a8-thumb.jpg" alt="" loading="lazy" decoding="async"></button></div><button type="button" class="gal-arrow next" aria-label="More photos">›</button></div>
-    <script type="application/json">[{"title": "Workshop", "photo": {"lytro": "gallery/a1-photo-lytro.jpg", "ours": "gallery/a1-photo-ours.jpg"}, "depth": {"lytro": "gallery/a1-depth-lytro.jpg", "ours": "gallery/a1-depth-ours.jpg"}}, {"title": "Glass jars", "photo": {"lytro": "gallery/a2-photo-lytro.jpg", "ours": "gallery/a2-photo-ours.jpg"}, "depth": {"lytro": "gallery/a2-depth-lytro.jpg", "ours": "gallery/a2-depth-ours.jpg"}}, {"title": "Old camera", "photo": {"lytro": "gallery/a3-photo-lytro.jpg", "ours": "gallery/a3-photo-ours.jpg"}, "depth": {"lytro": "gallery/a3-depth-lytro.jpg", "ours": "gallery/a3-depth-ours.jpg"}}, {"title": "Peeling wall", "photo": {"lytro": "gallery/a5-photo-lytro.jpg", "ours": "gallery/a5-photo-ours.jpg"}, "depth": {"lytro": "gallery/a5-depth-lytro.jpg", "ours": "gallery/a5-depth-ours.jpg"}}, {"title": "Workbench", "photo": {"lytro": "gallery/a6-photo-lytro.jpg", "ours": "gallery/a6-photo-ours.jpg"}, "depth": {"lytro": "gallery/a6-depth-lytro.jpg", "ours": "gallery/a6-depth-ours.jpg"}}, {"title": "Shop shelves", "photo": {"lytro": "gallery/a8-photo-lytro.jpg", "ours": "gallery/a8-photo-ours.jpg"}, "depth": {"lytro": "gallery/a8-depth-lytro.jpg", "ours": "gallery/a8-depth-ours.jpg"}}]</script>
   </div>
 </section>
 
