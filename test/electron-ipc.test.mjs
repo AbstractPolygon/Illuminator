@@ -418,6 +418,30 @@ test('pick-folder lists photos in subfolders and allows them to be read', async 
   await t.cleanup();
 });
 
+test('pick-folder on a Mac also accepts a file (a Lytro Desktop library is a package the folder picker will not choose), opens in Pictures, and elsewhere stays a folder picker', async () => {
+  const mac = await setup({ platform: 'darwin' });
+  const lib = path.join(mac.base, 'Lytro.lytrolibrary');
+  await fsp.mkdir(path.join(lib, 'Pictures', 'a'), { recursive: true });
+  await fsp.writeFile(path.join(lib, 'Pictures', 'a', 'raw.lfp'), 'r');
+  // the package itself, as a directory
+  mac.state.dialogResult = { canceled: false, filePaths: [lib] };
+  const res = await mac.h['pick-folder']('Import');
+  assert.equal(res.name, 'Lytro.lytrolibrary');
+  assert.deepEqual(res.files.map((f) => f.rel), ['Pictures/a/raw.lfp']);
+  const opts = mac.calls.dialogs[0][0];
+  assert.deepEqual([...opts.properties].sort(), ['openDirectory', 'openFile']);
+  assert.equal(opts.defaultPath, path.join(mac.base, 'pictures'));
+  // a file chosen stands for its folder
+  mac.state.dialogResult = { canceled: false, filePaths: [path.join(lib, 'Pictures', 'a', 'raw.lfp')] };
+  assert.equal((await mac.h['pick-folder']('Import')).name, 'a');
+  await mac.cleanup();
+  const other = await setup({ platform: 'win32' });
+  other.state.dialogResult = { canceled: false, filePaths: [other.base] };
+  await other.h['pick-folder']('Import');
+  assert.deepEqual(other.calls.dialogs[0][0].properties, ['openDirectory']);
+  await other.cleanup();
+});
+
 test('find-sidecar: only next to an allowed file, and allows what it finds', async () => {
   const t = await setup();
   await assert.rejects(t.h['find-sidecar'](path.join(t.base, 'secret.txt')), /not opened/);

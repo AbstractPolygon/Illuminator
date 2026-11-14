@@ -401,10 +401,24 @@ function createIpc(deps) {
     },
 
     // Picks a folder and lists the photos in it (all subfolders included).
+    // On a Mac a Lytro Desktop library is a package (Pictures/Lytro.lytrolibrary): the system's folder picker shows a package as a file and will not choose it, so files are
+    // allowed too there (a file that is chosen stands for the folder it is in); the picker opens in Pictures, where the library is kept.
     'pick-folder': async (title) => {
-      const res = await dialog.showOpenDialog(...withWin({ title: title || 'Choose a folder', properties: ['openDirectory'] }));
+      const mac = (deps.platform || process.platform) === 'darwin';
+      const res = await dialog.showOpenDialog(...withWin({
+        title: title || 'Choose a folder',
+        properties: mac ? ['openDirectory', 'openFile'] : ['openDirectory'],
+        ...(mac ? { defaultPath: app.getPath('pictures') } : {}),
+      }));
       if (res.canceled || !res.filePaths.length) return null;
-      const root = res.filePaths[0];
+      let root = res.filePaths[0];
+      if (mac) {
+        try {
+          if (!(await fsp.stat(root)).isDirectory()) root = path.dirname(root);
+        } catch {
+          // (it vanished: the walk below finds nothing)
+        }
+      }
       const files = [];
       for (const rel of await walk(root)) {
         const abs = path.join(root, ...rel.split('/'));
