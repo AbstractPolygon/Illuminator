@@ -800,6 +800,8 @@ footer { border-top: 1px solid var(--line); padding-block: 32px 48px; color: var
     // Three views: the photo, Classic Desktop depth, and Illuminator's own depth, each against Lytro Desktop. A photo without the Illuminator depth picture yet shows Lytro depth, and says so.
     const kind = mode === 'photo' ? 'photo' : 'depth';
     const hasIll = !!(it.depth && it.depth.illuminator);
+    // On a photo without its Illuminator depth picture, the choice moves to Lytro depth.
+    if (mode === 'illuminator' && !hasIll) mode = 'depth';
     const fallback = mode === 'illuminator' && !hasIll;
     const tagR = stage.querySelector('.gal-tag.r');
     if (!tagR.dataset.text) tagR.dataset.text = tagR.textContent;
