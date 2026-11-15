@@ -71,11 +71,6 @@
       <button id="album-new" type="button" class="link-button">+ New album</button>
       <button id="library-import" type="button" class="link-button" title="Brings in the photos, edits and albums of a Lytro Desktop library">+ Import Lytro library…</button>
       <button id="camera-wifi-btn" type="button" class="link-button" title="Copies photos from a first generation Lytro camera over its Wi-Fi, without a cable" hidden>+ Connect over Wi-Fi…</button>
-      <h2>Looks</h2>
-      <ul id="look-list" class="albums"></ul>
-      <button id="look-save" type="button" class="link-button" title="Keeps the open photo's tone, color, sharpening and local adjustments as a look to put on other photos" disabled>+ Save look…</button>
-      <button id="look-import" type="button" class="link-button" title="Adds a look file (.illuminator-look) that someone shared">+ Import look…</button>
-      <input id="look-file" type="file" accept=".illuminator-look,.json,application/json" hidden>
       <h2 id="photos-title">All photos</h2>
       <div id="library-filter" class="library-filter">
         <input id="filter-text" type="search" placeholder="Keyword or name" list="keyword-list" aria-label="Keyword or name" title="Shows photos with a keyword, or a name, containing this text">
@@ -158,7 +153,7 @@
           <span class="spacer"></span>
           <span id="queue-current" class="hint"></span>
           <button id="queue-select-all" type="button" title="Chooses every photo in the list on the left (the album or filter shown). Ctrl+A does the same here">Choose all</button>
-          <label class="queue-look" title="Puts a look (Library &gt; Looks) on every photo added, for its export only: the photos keep their own settings">Look
+          <label class="queue-look" title="Puts a look (Process &gt; Looks) on every photo added, for its export only: the photos keep their own settings">Look
             <select id="queue-look"><option value="">No look</option></select>
           </label>
           <button id="queue-add-photo-view" type="button" title="Adds a picture of the open photo, or the photos chosen in the library, with the current settings" disabled>Add picture</button>
@@ -393,6 +388,13 @@
 
       <details class="panel color-panel" data-panel="camera">
         <summary><h2>Process</h2></summary>
+        <details class="subpanel" id="looks-panel">
+          <summary><h3>Looks</h3></summary>
+          <ul id="look-list" class="albums"></ul>
+          <button id="look-save" type="button" class="link-button" title="Keeps the open photo's tone, color, sharpening and local adjustments as a look to put on other photos" disabled>+ Save look…</button>
+          <button id="look-import" type="button" class="link-button" title="Adds a look file (.illuminator-look) that someone shared">+ Import look…</button>
+          <input id="look-file" type="file" accept=".illuminator-look,.json,application/json" hidden>
+        </details>
         <details class="subpanel">
           <summary><h3>LUT</h3></summary>
           <select id="lut-film" class="lut-film" aria-label="Film look" title="Film emulation LUTs from the G'MIC Film LUTs Collection (MIT License)">

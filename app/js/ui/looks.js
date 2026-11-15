@@ -1,4 +1,4 @@
-// Looks in the library sidebar (the file format and rules are in core/looks.js): save the open photo's look, import a look file, put a look on the open photo, save one as a
+// Looks (Process > Looks in the right sidebar) (the file format and rules are in core/looks.js): save the open photo's look, import a look file, put a look on the open photo, save one as a
 // file to share, rename and delete. They are kept in the library (library/library.js).
 
 import { makeLook, parseLook, applyLookToEdits, describeLook, lookFileName } from '../core/looks.js';
