@@ -917,7 +917,18 @@ label.lut-amount { margin-top: 14px; }
 }
 
 /* Color Grading: three tone wheels */
-.grade-wheels { display: flex; justify-content: space-between; gap: 6px; margin: 4px 0 8px; }
+#grade-panel { container-type: inline-size; }
+/* Narrow: midtones on top, shadows and highlights side by side below. Wide enough: all three in a row. */
+.grade-wheels { display: grid; grid-template-columns: 1fr 1fr; justify-items: center; gap: 8px 6px; margin: 4px 0 8px; }
+.grade-wheel[data-zone="mids"] { grid-column: 1 / -1; grid-row: 1; }
+.grade-wheel[data-zone="shadows"] { grid-column: 1; grid-row: 2; }
+.grade-wheel[data-zone="highlights"] { grid-column: 2; grid-row: 2; }
+@container (min-width: 330px) {
+  .grade-wheels { grid-template-columns: repeat(3, 1fr); }
+  .grade-wheel[data-zone="shadows"] { grid-column: 1; grid-row: 1; }
+  .grade-wheel[data-zone="mids"] { grid-column: 2; grid-row: 1; }
+  .grade-wheel[data-zone="highlights"] { grid-column: 3; grid-row: 1; }
+}
 .grade-wheel { display: flex; flex-direction: column; align-items: center; gap: 4px; min-width: 0; }
 .grade-wheel canvas { display: block; border-radius: 50%; background: #15181c; cursor: crosshair; touch-action: none; box-shadow: 0 0 0 1px #2b3038; }
 .grade-wheel.active canvas { box-shadow: 0 0 0 2px var(--accent); }

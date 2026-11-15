@@ -5430,6 +5430,7 @@ function showSliderValue(input) {
 }
 // Camera sliders with a default reset the same way.
 for (const input of document.querySelectorAll('[data-panel=camera] input[type=range][data-default]')) {
+  if (input.closest('.color-panel, .details-panel')) continue; // those two panels reset their sliders below
   showSliderValue(input);
   input.addEventListener('dblclick', () => {
     input.value = input.dataset.default;
