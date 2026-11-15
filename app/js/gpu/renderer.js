@@ -347,43 +347,58 @@ void main() {
   outColor = vec4(mix(ref, sum / wsum, uBlend), 1.0);
 }`;
 
+// How far (in depth units) from the focus the views are checked to disagree, for the focus mask: for the outer views about 1.4 view pixels of parallax.
+export const FOCUS_MASK_DELTA = 0.3;
+
 // The focus mask (what stays sharp where the depth map is wrong): the views looked at where a point at the focus depth would appear in each. Where they agree
 // (low variance next to the brightness) and the picture has structure there (an edge or texture, not a flat patch, which looks the same sharp or blurred), the
 // surface really is at the focus depth, whatever the depth map says: thin or smooth near objects (the wires of a fence) that the depth map smears into the background.
-// Step 1: per pixel, the views' disagreement (x) and mean brightness (y).
+// Step 1: per pixel, the views' disagreement at the focus depth (x), their mean brightness (y), and the smaller of their disagreements a step nearer and a step
+// farther (z, uDelta in depth units). Views that agree at the focus depth only show the surface is there if they disagree away from it: in dark or blank parts
+// (little texture, little light) they agree at every depth, and that says nothing about the depth (the mask kept whole dark backgrounds sharp, broken up into
+// squares where the test flickered).
 const FOCUS_SCORE = `#version 300 es
 precision highp float;
 precision highp int;
 precision highp sampler2DArray;
 uniform sampler2DArray uViews;
 uniform int uCount;
-uniform vec4 uView[${MAX_VIEWS}];
+uniform vec4 uView[${MAX_VIEWS}];   // xy: the view's shift at the focus depth, z: weight
+uniform vec4 uDir[${MAX_VIEWS}];    // xy: the view's shift per unit of depth
+uniform float uDelta;
 uniform vec2 uSize;
 uniform float uClip;
 out vec4 outColor;
+float normVar(float sum, float sq, float wsum, float floorLevel) {
+  float mean = sum / wsum;
+  return max(sq / wsum - mean * mean, 0.0) / (0.02 * mean * mean + floorLevel * floorLevel);
+}
 void main() {
   vec2 x = gl_FragCoord.xy - 0.5;
-  float sum = 0.0;
-  float sq = 0.0;
-  float wsum = 0.0;
+  vec3 sum = vec3(0.0);
+  vec3 sq = vec3(0.0);
+  vec3 wsum = vec3(0.0);
   for (int k = 0; k < ${MAX_VIEWS}; k++) {
     if (k >= uCount) break;
     vec4 v = uView[k];
     if (v.z < 1e-3) continue;
-    vec2 s = x + v.xy;
-    if (s.x < 0.0 || s.y < 0.0 || s.x > uSize.x - 1.0 || s.y > uSize.y - 1.0) continue;
-    vec4 c = texture(uViews, vec3((s + 0.5) / uSize, float(k)));
-    float l = dot(c.rgb, vec3(0.2126, 0.7152, 0.0722));
-    float w = v.z * c.a;
-    sum += l * w;
-    sq += l * l * w;
-    wsum += w;
+    for (int j = 0; j < 3; j++) {
+      vec2 s = x + v.xy + (j == 0 ? 0.0 : (j == 1 ? -uDelta : uDelta)) * uDir[k].xy;
+      if (s.x < 0.0 || s.y < 0.0 || s.x > uSize.x - 1.0 || s.y > uSize.y - 1.0) continue;
+      vec4 c = texture(uViews, vec3((s + 0.5) / uSize, float(k)));
+      float l = dot(c.rgb, vec3(0.2126, 0.7152, 0.0722));
+      float w = v.z * c.a;
+      sum[j] += l * w;
+      sq[j] += l * l * w;
+      wsum[j] += w;
+    }
   }
-  if (wsum <= 0.0) { outColor = vec4(1e4, 0.0, 0.0, 1.0); return; }
-  float mean = sum / wsum;
-  float variance = max(sq / wsum - mean * mean, 0.0);
+  if (wsum.x <= 0.0) { outColor = vec4(1e4, 0.0, 0.0, 1.0); return; }
   float floorLevel = 0.004 * uClip;
-  outColor = vec4(variance / (0.02 * mean * mean + floorLevel * floorLevel), mean, 0.0, 1.0);
+  float nv = normVar(sum.x, sq.x, wsum.x, floorLevel);
+  float near = wsum.y > 0.0 ? normVar(sum.y, sq.y, wsum.y, floorLevel) : 0.0;
+  float far = wsum.z > 0.0 ? normVar(sum.z, sq.z, wsum.z, floorLevel) : 0.0;
+  outColor = vec4(nv, sum.x / wsum.x, min(near, far), 1.0);
 }`;
 // Step 2: consistent and structured.
 const FOCUS_MASK = `#version 300 es
@@ -405,7 +420,31 @@ void main() {
   float g = length(vec2(gx, gy)) / (c + 0.02 * uClip);
   float consistent = 1.0 - smoothstep(0.08, 0.30, nv);
   float structured = smoothstep(0.02, 0.06, g);
-  outColor = vec4(consistent * structured, 0.0, 0.0, 1.0);
+  // ... and the views clearly disagree a step nearer and farther: the agreement picks out this depth
+  float away = texelFetch(uScore, p, 0).b;
+  float telling = smoothstep(0.3, 1.0, away) * smoothstep(2.0, 4.0, away / max(nv, 0.05));
+  outColor = vec4(consistent * structured * telling, 0.0, 0.0, 1.0);
+}`;
+// Step 2b: a pixel counts only where at least two of its eight neighbors count too. A lone pixel that passes by chance (noise in a dark part) would
+// otherwise be spread into a 9 x 9 square kept sharp in the middle of the blur; a thin wire, one pixel wide, still has two neighbors along it.
+const FOCUS_SUPPORT = `#version 300 es
+precision highp float;
+precision highp int;
+uniform sampler2D uSrc;
+out vec4 outColor;
+void main() {
+  ivec2 p = ivec2(gl_FragCoord.xy);
+  ivec2 size = textureSize(uSrc, 0);
+  float v = texelFetch(uSrc, p, 0).r;
+  int n = 0;
+  for (int dy = -1; dy <= 1; dy++) {
+    for (int dx = -1; dx <= 1; dx++) {
+      if (dx == 0 && dy == 0) continue;
+      ivec2 q = clamp(p + ivec2(dx, dy), ivec2(0), size - 1);
+      if (texelFetch(uSrc, q, 0).r > 0.5) n++;
+    }
+  }
+  outColor = vec4(n >= 2 ? v : 0.0, 0.0, 0.0, 1.0);
 }`;
 // Step 3 (twice, along x then y): the maximum within uRadius, so the flat inside of a thin object, between its edges, is kept with them.
 const FOCUS_SPREAD = `#version 300 es
@@ -2773,6 +2812,7 @@ export class GpuRenderer {
       extend: program(gl, EXTEND),
       focusScore: program(gl, FOCUS_SCORE),
       focusMask: program(gl, FOCUS_MASK),
+      focusSupport: program(gl, FOCUS_SUPPORT),
       focusSpread: program(gl, FOCUS_SPREAD),
       dofGather: program(gl, DOF_GATHER),
       dofTiles: program(gl, DOF_TILES),
@@ -3837,10 +3877,13 @@ export class GpuRenderer {
     const { outW: w, outH: h } = this.sampler;
     const { tex, samples, detail } = this.views;
     const data = new Float32Array(MAX_VIEWS * 4);
+    const dirs = new Float32Array(MAX_VIEWS * 4);
     samples.forEach(({ u, v }, k) => {
       data[4 * k] = alpha * (u - u0) * detail;
       data[4 * k + 1] = alpha * (v - v0) * detail;
       data[4 * k + 2] = 1;
+      dirs[4 * k] = (u - u0) * detail;
+      dirs[4 * k + 1] = (v - v0) * detail;
     });
     const score = this.scratch(w, h, 'focusScore');
     const flat = this.scratch(w, h, 'focusFlat');
@@ -3853,6 +3896,8 @@ export class GpuRenderer {
     this.bindTex(2, tex, gl.TEXTURE_2D_ARRAY);
     gl.uniform1i(P.u.uCount, samples.length);
     gl.uniform4fv(P.u.uView, data);
+    gl.uniform4fv(P.u.uDir, dirs);
+    gl.uniform1f(P.u.uDelta, FOCUS_MASK_DELTA);
     gl.uniform2f(P.u.uSize, w, h);
     gl.uniform1f(P.u.uClip, clip);
     this.draw();
@@ -3863,12 +3908,20 @@ export class GpuRenderer {
     this.bindTex(1, score);
     gl.uniform1f(P.u.uClip, clip);
     this.draw();
+    // (only where neighbors agree: see FOCUS_SUPPORT)
+    const kept = this.scratch(w, h, 'focusKept');
+    P = this.programs.focusSupport;
+    this.target(kept, w, h);
+    gl.useProgram(P.p);
+    gl.uniform1i(P.u.uSrc, 1);
+    this.bindTex(1, flat);
+    this.draw();
     P = this.programs.focusSpread;
     gl.useProgram(P.p);
     gl.uniform1i(P.u.uSrc, 1);
     gl.uniform1i(P.u.uRadius, 4);
     this.target(wide, w, h);
-    this.bindTex(1, flat);
+    this.bindTex(1, kept);
     gl.uniform2i(P.u.uDir, 1, 0);
     this.draw();
     this.target(mask, w, h);
