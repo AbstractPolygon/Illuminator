@@ -1539,6 +1539,54 @@ export const DEPTH_STEP = 0.04;
 // edges stay on the photo's edges. `confidence` (0..1 per pixel, optional)
 // lets well-measured values outweigh guesses. `amount` 0..1 sets how far
 // the smoothing reaches (repeated 5 x 5 passes). Returns a new array.
+// Depth values that are not numbers (NaN, or infinite) replaced by the mean of their valid neighbors, spreading in from the edges of each gap.
+// A graphics card can make them in a few pixels (a 0/0 in a shader); left in, every smoothing pass spreads each one over its 5 x 5 neighbors, so
+// the depth view showed black squares and the depth of field left square patches unblurred. Returns `alpha` itself when every value is a number.
+export function fillNonFinite(alpha, width, height) {
+  let bad = 0;
+  for (let i = 0; i < alpha.length; i++) if (!Number.isFinite(alpha[i])) bad++;
+  if (!bad) return alpha;
+  const out = Float32Array.from(alpha);
+  const ok = new Uint8Array(out.length);
+  for (let i = 0; i < out.length; i++) ok[i] = Number.isFinite(out[i]) ? 1 : 0;
+  if (bad === out.length) return out.fill(0);
+  let todo = [];
+  for (let i = 0; i < out.length; i++) if (!ok[i]) todo.push(i);
+  while (todo.length) {
+    const next = [];
+    const filled = [];
+    for (const i of todo) {
+      const x = i % width;
+      const y = (i - x) / width;
+      let sum = 0;
+      let n = 0;
+      for (let dy = -1; dy <= 1; dy++) {
+        const yy = y + dy;
+        if (yy < 0 || yy >= height) continue;
+        for (let dx = -1; dx <= 1; dx++) {
+          const xx = x + dx;
+          if ((dx === 0 && dy === 0) || xx < 0 || xx >= width) continue;
+          const j = yy * width + xx;
+          if (ok[j]) {
+            sum += out[j];
+            n++;
+          }
+        }
+      }
+      if (n) filled.push(i, sum / n);
+      else next.push(i);
+    }
+    // (filled after the pass, so each ring of a gap takes only values from outside it)
+    for (let k = 0; k < filled.length; k += 2) {
+      out[filled[k]] = filled[k + 1];
+      ok[filled[k]] = 1;
+    }
+    if (!filled.length) break;
+    todo = next;
+  }
+  return out;
+}
+
 export function smoothDepth(alpha, width, height, guide, { amount = 0.3, confidence = null, step = 0 } = {}) {
   const passes = Math.round(amount * 8);
   if (passes <= 0) return Float32Array.from(alpha);

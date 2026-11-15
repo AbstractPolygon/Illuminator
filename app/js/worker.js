@@ -25,7 +25,7 @@ import { removePeriodicPatternRepeatedly, removeLatticeByTiles } from './core/no
 import { snapDepthEdges, snapToObjects, softenObjectEdges, EDGE_SNAP_DEPTH } from './core/segments.js';
 import { methodDepthModel, readDepthModel } from './core/depthmodels.js';
 import { releaseDepthSession, runDepthModel, fitModelDepth, shapeModelDepth, fuseModelDepth } from './core/depthmodel.js';
-import { shapeDepthContrast, setDepthStyle, estimateDepth, estimateDepthPooled, poolable, DEPTH_FAST_SEARCH, focusAtPoint, smoothDepth, finishDepth, depthGuide, depthColorGuide, luminance, brightnessFloor, DEPTH_SEARCH, DEPTH_LCOST, DEPTH_CBCA, DEPTH_TRWS, DEPTH_COARSE, DEPTH_STEP, DEPTH_REGIONS, combineCoarse } from './core/depth.js';
+import { fillNonFinite, shapeDepthContrast, setDepthStyle, estimateDepth, estimateDepthPooled, poolable, DEPTH_FAST_SEARCH, focusAtPoint, smoothDepth, finishDepth, depthGuide, depthColorGuide, luminance, brightnessFloor, DEPTH_SEARCH, DEPTH_LCOST, DEPTH_CBCA, DEPTH_TRWS, DEPTH_COARSE, DEPTH_STEP, DEPTH_REGIONS, combineCoarse } from './core/depth.js';
 import { applyDepthOfField } from './core/dof.js';
 import { defringe, autoDefringe } from './core/defringe.js';
 import { makeLook, whiteBalanceGains, DEFAULT_KELVIN, solveWhiteBalance, autoWhiteBalance } from './core/color.js';
@@ -3244,12 +3244,16 @@ function applyDepthSmoothing() {
     state.pp.setSmoothing(amount);
     return;
   }
-  const raw = state.depthRaw;
-  if (!raw) return;
+  if (!state.depthRaw) return;
   const { outW, outH } = state.sampler;
+  // Values that are not numbers are filled from their neighbors first: each smoothing pass would spread one over its neighbors (core/depth.js fillNonFinite).
+  const rawAlpha = fillNonFinite(state.depthRaw.alpha, outW, outH);
+  const rawConf = state.depthRaw.confidence ? fillNonFinite(state.depthRaw.confidence, outW, outH) : null;
+  if (rawAlpha !== state.depthRaw.alpha || rawConf !== state.depthRaw.confidence) state.depthRaw = { ...state.depthRaw, alpha: rawAlpha, confidence: rawConf };
+  const raw = state.depthRaw;
   const guide = equalizedCenter();
   const smooth = state.gpu ? state.gpu.smoothDepth.bind(state.gpu) : smoothDepth;
-  let smoothed = smooth(raw.alpha, outW, outH, guide, { amount, confidence: raw.confidence, step: raw.flat ? DEPTH_STEP : 0 });
+  let smoothed = fillNonFinite(smooth(raw.alpha, outW, outH, guide, { amount, confidence: raw.confidence, step: raw.flat ? DEPTH_STEP : 0 }), outW, outH);
   // Object edges: the steps at the outlines made a ramp (Camera > Depth > Object edges, Smooth edges).
   const soft = (state.settings.depthObjectSoft ?? 0.3) * OBJECT_SOFT_MAX;
   if (state.settings.depthObjects && soft > 0 && state.objects && state.objects.w === outW && state.objects.h === outH) smoothed = softenObjectEdges(smoothed, state.objects.labels, outW, outH, soft);
@@ -3264,7 +3268,7 @@ function applyDepthSmoothing() {
   // Kept without the shift as well: the engine's own picture reads Lytro's depth as it is (lytroEdof).
   state.depthPlain = smoothed;
   const placed = shift || field ? mapF32(smoothed, (x, i) => x + shift + (field ? field[i] : 0)) : smoothed;
-  state.depth = { ...raw, alpha: shapeDepthContrast(placed, state.settings.depthContrast ?? 0) };
+  state.depth = { ...raw, alpha: fillNonFinite(shapeDepthContrast(placed, state.settings.depthContrast ?? 0), outW, outH) };
   // With "Apply to perspective shift": how much farther the reshaped depth is from the measured one at each pixel (the viewpoint's parallax is changed by that).
   state.depthParallax = state.settings.depthContrastPersp && state.depth.alpha !== placed ? mapF32(state.depth.alpha, (x, i) => x - placed[i]) : null;
   state.depthSmoothingApplied = amount;
