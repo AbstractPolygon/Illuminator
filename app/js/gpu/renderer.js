@@ -483,6 +483,9 @@ void main() {
   if (uSmooth > 0.0) e = e < uSmooth ? e * e / (2.0 * uSmooth) : e - 0.5 * uSmooth;
   float keep = uSharpOn == 1 ? texture(uSharp, n).r : 0.0;
   d = (d < 0.0 ? -1.0 : 1.0) * (uStrength * e * (1.0 - keep));
+  // A radius that is not a number (a depth that is not one) would break the whole 8 x 8 tile of the blur (DOF_TILES takes each tile's largest radius):
+  // that pixel is left as it is instead.
+  if (isnan(d) || isinf(d) || !(abs(d) < 1e6)) d = 0.0;
   float y = dot(c, vec3(0.2126, 0.7152, 0.0722));
   float knee = 0.8 * uClip;
   float t = clamp((y - knee) / (uClip - knee), 0.0, 1.0);
