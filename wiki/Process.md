@@ -2,7 +2,7 @@
 
 ## Looks
 
-A look is the color and tone of a photo's edits, kept so you can put it on other photos and share it. The list of looks is here, above *LUT*: click a look to put it on the open photo, *+ Save look…* keeps the open photo's settings as a new one, and *+ Import look…* adds a shared file. The details are in [[Library and Albums]].
+A look is the color and tone of a photo's edits, kept so you can put it on other photos and share it. The looks are a dropdown here, above *LUT*: choose a look to put it on the open photo, *+ Save look…* keeps the open photo's settings as a new one, and *+ Import look…* adds a shared file. The details are in [[Library and Albums]].
 
 ## LUT
 

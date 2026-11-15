@@ -828,6 +828,11 @@ label.lut-amount { margin-top: 14px; }
 .queue-view { flex: 1; min-height: 0; overflow: auto; padding: 16px 20px 24px; display: flex; flex-direction: column; gap: 12px; }
 .queue-top { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
 .queue-top h2 { margin: 0; font-size: 18px; }
+.look-row { display: flex; align-items: center; gap: 6px; margin: 0 0 4px; }
+.look-row select { flex: 1; min-width: 0; }
+.look-row input { flex: 1; min-width: 0; }
+.look-row .more { opacity: 1; flex: none; }
+.look-row .more:disabled { opacity: 0.35; cursor: default; }
 .queue-look { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--muted, #8b939e); }
 .queue-look select { max-width: 160px; }
 .queue-folder { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }

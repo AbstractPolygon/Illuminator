@@ -6,22 +6,29 @@ import { makeLook, parseLook, applyLookToEdits, describeLook, lookFileName } fro
 export function initLooks({ $, state, showMenu, editName, confirmInMenu, currentEdits, flushSave, applyEdits, scheduleSave, showNotice, showError, download }) {
   const hasPhoto = () => !!(state.info && state.current);
 
+  // The looks are a dropdown (choosing one puts it on the open photo); the ••• button beside it acts on the look shown.
+  let shown = '';
   function render() {
-    const list = $('look-list');
+    const row = $('look-row');
     const looks = state.lib ? state.lib.looks : [];
     $('look-save').disabled = !hasPhoto();
-    list.replaceChildren(...looks.map((entry) => {
-      const li = document.createElement('li');
-      const b = Object.assign(document.createElement('button'), { type: 'button', className: 'album', title: 'Puts this look on the open photo' });
-      b.append(Object.assign(document.createElement('span'), { className: 'name', textContent: entry.name }));
-      b.onclick = () => apply(entry.id);
-      const more = Object.assign(document.createElement('button'), { className: 'more', type: 'button', textContent: '•••', title: 'Apply, save as a file, rename, delete' });
-      more.setAttribute('aria-label', `Actions for look ${entry.name}`);
-      more.setAttribute('aria-haspopup', 'menu');
-      more.onclick = () => menu(entry.id, li, more);
-      li.append(b, more);
-      return li;
-    }));
+    if (!looks.some((l) => l.id === shown)) shown = '';
+    const select = Object.assign(document.createElement('select'), { title: 'Choose a look to put on the open photo' });
+    select.setAttribute('aria-label', 'Look');
+    select.append(new Option(looks.length ? 'Choose a look…' : 'No looks yet', ''));
+    for (const entry of looks) select.append(new Option(entry.name, entry.id));
+    select.value = shown;
+    select.disabled = !looks.length;
+    select.onchange = () => {
+      shown = select.value;
+      more.disabled = !shown;
+      if (shown) apply(shown);
+    };
+    const more = Object.assign(document.createElement('button'), { type: 'button', className: 'more', textContent: '•••', title: 'Apply, save as a file, rename, delete the look shown', disabled: !shown });
+    more.setAttribute('aria-label', 'Actions for the look shown');
+    more.setAttribute('aria-haspopup', 'menu');
+    more.onclick = () => menu(shown, row, more);
+    row.replaceChildren(select, more);
   }
 
   // Puts a look on the open photo: its settings over the photo's, as one undo step, saved like any change.
@@ -58,7 +65,7 @@ export function initLooks({ $, state, showMenu, editName, confirmInMenu, current
     }
   }
 
-  function menu(id, li, button) {
+  function menu(id, row, button) {
     const entry = state.lib.look(id);
     if (!entry) return;
     showMenu(button, [
@@ -66,7 +73,7 @@ export function initLooks({ $, state, showMenu, editName, confirmInMenu, current
       { label: 'Save as a file…', action: () => exportFile(id) },
       {
         label: 'Rename…',
-        action: () => editName(li, entry.name, async (name) => {
+        action: () => editName(row, entry.name, async (name) => {
           if (name) await state.lib.renameLook(id, name);
           render();
         }, 'Look name'),
@@ -76,6 +83,7 @@ export function initLooks({ $, state, showMenu, editName, confirmInMenu, current
         danger: true,
         action: () => confirmInMenu(`Delete the look “${entry.name}”? Photos it was put on keep their settings.`, 'Delete', async () => {
           await state.lib.deleteLook(id);
+          if (shown === id) shown = '';
           render();
         }),
       },
