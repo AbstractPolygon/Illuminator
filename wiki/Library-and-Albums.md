@@ -55,7 +55,7 @@ Albums are listed at the top of the left sidebar. The arrow beside the library n
 
 ## Looks
 
-A look is the color and tone of a photo's edits, kept so you can put it on other photos and share it. The **Looks** list is under *Library* in the left sidebar.
+A look is the color and tone of a photo's edits, kept so you can put it on other photos and share it. The **Looks** list is at the top of *Process* in the right sidebar, above *LUT*.
 
 - **+ Save look…** keeps the open photo's tone, color, curves, film look and LUT. The dialog names the look and lets you choose what else goes in it: sharpening and noise reduction (on), local adjustments (on) and white balance (off, because it belongs to the light of each photo). The focus, viewpoint, crop and export settings are never part of a look.
 - **Click a look** to put it on the open photo. Its settings replace the photo's for the same controls and the rest of the photo's settings stay; it is one undo step (Ctrl+Z). A look with local adjustments replaces the photo's local adjustments.
