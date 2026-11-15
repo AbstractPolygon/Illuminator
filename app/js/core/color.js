@@ -141,9 +141,13 @@ export function applyLook(px, look) {
     b *= k;
   }
   if (look.grade) {
-    const p = [r, g, b];
-    applyGrade(p, look.grade);
-    [r, g, b] = p;
+    px[0] = r;
+    px[1] = g;
+    px[2] = b;
+    applyGrade(px, look.grade);
+    r = px[0];
+    g = px[1];
+    b = px[2];
   }
   const mx = Math.max(r, g, b);
   const mn = Math.min(r, g, b);
