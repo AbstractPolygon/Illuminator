@@ -1425,7 +1425,7 @@ function checkRenderMemoryNow(sampler, scale, cpu) {
 }
 
 // (what the progress says when the picture comes from one kept before, not from the sensor)
-const KEPT_LABEL = 'Applying the changes to the kept picture';
+const KEPT_LABEL = 'Applying change';
 
 async function superRes({ id, job, alpha = 0, scale, u = 0, v = 0, aperture = 0, dof = 0, bokeh, passes = 0, masks = null, color = null, quiet = false, label = 'Rendering from the full sensor' }) {
   // (a full sensor render keeps to the views the sensor recorded: a viewpoint past the lens edge is taken at the edge)
