@@ -85,3 +85,26 @@ test('the look takes the grade, and applyLook applies it', () => {
   assert.ok(p[2] > p[0]);
   assert.equal(ZONES.length, 3);
 });
+
+test('the lookup tables give the same picture as the exact math (within a fiftieth of an 8-bit level)', () => {
+  const g = graded([zone(240, 0.8, 0.1), zone(120, 0.4, 0), zone(30, 0.7, -0.1)], { blend: 0.6, balance: 0.2 });
+  const exact = (px) => {
+    const y = 0.2126 * px[0] + 0.7152 * px[1] + 0.0722 * px[2];
+    const w = zoneWeights(g, Math.pow(Math.max(y, 0), 1 / 2.2));
+    return px.map((v, c) => {
+      const d = w[0] * g.offsets[0][c] + w[1] * g.offsets[1][c] + w[2] * g.offsets[2][c];
+      return Math.pow(Math.max(Math.pow(Math.max(v, 0), 1 / 2.2) + d, 0), 2.2);
+    });
+  };
+  let seed = 7;
+  const rnd = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296);
+  let worst = 0;
+  const samples = [[0, 0, 0], [1, 1, 1], [1e-7, 0, 3e-5], [0.5, 0.5, 0.5], [1.5, 0.2, 0.9], [2, 2, 2]];
+  for (let i = 0; i < 20000; i++) samples.push([Math.pow(rnd(), 2.2), Math.pow(rnd(), 2.2), Math.pow(rnd(), 2.2)]);
+  for (const px of samples) {
+    const got = grade(px, g);
+    const want = exact(px);
+    for (let c = 0; c < 3; c++) worst = Math.max(worst, Math.abs(255 * Math.pow(Math.max(got[c], 0), 1 / 2.2) - 255 * Math.pow(Math.max(want[c], 0), 1 / 2.2)));
+  }
+  assert.ok(worst < 0.02, `worst difference ${worst} levels`);
+});

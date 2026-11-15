@@ -49,14 +49,47 @@ export function zoneWeights(g, x) {
   return [1 - a, a - b, b];
 }
 
+// Lookup tables for the gamma 2.2 conversions (the per-pixel powers were most of the cost of grading). Going to gamma the table is indexed by the square root of the linear value,
+// where the curve is smooth down to black; coming back it is indexed by the gamma value. Both interpolate between entries (the error is under 0.02 of one 8-bit level); values
+// outside 0..1 use the exact power.
+const LUT_SIZE = 4096;
+const TO_GAMMA = new Float32Array(LUT_SIZE + 2);
+const FROM_GAMMA = new Float32Array(LUT_SIZE + 2);
+for (let i = 0; i <= LUT_SIZE + 1; i++) {
+  const t = i / LUT_SIZE;
+  TO_GAMMA[i] = Math.pow(t * t, 1 / 2.2);
+  FROM_GAMMA[i] = Math.pow(t, 2.2);
+}
+
+function toGamma(v) {
+  if (v <= 0) return 0;
+  if (v >= 1) return Math.pow(v, 1 / 2.2);
+  const f = Math.sqrt(v) * LUT_SIZE;
+  const i = f | 0;
+  return TO_GAMMA[i] + (TO_GAMMA[i + 1] - TO_GAMMA[i]) * (f - i);
+}
+
+function fromGamma(g) {
+  if (g <= 0) return 0;
+  if (g >= 1) return Math.pow(g, 2.2);
+  const f = g * LUT_SIZE;
+  const i = f | 0;
+  return FROM_GAMMA[i] + (FROM_GAMMA[i + 1] - FROM_GAMMA[i]) * (f - i);
+}
+
 // Grades one linear RGB pixel in place (`px`, length 3). `g` from gradeParams.
 export function applyGrade(px, g) {
   const y = 0.2126 * px[0] + 0.7152 * px[1] + 0.0722 * px[2];
-  const x = Math.pow(Math.max(y, 0), 1 / 2.2);
-  const w = zoneWeights(g, x);
+  const x = toGamma(y);
+  // the zone weights (zoneWeights, without making an array for every pixel)
+  const a = smoothstep(g.low - g.width, g.low + g.width, x);
+  const b = smoothstep(g.high - g.width, g.high + g.width, x);
+  const w0 = 1 - a;
+  const w1 = a - b;
+  const o = g.offsets;
   for (let c = 0; c < 3; c++) {
-    const d = w[0] * g.offsets[0][c] + w[1] * g.offsets[1][c] + w[2] * g.offsets[2][c];
-    px[c] = Math.pow(Math.max(Math.pow(Math.max(px[c], 0), 1 / 2.2) + d, 0), 2.2);
+    const d = w0 * o[0][c] + w1 * o[1][c] + b * o[2][c];
+    px[c] = fromGamma(toGamma(px[c]) + d);
   }
 }
 

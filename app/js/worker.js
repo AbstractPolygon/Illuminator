@@ -888,6 +888,7 @@ const openGuard = createStaleGuard(STALE_OPEN);
 function releasePhoto({ all = false } = {}) {
   state.lf = null;
   state.pp = null;
+  processedBuilt = null;
   state.sampler = null;
   for (const k of ['depth', 'depthRaw', 'depthPlain', 'depthParts', 'depthParallax', 'depth5', 'depthEngine', 'depthExact', 'depthOwn', 'depthOwnF', 'modelDepth', 'objects', 'userDepth', 'depthJob',
     'rawOriginal', 'rawFixed', 'rawWhite', 'rayWarp', 'rayWarpEdof', 'geoTable', 'geoTableExact', 'reconSource', 'rayField', 'refocusViews', 'kept', 'vignetting', 'center', 'exactOffsets',
@@ -971,6 +972,7 @@ async function open({ id, bytes, synthetic, userDepth = null, depthCache = null,
     t0 = t;
   };
   state.pp = null;
+  processedBuilt = null;
   const decoded = await decodeLightField(data, { onProgress });
   checkOpen();
   state.lf = decoded;
@@ -3627,14 +3629,24 @@ function processedBlur({ aperture = 0, dof = 0 }) {
   return aperture + (dof * 14) / Math.max(1e-6, r);
 }
 
-function processedPixels(params) {
+// The last picture the main view built (before its color pass), kept so a change to the color settings alone, such as a grading wheel, only runs the color pass again.
+// Nothing after it writes into it (each stage makes its own output). Keyed by the photo and by everything the picture depends on.
+let processedBuilt = null;
+
+function processedPixels(params, { reuse = false } = {}) {
   const pp = state.pp;
-  const rgb = pp.render({ ...params, blur: processedBlur(params) });
+  let rgb;
+  const key = reuse ? JSON.stringify(params) : null;
+  if (reuse && processedBuilt && processedBuilt.pp === pp && processedBuilt.key === key) rgb = processedBuilt.rgb;
+  else {
+    rgb = pp.render({ ...params, blur: processedBlur(params) });
+    processedBuilt = reuse ? { pp, key, rgb } : null;
+  }
   return toPixels(rgb, pp.width, pp.height, undefined, colorState(params.color));
 }
 
 async function processedView({ id, ...params }) {
-  const pixels = processedPixels(params);
+  const pixels = processedPixels(params, { reuse: true });
   post({ id, type: 'result', width: state.pp.width, height: state.pp.height, pixels: pixels.buffer }, [pixels.buffer]);
   return undefined;
 }
@@ -3711,7 +3723,7 @@ async function loseGpu() {
 }
 
 const handlers = { release, releaseDepthModel: async ({ model }) => { await releaseDepthSession(model); return {}; }, loseGpu, stillStore, stillData, memoryLimits: (limits) => { setMemoryLimits(limits); return {}; }, setLut, setCalibrations, measureWhite: measureWhiteImage, open, frames, refocusFrames, superRes, lytroEdof, superResPreview, view, focusAt, depthMap, spreadMask, depthHistogram, speedFacts, whiteBalanceAt, prepare, settings, setGrid, rawCrop, outputToSensor, readSection,
-  cancel: async ({ kind }) => { state.jobs[kind] = null; } };
+  cancel: async ({ kind }) => { state.jobs[kind] = null; return {}; } };
 
 self.onmessage = async (event) => {
   const msg = event.data;
