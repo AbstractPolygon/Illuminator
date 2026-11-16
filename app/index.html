@@ -257,7 +257,11 @@
     <aside class="controls" id="controls">
       <details class="panel">
         <summary><h2>Histogram</h2></summary>
-        <canvas id="histogram" width="256" height="80" role="img" aria-label="Histogram of the picture"></canvas>
+        <div id="hist-wrap" class="hist-wrap" title="Drag left or right to change Blacks, Shadows, Exposure, Highlights or Whites; double-click resets">
+          <canvas id="histogram" width="256" height="80" role="img" aria-label="Histogram of the picture"></canvas>
+          <div id="hist-zone" class="hist-zone" hidden></div>
+          <span id="hist-label" class="hist-label" hidden></span>
+        </div>
       </details>
 
       <details class="panel">

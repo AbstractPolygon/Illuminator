@@ -7,6 +7,7 @@ import { PreviewMirror } from './ui/previewmirror.js';
 import { initRetouch } from './ui/retouch.js';
 import { Selection } from './ui/selection.js';
 import { initColorGrading } from './ui/colorwheel.js';
+import { initHistogramEditing } from './ui/histedit.js';
 import { listLibraries, addLibrary, switchLibrary, renameLibrary, removeLibrary, librariesAreFolders } from './library/libraries.js';
 import { Timings, formatDuration, speedLimits, reportText } from './core/speedreport.js';
 import { initScriptingApi } from './ui/api.js';
@@ -4564,6 +4565,8 @@ const { getMasks, setMasks, maskLabel, TRASH_ICON, renderMasks, localSettings, s
 // Retouch (spot removal): the spots over the picture, and the tool that places them.
 retouchUi = initRetouch({ $, state, canvas, engine, applySettingsSoon: (...a) => applySettingsSoon(...a), scheduleSave: (...a) => scheduleSave(...a), viewPoint: (...a) => viewPoint(...a), sourceFraction: (...a) => sourceFraction(...a), canRender: (...a) => canRender(...a), showError: (...a) => showError(...a), applyMatrix, stillDepth: () => (!state.retouchTool && apertureFor(fNumber()).aperture > 0 ? +$('focus').value || 0 : 0), refocus: () => { if (state.fullRes) setFullRes(false, { restore: false }); if (!state.depthShown && canRender()) renderCamera(); } });
 const colorGrading = initColorGrading({ $, applySettingsSoon: (...a) => applySettingsSoon(...a), showSliderValue: (...a) => showSliderValue(...a) });
+// Dragging in the histogram moves Blacks, Shadows, Exposure, Highlights or Whites (ui/histedit.js).
+initHistogramEditing({ $, showSliderValue: (...a) => showSliderValue(...a), canEdit: () => !!state.info && state.mode === 'camera' });
 
 // keyframes: ui/keyframes.js
 const { MASK_LIMITS, parseMaskTrack, trackGroups, tracks, KEY_CONTROLS, settingControl, updateKeyButtons, groupCollapsed, shownTracks, groupHidden, trackName, tlSel, tlCurves, keyframesOn, animLength, loadAnimation, saveAnimation, liveFraming, combineMotion, showValue, previewAt, autoKey, playheadTime, clearSelection, selectKey, selectedKeys, moveKeys, selectedKey, viewWindow, tickStep, updatePlayhead, groupHeading, renderTimeline, timeAt, seekTimeline, seekTo, showAnimationLength, keyframeFrames } = initKeyframes({ $, getMasks, maskLabel, state, canRender: (...a) => canRender(...a), F_STOPS, scheduleSave: (...a) => scheduleSave(...a), invalidateAnimation: (...a) => invalidateAnimation(...a), backToCamera: (...a) => backToCamera(...a), renderCamera: (...a) => renderCamera(...a), showSliderValue: (...a) => showSliderValue(...a), setMasks, renderMasks, showFNumber: (...a) => showFNumber(...a), showFocusPoint: (...a) => showFocusPoint(...a), applySettingsSoon: (...a) => applySettingsSoon(...a), cameraChanged: (...a) => cameraChanged(...a), layoutCanvas: (...a) => layoutCanvas(...a), drawCurves: (...a) => drawCurves(...a), stopProcessing: (...a) => stopProcessing(...a), setPlaying: (...a) => setPlaying(...a), showFrame: (...a) => showFrame(...a), updateFrameLabel: (...a) => updateFrameLabel(...a), plotBox: (...a) => plotBox(...a), animationSettingsChanged: (...a) => animationSettingsChanged(...a), draw: (...a) => draw(...a), apertureFor: (...a) => apertureFor(...a), view, bokehParams: (...a) => bokehParams(...a), colorSettings: (...a) => colorSettings(...a) });
