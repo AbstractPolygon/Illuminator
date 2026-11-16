@@ -89,3 +89,27 @@ test('a header with a damaged extra key or lens is rejected, not half used', () 
   assert.equal(decodeProcessed(lens({ key: 'a', r0: 'x', c0: 0, rows: 1, cols: 1, dx: Float32Array.of(0), dy: Float32Array.of(0) })), null);
   assert.ok(decodeProcessed(lens({ key: 'a', r0: 0, c0: 0, rows: 1, cols: 1, dx: Float32Array.of(0), dy: Float32Array.of(0) })).lens);
 });
+
+test('the depth models\' maps are kept with the photo and read back, after the lens offsets and without a depth', async () => {
+  const { keptModels, modelDepthKey } = await import('../app/js/core/cachekeys.js');
+  const { CACHE_REV } = await import('../app/js/core/cacherev.js');
+  const state = { lf: { photoId: 'P', grid: {} }, openGrid: '{}', settings: { detail: 1 } };
+  const key = modelDepthKey(state, { id: 'da2' }, 4, 3);
+  const rel = Float32Array.from({ length: 12 }, (_, i) => i / 12);
+  const lens = { key: 'k', r0: 0, c0: 0, rows: 2, cols: 2, dx: new Float32Array(4).fill(0.5), dy: new Float32Array(4).fill(-0.5) };
+  for (const l of [null, lens]) {
+    const back = decodeProcessed(encodeProcessed({ key: 'a', w: 2, h: 2, alpha: new Float32Array(4), lens: l, models: [{ key, w: 4, h: 3, rel }] }).buffer);
+    assert.equal(back.models.length, 1);
+    assert.deepEqual([...back.models[0].rel], [...rel]);
+    if (l) assert.deepEqual([...back.lens.dx], [...lens.dx]);
+    const kept = keptModels(back);
+    assert.deepEqual([...kept.get(key).rel], [...rel]);
+  }
+  // another model, another size or another revision is another key
+  assert.notEqual(key, modelDepthKey(state, { id: 'midas' }, 4, 3));
+  assert.notEqual(key, modelDepthKey(state, { id: 'da2' }, 8, 6));
+  assert.equal(JSON.parse(key).rev, CACHE_REV);
+  assert.equal(keptModels({ models: [{ key: JSON.stringify({ rev: CACHE_REV - 1 }), w: 1, h: 1, rel: new Float32Array(1) }] }).size, 0);
+  // a file from before the models has none
+  assert.deepEqual(decodeProcessed(encodeProcessed({ key: 'a', w: 2, h: 2, alpha: new Float32Array(4) }).buffer).models, []);
+});
