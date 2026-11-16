@@ -3797,7 +3797,7 @@ function showBokehShape() {
   $('bokeh-spots-row').hidden = !shaped;
   // the ball's character, in a group of its own, and Swirl with some Cat's-eye
   $('bokeh-ball-group').hidden = !shaped;
-  $('bokeh-swirl-row').hidden = !(+$('bokeh-cat').value > 0);
+  // (Swirl always shows: it turns the cat's-eye lenses, so moving it brings some Cat's-eye in)
   // (the streak's length and the starburst's spikes with some of each)
   $('bokeh-streak-len-row').hidden = !(+$('bokeh-streak').value > 0);
   $('bokeh-streak-threshold-row').hidden = !(+$('bokeh-streak').value > 0);
@@ -3903,6 +3903,11 @@ $('bokeh-image-file').onchange = async () => {
 
 for (const id of ['fstop', 'bokeh', 'dof-depth', 'highlights', 'spread', 'spread-smooth', 'spread-blur', 'tilt', 'tilt-rotation', ...BOKEH_SHAPE]) {
   $(id).oninput = () => {
+    // Swirl turns the cat's-eye lenses: with none, it brings some in so the slider shows something
+    if (id === 'bokeh-swirl' && +$(id).value > 0 && !(+$('bokeh-cat').value > 0)) {
+      $('bokeh-cat').value = 60;
+      showSliderValue($('bokeh-cat'));
+    }
     // (these two decide which other settings show)
     if (id === 'bokeh' || id === 'bokeh-onion' || id === 'bokeh-onion-on' || id === 'bokeh-cat' || id === 'bokeh-streak' || id === 'bokeh-star') showBokehShape();
     // (the f-stop, Depth, Focus Spread and Tilt change Optical's ball too)

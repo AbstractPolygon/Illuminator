@@ -2231,7 +2231,7 @@ async function settings({ id, settings: s }) {
     || (s.depthContrastPersp !== undefined && !!s.depthContrastPersp !== !!state.settings.depthContrastPersp);
   const modelOf = (v) => (methodDepthModel(v) ? v : null);
   const modelChanged = s.depthStyle !== undefined && modelOf(s.depthStyle) !== modelOf(state.settings.depthStyle);
-  const modelBlendChanged = (s.depthModelBlend !== undefined && s.depthModelBlend !== (state.settings.depthModelBlend ?? 0.7))
+  const modelBlendChanged = (s.depthModelBlend !== undefined && s.depthModelBlend !== (state.settings.depthModelBlend ?? 1))
     || (s.depthModelSmooth !== undefined && s.depthModelSmooth !== (state.settings.depthModelSmooth ?? 0))
     || (s.depthModelCurve !== undefined && s.depthModelCurve !== (state.settings.depthModelCurve ?? 0.5));
   const objectSoftChanged = s.depthObjectSoft !== undefined && s.depthObjectSoft !== (state.settings.depthObjectSoft ?? 0.3);
@@ -3294,7 +3294,7 @@ function applyDepthSmoothing() {
   const model = methodDepthModel(state.settings.depthStyle);
   if (model && state.modelDepth && state.modelDepth.id === model.id && state.modelDepth.sampler === state.sampler) {
     const shaped = shapedModelDepth();
-    smoothed = fuseModelDepth(smoothed, shaped.rel, shaped.fit, state.settings.depthModelBlend ?? 0.7);
+    smoothed = fuseModelDepth(smoothed, shaped.rel, shaped.fit, state.settings.depthModelBlend ?? 1);
   }
   // Moved by the focus offset found for this photo (see superRes).
   const shift = (state.focusOffset || 0) * LAMBDA_TO_ALPHA + rayWarpShift();
