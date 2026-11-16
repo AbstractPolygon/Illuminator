@@ -46,3 +46,24 @@ test('why it matters: one NaN, smoothed, becomes a square of NaN; filled first, 
   const clean = smoothDepth(fillNonFinite(a, w, h), w, h, guide, { amount: 0.3 });
   assert.equal(clean.filter((v) => !Number.isFinite(v)).length, 0);
 });
+
+test('depth statistics for the speed report count values that are not numbers and spikes', async () => {
+  const { depthStats } = await import('../app/js/core/depth.js');
+  const w = 10;
+  const h = 8;
+  const a = new Float32Array(w * h).fill(0.1);
+  a[3 * w + 4] = 0.9; // a spike
+  a[5 * w + 6] = NaN;
+  const s = depthStats(a, w, h);
+  assert.equal(s.pixels, 80);
+  assert.equal(s.nonFinite, 1);
+  assert.equal(s.spikes, 1);
+  assert.ok(Math.abs(s.min - 0.1) < 1e-6 && Math.abs(s.max - 0.9) < 1e-6);
+});
+
+test('the speed report lists the depth map stages', async () => {
+  const { reportText } = await import('../app/js/core/speedreport.js');
+  const text = reportText({ version: '0.7.5', facts: { renderer: 'GPU (test)', hardware: true, depth: { style: 'match', quality: 'normal', smoothing: 'graphics card', stages: [{ stage: 'measured', pixels: 100, nonFinite: 2, min: -0.5, max: 0.7, spikes: 3 }] } } });
+  assert.match(text, /Depth map \(match, normal quality, smoothed on the graphics card\):/);
+  assert.match(text, /measured: 100 pixels, 2 not numbers, range -0\.500 to 0\.700, 3 spikes/);
+});

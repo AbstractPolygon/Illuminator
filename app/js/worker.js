@@ -25,7 +25,7 @@ import { removePeriodicPatternRepeatedly, removeLatticeByTiles } from './core/no
 import { snapDepthEdges, snapToObjects, softenObjectEdges, EDGE_SNAP_DEPTH } from './core/segments.js';
 import { methodDepthModel, readDepthModel } from './core/depthmodels.js';
 import { releaseDepthSession, runDepthModel, fitModelDepth, shapeModelDepth, fuseModelDepth } from './core/depthmodel.js';
-import { fillNonFinite, shapeDepthContrast, setDepthStyle, estimateDepth, estimateDepthPooled, poolable, DEPTH_FAST_SEARCH, focusAtPoint, smoothDepth, finishDepth, depthGuide, depthColorGuide, luminance, brightnessFloor, DEPTH_SEARCH, DEPTH_LCOST, DEPTH_CBCA, DEPTH_TRWS, DEPTH_COARSE, DEPTH_STEP, DEPTH_REGIONS, combineCoarse } from './core/depth.js';
+import { depthStats, fillNonFinite, shapeDepthContrast, setDepthStyle, estimateDepth, estimateDepthPooled, poolable, DEPTH_FAST_SEARCH, focusAtPoint, smoothDepth, finishDepth, depthGuide, depthColorGuide, luminance, brightnessFloor, DEPTH_SEARCH, DEPTH_LCOST, DEPTH_CBCA, DEPTH_TRWS, DEPTH_COARSE, DEPTH_STEP, DEPTH_REGIONS, combineCoarse } from './core/depth.js';
 import { applyDepthOfField } from './core/dof.js';
 import { defringe, autoDefringe } from './core/defringe.js';
 import { makeLook, whiteBalanceGains, DEFAULT_KELVIN, solveWhiteBalance, autoWhiteBalance } from './core/color.js';
@@ -2517,6 +2517,7 @@ function speedFacts() {
   return {
     renderer: state.gpu ? `GPU (${state.gpu.name})` : 'CPU',
     hardware: hardwareGpu(),
+    depth: state.depthReport || null,
     fallbacks: [...(state.cpuFallbacks || new Map())].map(([step, error]) => [step, String(error).slice(0, 120)]),
     cores: (typeof navigator !== 'undefined' && navigator.hardwareConcurrency) || 0,
     memoryGB: (typeof navigator !== 'undefined' && navigator.deviceMemory) || null,
@@ -3249,6 +3250,10 @@ function applyDepthSmoothing() {
   }
   if (!state.depthRaw) return;
   const { outW, outH } = state.sampler;
+  // For the speed report: what the depth looked like at each step (dots in the depth view show there as spikes or values that are not numbers).
+  const report = { style: resolveDepthStyle(state.settings.depthStyle), quality: state.settings.depthQuality ?? 'normal', smoothing: state.gpu ? 'graphics card' : 'processor', stages: [] };
+  const note = (stage, a) => report.stages.push({ stage, ...depthStats(a, outW, outH) });
+  note('measured', state.depthRaw.alpha);
   // Values that are not numbers are filled from their neighbors first: each smoothing pass would spread one over its neighbors (core/depth.js fillNonFinite).
   const rawAlpha = fillNonFinite(state.depthRaw.alpha, outW, outH);
   const rawConf = state.depthRaw.confidence ? fillNonFinite(state.depthRaw.confidence, outW, outH) : null;
@@ -3256,7 +3261,9 @@ function applyDepthSmoothing() {
   const raw = state.depthRaw;
   const guide = equalizedCenter();
   const smooth = state.gpu ? state.gpu.smoothDepth.bind(state.gpu) : smoothDepth;
-  let smoothed = fillNonFinite(smooth(raw.alpha, outW, outH, guide, { amount, confidence: raw.confidence, step: raw.flat ? DEPTH_STEP : 0 }), outW, outH);
+  const smoothedRaw = smooth(raw.alpha, outW, outH, guide, { amount, confidence: raw.confidence, step: raw.flat ? DEPTH_STEP : 0 });
+  note('smoothed', smoothedRaw);
+  let smoothed = fillNonFinite(smoothedRaw, outW, outH);
   // Object edges: the steps at the outlines made a ramp (Camera > Depth > Object edges, Smooth edges).
   const soft = (state.settings.depthObjectSoft ?? 0.3) * OBJECT_SOFT_MAX;
   if (state.settings.depthObjects && soft > 0 && state.objects && state.objects.w === outW && state.objects.h === outH) smoothed = softenObjectEdges(smoothed, state.objects.labels, outW, outH, soft);
@@ -3272,6 +3279,8 @@ function applyDepthSmoothing() {
   state.depthPlain = smoothed;
   const placed = shift || field ? mapF32(smoothed, (x, i) => x + shift + (field ? field[i] : 0)) : smoothed;
   state.depth = { ...raw, alpha: fillNonFinite(shapeDepthContrast(placed, state.settings.depthContrast ?? 0), outW, outH) };
+  note('final', state.depth.alpha);
+  state.depthReport = report;
   // With "Apply to perspective shift": how much farther the reshaped depth is from the measured one at each pixel (the viewpoint's parallax is changed by that).
   state.depthParallax = state.settings.depthContrastPersp && state.depth.alpha !== placed ? mapF32(state.depth.alpha, (x, i) => x - placed[i]) : null;
   state.depthSmoothingApplied = amount;
