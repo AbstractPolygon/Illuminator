@@ -811,6 +811,12 @@ void main() {
     // Half size: one pixel per 2 x 2 block, at the block's center.
     ivec2 q = min(p * 2, size - 1);
     vec4 c = texelFetch(uPrep, q, 0);
+    // (nothing within reach is blurred strongly enough to be drawn from here: the full size pass does this block)
+    ivec2 t = clamp(q / ${DOF_TILE}, ivec2(0), textureSize(uTiles, 0) - 1);
+    if (texelFetch(uTiles, t, 0).r < uHalfFrom - 1.0) {
+      outColor = vec4(c.rgb, c.a);
+      return;
+    }
     outColor = vec4(gather(vec2(p * 2) + 0.5, c, size, false), c.a);
     return;
   }

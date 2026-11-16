@@ -3,6 +3,7 @@
 // downloaded once, when the setting is first turned on, and kept in the
 // browser's cache. Used for depth edges (core/objects.js, core/segments.js).
 
+import { loadOrt } from './ortload.js';
 import { nthSmallest } from './typed.js';
 
 import { sha256Hex } from './upscalemodels.js';
@@ -87,9 +88,7 @@ function disposeTensor(t) {
 
 export function loadSegModel(onProgress = () => {}) {
   loading ??= (async () => {
-    const ort = await import('../../vendor/ort/ort.webgpu.min.mjs');
-    ort.env.wasm.wasmPaths = new URL('../../vendor/ort/', import.meta.url).href;
-    ort.env.wasm.numThreads = 1;
+    const ort = await loadOrt();
     const enc = await modelBytes(SEG_FILES.encoder, (p) => onProgress('Downloading object model', p * 0.65));
     const dec = await modelBytes(SEG_FILES.decoder, (p) => onProgress('Downloading object model', 0.65 + p * 0.35));
     onProgress('Loading object model', 1);

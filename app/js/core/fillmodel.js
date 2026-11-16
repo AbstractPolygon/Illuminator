@@ -7,6 +7,7 @@
 // The model is not part of the app's download: it is fetched when its box in Settings > Fill model is ticked, from the pinned revision of the repository that publishes it
 // (Hugging Face, by the paper's first author), checked against its size and SHA-256, and kept in the browser's cache until the box is unticked.
 
+import { loadOrt } from './ortload.js';
 import { sha256Hex } from './upscalemodels.js';
 import { aiUpscaleAvailable } from './aiupscale.js';
 
@@ -81,9 +82,7 @@ let pending = null;
 async function session() {
   if (!pending) {
     pending = (async () => {
-      const ort = await import('../../vendor/ort/ort.webgpu.min.mjs');
-      ort.env.wasm.wasmPaths = new URL('../../vendor/ort/', import.meta.url).href;
-      ort.env.wasm.numThreads = 1;
+      const ort = await loadOrt();
       const bytes = await readFillModel();
       let s = null;
       if (await aiUpscaleAvailable()) {
