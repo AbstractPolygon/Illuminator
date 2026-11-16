@@ -498,13 +498,15 @@
         </details>
         <details class="subpanel">
           <summary><h3>Bokeh</h3></summary>
-          <canvas id="bokeh-preview" class="bokeh-preview" width="480" height="192" title="How an out of focus point of light looks with these settings"></canvas>
+          <canvas id="bokeh-preview" class="bokeh-preview" width="360" height="240" title="How an out of focus point of light looks with these settings"></canvas>
           <label>Shape
             <select id="bokeh">
               <option value="natural">Natural</option>
               <option value="optical">Optical (softer)</option>
               <option value="circle">Circle</option>
               <option value="blades">Blades</option>
+              <option value="star">Star</option>
+              <option value="heart">Heart</option>
               <option value="custom">Custom image</option>
             </select>
           </label>
@@ -516,10 +518,19 @@
           <label id="bokeh-blades-row" title="Number of aperture blades: the bokeh's number of sides" hidden>Blades <output data-for="bokeh-blades" for="bokeh-blades">6</output>
             <input id="bokeh-blades" type="range" min="3" max="32" step="1" value="6" data-default="6">
           </label>
+          <label id="bokeh-points-row" title="Number of the star's points" hidden>Points <output data-for="bokeh-points" for="bokeh-points">5</output>
+            <input id="bokeh-points" type="range" min="3" max="12" step="1" value="5" data-default="5">
+          </label>
+          <label id="bokeh-inner-row" title="How deep the notches between the star's points go: lower is a thinner, spikier star" hidden>Inner radius <output data-for="bokeh-inner" for="bokeh-inner">45</output>
+            <input id="bokeh-inner" type="range" min="10" max="90" step="1" value="45" data-default="45">
+          </label>
+          <label id="bokeh-width-row" title="Makes the heart narrower or wider" hidden>Width <output data-for="bokeh-width" for="bokeh-width">100</output>
+            <input id="bokeh-width" type="range" min="60" max="140" step="1" value="100" data-default="100">
+          </label>
           <label id="bokeh-oval-row" title="Stretches the circle into an oval, like the cat's-eye bokeh near a lens's edges" hidden>Oval <output data-for="bokeh-oval" for="bokeh-oval">0</output>
             <input id="bokeh-oval" type="range" min="0" max="100" step="1" value="0" data-default="0">
           </label>
-          <label id="bokeh-rotation-row" title="Turns the blades, the oval or the custom shape" hidden>Rotation <output data-for="bokeh-rotation" for="bokeh-rotation">0°</output>
+          <label id="bokeh-rotation-row" title="Turns the blades, the oval, the star, the heart or the custom shape" hidden>Rotation <output data-for="bokeh-rotation" for="bokeh-rotation">0°</output>
             <input id="bokeh-rotation" type="range" min="-90" max="90" step="1" value="0" data-default="0">
           </label>
           <label id="bokeh-onion-row" title="Onion rings: concentric rings inside each bokeh ball, like those from aspherical lens elements" hidden>Onion <output data-for="bokeh-onion" for="bokeh-onion">0</output>

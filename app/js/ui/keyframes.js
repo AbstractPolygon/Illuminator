@@ -28,7 +28,7 @@ export function initKeyframes({ $, getMasks, maskLabel, state, canRender, F_STOP
   // picture is drawn, like the pivot.
   const TRACK_NAMES = {
     aperture: 'Aperture', depth: 'Depth of field', focus: 'Focus', view: 'Viewpoint', zoom: 'Zoom', panX: 'Pan X', panY: 'Pan Y', pivot: 'Pivot depth',
-    pointX: 'Focus point X', pointY: 'Focus point Y', spread: 'Spread', spreadSmooth: 'Smoothing', spreadBlur: 'Blur', tilt: 'Tilt', tiltRotation: 'Rotation', highlights: 'Highlights', bokehBlades: 'Blades', bokehOval: 'Oval', bokehRotation: 'Bokeh rotation', bokehOnion: 'Onion',
+    pointX: 'Focus point X', pointY: 'Focus point Y', spread: 'Spread', spreadSmooth: 'Smoothing', spreadBlur: 'Blur', tilt: 'Tilt', tiltRotation: 'Rotation', highlights: 'Highlights', bokehBlades: 'Blades', bokehOval: 'Oval', bokehRotation: 'Bokeh rotation', bokehOnion: 'Onion', bokehPoints: 'Points', bokehInner: 'Inner radius', bokehWidth: 'Heart width',
     amount: 'Amount', near: 'Near', far: 'Far',
   };
 
@@ -41,13 +41,13 @@ export function initKeyframes({ $, getMasks, maskLabel, state, canRender, F_STOP
     { id: 'cam-tilt', name: 'Tilt', tracks: ['tilt', 'tiltRotation'], when: () => $('tilt-on').checked },
     { id: 'cam-perspective', name: 'Perspective', tracks: ['view', 'pivot'] },
     // The shape's settings show (and count) while their sliders do (the bokeh shape decides which).
-    { id: 'cam-bokeh', name: 'Bokeh', tracks: ['bokehBlades', 'bokehOval', 'bokehRotation', 'bokehOnion', 'highlights'] },
+    { id: 'cam-bokeh', name: 'Bokeh', tracks: ['bokehBlades', 'bokehPoints', 'bokehInner', 'bokehWidth', 'bokehOval', 'bokehRotation', 'bokehOnion', 'highlights'] },
   ];
 
   // The Animation panel's tracks, by what is animated: Framing with
   // keyframes, Amount with the viewpoint path, Near and Far with the focus
   // sweep.
-  const BOKEH_TRACK_ROWS = { bokehBlades: 'bokeh-blades-row', bokehOval: 'bokeh-oval-row', bokehRotation: 'bokeh-rotation-row', bokehOnion: 'bokeh-onion-row' };
+  const BOKEH_TRACK_ROWS = { bokehBlades: 'bokeh-blades-row', bokehOval: 'bokeh-oval-row', bokehRotation: 'bokeh-rotation-row', bokehOnion: 'bokeh-onion-row', bokehPoints: 'bokeh-points-row', bokehInner: 'bokeh-inner-row', bokehWidth: 'bokeh-width-row' };
 
   const ANIMATION_SECTIONS = [
     { id: 'anim-framing', name: 'Framing', tracks: ['zoom', 'panX', 'panY'], mode: 'keyframes' },
@@ -133,7 +133,7 @@ export function initKeyframes({ $, getMasks, maskLabel, state, canRender, F_STOP
     fstop: ['aperture'], 'dof-depth': ['depth'], 'focus-point': ['focus', 'pointX', 'pointY'],
     spread: ['spread'], 'spread-smooth': ['spreadSmooth'], 'spread-blur': ['spreadBlur'], tilt: ['tilt'], 'tilt-rotation': ['tiltRotation'],
     viewpoint: ['view'], pivot: ['pivot'], highlights: ['highlights'],
-    'bokeh-blades': ['bokehBlades'], 'bokeh-oval': ['bokehOval'], 'bokeh-rotation': ['bokehRotation'], 'bokeh-onion': ['bokehOnion'],
+    'bokeh-blades': ['bokehBlades'], 'bokeh-oval': ['bokehOval'], 'bokeh-rotation': ['bokehRotation'], 'bokeh-onion': ['bokehOnion'], 'bokeh-points': ['bokehPoints'], 'bokeh-inner': ['bokehInner'], 'bokeh-width': ['bokehWidth'],
     'frame-zoom': ['zoom'], 'frame-pan-x': ['panX'], 'frame-pan-y': ['panY'],
     amount: ['amount'], near: ['near'], far: ['far'],
   };
@@ -465,6 +465,9 @@ export function initKeyframes({ $, getMasks, maskLabel, state, canRender, F_STOP
       case 'bokehOval': return +$('bokeh-oval').value;
       case 'bokehRotation': return +$('bokeh-rotation').value;
       case 'bokehOnion': return +$('bokeh-onion').value;
+      case 'bokehPoints': return +$('bokeh-points').value;
+      case 'bokehInner': return +$('bokeh-inner').value;
+      case 'bokehWidth': return +$('bokeh-width').value;
       case 'amount': return +$('amount').value;
       case 'near': return +$('near').value;
       case 'far': return +$('far').value;
@@ -473,7 +476,7 @@ export function initKeyframes({ $, getMasks, maskLabel, state, canRender, F_STOP
   }
 
   // Camera tracks set straight from a slider.
-  const TRACK_SLIDERS = { spread: 'spread', spreadSmooth: 'spread-smooth', spreadBlur: 'spread-blur', tilt: 'tilt', tiltRotation: 'tilt-rotation', highlights: 'highlights', bokehBlades: 'bokeh-blades', bokehOval: 'bokeh-oval', bokehRotation: 'bokeh-rotation', bokehOnion: 'bokeh-onion', amount: 'amount', near: 'near', far: 'far' };
+  const TRACK_SLIDERS = { spread: 'spread', spreadSmooth: 'spread-smooth', spreadBlur: 'spread-blur', tilt: 'tilt', tiltRotation: 'tilt-rotation', highlights: 'highlights', bokehBlades: 'bokeh-blades', bokehOval: 'bokeh-oval', bokehRotation: 'bokeh-rotation', bokehOnion: 'bokeh-onion', bokehPoints: 'bokeh-points', bokehInner: 'bokeh-inner', bokehWidth: 'bokeh-width', amount: 'amount', near: 'near', far: 'far' };
 
   // Shows a keyframe's value in the controls (and the picture).
   // Sets the control behind track k to v.

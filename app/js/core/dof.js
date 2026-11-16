@@ -61,20 +61,78 @@ export function decodeBokehImage(text) {
 // The kernel's shape from the bokeh options. kind: 0 smooth, 1 circle, 2
 // blades, 3 custom (an image, see above; a circle when there is none). aspect: the oval's width to height (1 = round). cos, sin: the
 // rotation. 'hexagon' is the six-blade shape of older edits.
-export function bokehKernel({ shape = 'smooth', blades = 6, oval = 0, rotation = 0, onion = 0, image = '' } = {}) {
-  const custom = shape === 'custom' ? decodeBokehImage(image) : null;
-  const kind = custom ? 3 : shape === 'blades' || shape === 'hexagon' ? 2 : shape === 'circle' || shape === 'custom' ? 1 : 0;
+// 'optical': the lens's own ball, a disc whose edge softens over a quarter of its radius (soft), what the camera's views averaged look like (Natural, 'smooth',
+// is a Gaussian glow).
+export const OPTICAL_SOFT = 0.25;
+// The built-in drawn shapes, made as a custom shape's image is (the star with a tip up, the heart with its point down): Star (points, inner: the notches' radius over
+// the tips', 0.1..0.9) and Heart (width: 0.6..1.4 of its usual width).
+const drawn = new Map();
+export function drawnShape(shape, { points = 5, inner = 0.45, width = 1 } = {}) {
+  const key = shape === 'star' ? `star:${Math.round(points)}:${inner.toFixed(3)}` : `heart:${width.toFixed(3)}`;
+  if (drawn.has(key)) return drawn.get(key);
+  const N = BOKEH_IMAGE_SIZE;
+  const mask = new Float32Array(N * N);
+  const n = Math.max(3, Math.min(12, Math.round(points)));
+  const ri = Math.max(0.1, Math.min(0.9, inner));
+  const pts = [];
+  for (let i = 0; i < 2 * n; i++) {
+    const r = i % 2 ? ri : 1;
+    const a = (i * Math.PI) / n;
+    pts.push([Math.sin(a) * r, -Math.cos(a) * r]);
+  }
+  const inStar = (x, y) => {
+    let c = false;
+    for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+      const [xi, yi] = pts[i];
+      const [xj, yj] = pts[j];
+      if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) c = !c;
+    }
+    return c;
+  };
+  // The heart curve (x^2 + y^2 - 1)^3 <= x^2 y^3, y up, fitted into the square: it spans x +-1.14 and y -1 to 1.24.
+  const wf = Math.max(0.6, Math.min(1.4, width));
+  // (a heart wider than usual is made smaller as a whole, so it still fits its square)
+  const fit = 1.2 * Math.max(1, wf);
+  const inHeart = (x, y) => {
+    const X = (x * fit) / wf;
+    const Y = -y * fit + 0.12;
+    const a = X * X + Y * Y - 1;
+    return a * a * a - X * X * Y * Y * Y <= 0;
+  };
+  const inside = shape === 'star' ? inStar : inHeart;
+  // (4 x 4 samples a pixel, for smooth edges)
+  let sum = 0;
+  for (let y = 0; y < N; y++) {
+    for (let x = 0; x < N; x++) {
+      let c = 0;
+      for (let j = 0; j < 4; j++) for (let i = 0; i < 4; i++) if (inside(((x + (i + 0.5) / 4) / N) * 2 - 1, ((y + (j + 0.5) / 4) / N) * 2 - 1)) c++;
+      sum += mask[y * N + x] = c / 16;
+    }
+  }
+  const out = { mask, area: ((4 * sum) / (N * N)) / Math.PI, key };
+  if (drawn.size > 16) drawn.clear();
+  drawn.set(key, out);
+  return out;
+}
+
+export function bokehKernel({ shape = 'smooth', blades = 6, oval = 0, rotation = 0, onion = 0, image = '', points = 5, inner = 0.45, width = 1 } = {}) {
+  const custom = shape === 'custom' ? decodeBokehImage(image) : shape === 'star' || shape === 'heart' ? drawnShape(shape, { points, inner, width }) : null;
+  const optical = shape === 'optical';
+  const kind = custom ? 3 : shape === 'blades' || shape === 'hexagon' ? 2 : shape === 'circle' || shape === 'custom' || optical ? 1 : 0;
+  // (what names the shape's picture, so the graphics card uploads it again only when it changes)
+  const imageKey = custom ? (custom.key || image) : '';
   const a = (rotation * Math.PI) / 180;
   return {
     kind,
     blades: Math.max(3, Math.min(32, Math.round(shape === 'hexagon' ? 6 : blades))),
-    aspect: kind === 1 ? 1 - 0.6 * Math.max(0, Math.min(1, oval)) : 1,
+    aspect: kind === 1 && !optical ? 1 - 0.6 * Math.max(0, Math.min(1, oval)) : 1,
+    soft: optical ? OPTICAL_SOFT : 0,
     cos: Math.cos(a),
     sin: Math.sin(a),
-    onion: kind === 0 ? 0 : Math.max(0, Math.min(1, onion)),
+    onion: kind === 0 || optical ? 0 : Math.max(0, Math.min(1, onion)),
     mask: custom ? custom.mask : null,
     area: custom ? custom.area : 1,
-    image: custom ? image : '',
+    image: imageKey,
   };
 }
 
@@ -109,9 +167,16 @@ export function kernelDistance(k, x, y) {
 }
 
 // Onion rings: brightness at distance t (0 center, 1 edge), averaging 1.
-export const ONION_RINGS = 3;
+// As from a molded aspherical element: many fine rings, closer together and stronger toward the edge (the mold's tool marks), and a bright rim where the
+// light piles up at the edge of the opening. At 1 the rings swing about +-45% at the edge and the rim is about 70% brighter.
+export const ONION_RINGS = 6;
 export function onionGain(onion, t) {
-  return 1 + onion * 0.6 * Math.cos(2 * Math.PI * ONION_RINGS * t);
+  const tt = Math.max(0, Math.min(1, t));
+  const ph = 2 * Math.PI * ONION_RINGS * tt ** 1.5;
+  // (a second, finer ripple makes the rings uneven, as tool marks are)
+  const rings = (0.15 + 0.3 * tt) * (0.75 * Math.cos(ph) + 0.25 * Math.cos(2.3 * ph + 1));
+  const rim = 0.7 * Math.exp(-(((1 - tt) / 0.07) ** 2));
+  return Math.max(0, 1 + onion * (rings + rim));
 }
 
 // Kernel rows at radius r: [dy, x0, x1] spans (inclusive) inside the shape.
@@ -249,7 +314,12 @@ function boxBlur(src, w, h, r) {
 
 function blur(src, w, h, r, k) {
   if (r < 1) return src;
-  if (k.kind) return shapedBlur(src, w, h, r, k);
+  if (k.kind) {
+    const out = shapedBlur(src, w, h, r, k);
+    // (a soft edge: the disc spread over the edge's width)
+    const e = Math.round((k.soft * r) / 2);
+    return e >= 1 ? boxBlur(out, w, h, e) : out;
+  }
   // Two box passes approximate a Gaussian.
   return boxBlur(boxBlur(src, w, h, Math.round(r)), w, h, Math.round(r));
 }
@@ -382,7 +452,9 @@ export function bokehBall(k, size, r) {
           t = Math.hypot(dx, dy) / r;
         } else {
           t = kernelDistance(k, dx, dy) / r;
-          v = Math.max(0, Math.min(1, r + 0.5 - t * r));
+          v = Math.max(0, Math.min(1, (r + (k.soft * r) / 2 + 0.5 - t * r) / (k.soft * r + 1)));
+          // (the rings come from the lens's glass, not the blades: round whatever the blades' shape)
+          if (k.kind === 2) t = Math.hypot(dx, dy) / r;
         }
         if (k.onion > 0 && r > 4) v *= onionGain(k.onion, t);
       }

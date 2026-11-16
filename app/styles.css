@@ -951,5 +951,5 @@ label.lut-amount { margin-top: 14px; }
 .grade-wheel.active .wheel-name { color: var(--text, #e6e8eb); background: #262b33; }
 
 /* Camera > Bokeh: the preview of an out of focus point of light, above the Shape list. */
-.bokeh-preview { display: block; width: 100%; max-width: 320px; height: auto; aspect-ratio: 5 / 2; border-radius: 6px; border: 1px solid var(--line, #2b3038); margin: 2px 0 8px; }
+.bokeh-preview { display: block; width: 100%; max-width: 180px; height: auto; aspect-ratio: 3 / 2; margin-inline: auto; border-radius: 6px; border: 1px solid var(--line, #2b3038); margin-block: 2px 8px; }
 .bokeh-image-row { margin: 4px 0 6px; }

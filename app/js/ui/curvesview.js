@@ -47,6 +47,9 @@ export function initCurvesView({ trackGroups, shownTracks, trackName, $, state, 
     { k: 'bokehOval', c: 0, name: 'Oval', color: '#4fc3f7' },
     { k: 'bokehRotation', c: 0, name: 'Bokeh rotation', color: '#aed581' },
     { k: 'bokehOnion', c: 0, name: 'Onion', color: '#e57373' },
+    { k: 'bokehPoints', c: 0, name: 'Points', color: '#ffd54f' },
+    { k: 'bokehInner', c: 0, name: 'Inner radius', color: '#9575cd' },
+    { k: 'bokehWidth', c: 0, name: 'Heart width', color: '#f48fb1' },
     { k: 'amount', c: 0, name: 'Amount', color: '#4fc3f7' },
     { k: 'near', c: 0, name: 'Near', color: '#ba68c8' },
     { k: 'far', c: 0, name: 'Far', color: '#81c784' },
@@ -126,6 +129,9 @@ export function initCurvesView({ trackGroups, shownTracks, trackName, $, state, 
       case 'bokehOval':
       case 'bokehOnion': return [0, 100];
       case 'bokehRotation': return [-90, 90];
+      case 'bokehPoints': return [3, 12];
+      case 'bokehInner': return [10, 90];
+      case 'bokehWidth': return [60, 140];
       case 'amount': return [0.1, 1];
       case 'near': return [-1.6, 0];
       case 'far': return [0, 1.6];
