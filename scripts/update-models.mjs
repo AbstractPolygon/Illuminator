@@ -1,8 +1,9 @@
 // Keeps the optional upscaling models (models/) up to date with their source.
 //   node scripts/update-models.mjs --check    compare models/manifest.json with the source repository; exit 1 when a model differs
 //   node scripts/update-models.mjs --update   download what differs, verify it and rewrite models/*.onnx, models/manifest.json and app/js/core/upscalemodels-data.js
-//   node scripts/update-models.mjs --converted  only the models converted here (manifest "converted": no ONNX at their source, made by scripts/convert-span.py from the
-//                                              source's weights): exit 3 when the weights changed at the source and the model needs converting again by hand
+//   node scripts/update-models.mjs --converted  only the models converted here (manifest "converted": no ONNX at their source, made by scripts/convert-model.py from the
+//                                              source's weights, on Hugging Face or a GitHub release): exit 3 when the weights changed at the source and the model needs
+//                                              converting again by hand
 // The source is the Hugging Face repository that holds ONNX exports of the official Real-ESRGAN weights (manifest.source). A changed file is accepted only when its size
 // and SHA-256 equal what the source's own file listing says, and only while the repository's licence is still BSD-3-Clause.
 import fs from 'node:fs';
@@ -29,6 +30,27 @@ async function json(url) {
 let drift = 0;
 for (const model of manifest.models.filter((m) => m.converted)) {
   const from = model.converted.from;
+  if (from.release) {
+    // weights attached to a GitHub release (a release's files are fixed): only check it is still there
+    let rel;
+    try {
+      rel = await json(`https://api.github.com/repos/${from.repo}/releases/tags/${from.release}`);
+    } catch (e) {
+      console.log(`${model.id}: could not read ${from.repo} ${from.release} (${e.message})`);
+      continue;
+    }
+    const asset = (rel.assets || []).find((a) => a.name === from.file);
+    if (!asset) {
+      console.log(`${model.id}: ${from.file} is no longer in ${from.repo} ${from.release}`);
+      drift++;
+    } else if (asset.digest && asset.digest !== `sha256:${from.sha256}`) {
+      console.log(`${model.id}: ${from.file} changed in ${from.repo} ${from.release}: convert it again (${model.converted.script}) and update models/manifest.json by hand`);
+      drift++;
+    } else {
+      console.log(`${model.id}: weights unchanged in ${from.repo} ${from.release}`);
+    }
+    continue;
+  }
   const tree = await json(`https://huggingface.co/api/models/${from.repo}/tree/main`);
   const entry = tree.find((f) => f.path === from.file);
   if (!entry || !entry.lfs) {

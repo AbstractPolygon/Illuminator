@@ -1,6 +1,6 @@
 4xNomosUni_span_multijpg.onnx
 
-This file is a format conversion (PyTorch safetensors to ONNX, opset 17, by scripts/convert-span.py) of the model 4xNomosUni_span_multijpg:
+This file is a format conversion (PyTorch safetensors to ONNX, opset 17, by scripts/convert-model.py) of the model 4xNomosUni_span_multijpg:
 
   Author:    Philip Hofmann (Phhofm)
   Source:    https://huggingface.co/Phips/4xNomosUni_span_multijpg  (also https://github.com/Phhofm/models/releases/tag/4xNomosUni_span_multijpg)
