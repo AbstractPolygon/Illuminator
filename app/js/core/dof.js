@@ -11,11 +11,59 @@
 // are summed row by row from running sums, so a radius-r blur costs about
 // 2r operations per pixel (times the number of ring bands with onion rings).
 
+// A custom bokeh shape (shape 'custom'): an image the user loaded, BOKEH_IMAGE_SIZE pixels square, white where light passes and black where it does not
+// (gray lets some through). Kept as text (base64 of one byte a pixel) so it is saved with the photo.
+export const BOKEH_IMAGE_SIZE = 64;
+
+// RGBA pixels of a BOKEH_IMAGE_SIZE square picture -> the shape as text (its brightness, 0 black to 255 white), or '' when it is all black.
+export function encodeBokehImage(rgba) {
+  const n = BOKEH_IMAGE_SIZE * BOKEH_IMAGE_SIZE;
+  const bytes = new Uint8Array(n);
+  let any = false;
+  for (let i = 0; i < n; i++) {
+    // (a transparent pixel is black: no light)
+    const a = rgba[4 * i + 3] / 255;
+    const v = Math.round(a * (0.2126 * rgba[4 * i] + 0.7152 * rgba[4 * i + 1] + 0.0722 * rgba[4 * i + 2]));
+    bytes[i] = v;
+    if (v > 16) any = true;
+  }
+  if (!any) return '';
+  let bin = '';
+  for (let i = 0; i < n; i++) bin += String.fromCharCode(bytes[i]);
+  return btoa(bin);
+}
+
+const decoded = new Map();
+// The shape as text -> { mask: Float32Array (0..1, row by row, top first), area } or null. area: the shape's area over the circle's (pi r^2) at the same radius, so a
+// custom ball spreads the same light as a round one.
+export function decodeBokehImage(text) {
+  if (!text || typeof text !== 'string') return null;
+  if (decoded.has(text)) return decoded.get(text);
+  let out = null;
+  try {
+    const bin = atob(text);
+    const n = BOKEH_IMAGE_SIZE * BOKEH_IMAGE_SIZE;
+    if (bin.length === n) {
+      const mask = new Float32Array(n);
+      let sum = 0;
+      for (let i = 0; i < n; i++) sum += mask[i] = bin.charCodeAt(i) / 255;
+      // (the square spans 2r by 2r: 4 r^2 times the mean)
+      if (sum > 0) out = { mask, area: ((4 * sum) / n) / Math.PI };
+    }
+  } catch {
+    out = null;
+  }
+  if (decoded.size > 8) decoded.clear();
+  decoded.set(text, out);
+  return out;
+}
+
 // The kernel's shape from the bokeh options. kind: 0 smooth, 1 circle, 2
-// blades. aspect: the oval's width to height (1 = round). cos, sin: the
+// blades, 3 custom (an image, see above; a circle when there is none). aspect: the oval's width to height (1 = round). cos, sin: the
 // rotation. 'hexagon' is the six-blade shape of older edits.
-export function bokehKernel({ shape = 'smooth', blades = 6, oval = 0, rotation = 0, onion = 0 } = {}) {
-  const kind = shape === 'blades' || shape === 'hexagon' ? 2 : shape === 'circle' ? 1 : 0;
+export function bokehKernel({ shape = 'smooth', blades = 6, oval = 0, rotation = 0, onion = 0, image = '' } = {}) {
+  const custom = shape === 'custom' ? decodeBokehImage(image) : null;
+  const kind = custom ? 3 : shape === 'blades' || shape === 'hexagon' ? 2 : shape === 'circle' || shape === 'custom' ? 1 : 0;
   const a = (rotation * Math.PI) / 180;
   return {
     kind,
@@ -24,7 +72,26 @@ export function bokehKernel({ shape = 'smooth', blades = 6, oval = 0, rotation =
     cos: Math.cos(a),
     sin: Math.sin(a),
     onion: kind === 0 ? 0 : Math.max(0, Math.min(1, onion)),
+    mask: custom ? custom.mask : null,
+    area: custom ? custom.area : 1,
+    image: custom ? image : '',
   };
+}
+
+// A custom shape's light at (x, y) in units of its radius (the image spans -1..1, turned with the rotation): 0..1, bilinear between its pixels.
+export function maskValue(k, x, y) {
+  const qx = k.cos * x + k.sin * y;
+  const qy = -k.sin * x + k.cos * y;
+  const N = BOKEH_IMAGE_SIZE;
+  const fx = (qx * 0.5 + 0.5) * N - 0.5;
+  const fy = (qy * 0.5 + 0.5) * N - 0.5;
+  if (fx <= -1 || fy <= -1 || fx >= N || fy >= N) return 0;
+  const x0 = Math.floor(fx);
+  const y0 = Math.floor(fy);
+  const tx = fx - x0;
+  const ty = fy - y0;
+  const at = (xx, yy) => (xx < 0 || yy < 0 || xx >= N || yy >= N ? 0 : k.mask[yy * N + xx]);
+  return (at(x0, y0) * (1 - tx) + at(x0 + 1, y0) * tx) * (1 - ty) + (at(x0, y0 + 1) * (1 - tx) + at(x0 + 1, y0 + 1) * tx) * ty;
 }
 
 // Distance from the kernel's center in units of its radius: 1 on its edge.
@@ -48,10 +115,28 @@ export function onionGain(onion, t) {
 }
 
 // Kernel rows at radius r: [dy, x0, x1] spans (inclusive) inside the shape.
-// The shape is convex, so each row is one span.
+// The built-in shapes are convex, so each row is one span; a custom shape can have several in a row (light where its image is at least half white).
 function kernelRows(k, r) {
   const rows = [];
   const R = Math.ceil(r);
+  if (k.kind === 3) {
+    // (below a radius of 2 pixels the shape cannot show: a small disc)
+    if (r < 2) return kernelRows({ ...k, kind: 1, aspect: 1 }, r);
+    for (let dy = -R; dy <= R; dy++) {
+      let start = null;
+      for (let dx = -R; dx <= R + 1; dx++) {
+        // (the blur gathers: a pixel takes light from those whose ball reaches it, so the shape is read mirrored through its center)
+        const inside = dx <= R && maskValue(k, -dx / r, -dy / r) >= 0.5;
+        if (inside && start === null) start = dx;
+        if (!inside && start !== null) {
+          rows.push([dy, start, dx - 1]);
+          start = null;
+        }
+      }
+    }
+    if (!rows.length) rows.push([0, 0, 0]);
+    return rows;
+  }
   for (let dy = -R; dy <= R; dy++) {
     let x0 = Infinity;
     let x1 = -Infinity;
@@ -273,5 +358,38 @@ export function applyDepthOfField(rgb, w, h, depth, dw, dh, focus, strength, pxP
       for (let c = 0; c < 3; c++) out[p + c] = lo[p + c] * (1 - t) + levels[k + 1][p + c] * t;
     }
   }
+  return out;
+}
+
+// One bokeh ball as the blur draws it (the GPU's weight, DOF_GATHER weightFor): a size x size picture of a ball of radius r pixels at its center, 0..1 (its
+// brightest pixel 1). For the preview above the Shape list.
+export function bokehBall(k, size, r) {
+  const out = new Float32Array(size * size);
+  const c = (size - 1) / 2;
+  let top = 0;
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const dx = x - c;
+      const dy = y - c;
+      let v;
+      if (k.kind === 0) {
+        const t = Math.hypot(dx, dy) / r;
+        v = Math.exp(-2 * t * t);
+      } else {
+        let t;
+        if (k.kind === 3) {
+          v = maskValue(k, dx / r, dy / r);
+          t = Math.hypot(dx, dy) / r;
+        } else {
+          t = kernelDistance(k, dx, dy) / r;
+          v = Math.max(0, Math.min(1, r + 0.5 - t * r));
+        }
+        if (k.onion > 0 && r > 4) v *= onionGain(k.onion, t);
+      }
+      out[y * size + x] = v;
+      if (v > top) top = v;
+    }
+  }
+  if (top > 0) for (let i = 0; i < out.length; i++) out[i] /= top;
   return out;
 }

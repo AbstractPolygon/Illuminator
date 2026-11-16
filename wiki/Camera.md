@@ -47,9 +47,10 @@ Moving the viewpoint shifts every depth but one, the focus plane (or, with the a
 
 ## Bokeh
 
-The shape of out-of-focus highlights: *Natural*, *Optical (softer)*, *Circle* or *Blades*, and *Highlights* to make bright points glow into bokeh balls. *Blades*, *Oval*, *Rotation*, *Onion* and *Highlights* can be keyframed.
+The shape of out-of-focus highlights: *Natural*, *Optical (softer)*, *Circle*, *Blades* or *Custom image*, and *Highlights* to make bright points glow into bokeh balls. The preview above *Shape* shows three out-of-focus points of light, large to small, with the current settings (brighter with more *Highlights*). *Blades*, *Oval*, *Rotation*, *Onion* and *Highlights* can be keyframed.
 
+- *Custom image*: *Load shape image…* takes any picture and uses it as the bokeh's shape: white is where light passes, black lets none through, and gray lets some through. It is fitted into a square and centered, so draw the shape on black (a star, a heart, a letter). *Rotation* and *Onion* work on it too, and it is saved with the photo. Very small balls (under about 2 pixels across) stay round.
 - *Blades* (Blades shape): the number of aperture blades, 3 to 32, which is the number of sides of each bokeh ball.
 - *Oval* (Circle shape): stretches the circle into an oval, like the cat's-eye bokeh near the edges of a fast lens.
-- *Rotation* (Circle and Blades): turns the blades or the oval.
-- *Onion* (Circle and Blades): concentric rings inside each bokeh ball, like those from aspherical lens elements.
+- *Rotation* (Circle, Blades and Custom image): turns the blades, the oval or the image.
+- *Onion* (Circle, Blades and Custom image): concentric rings inside each bokeh ball, like those from aspherical lens elements.

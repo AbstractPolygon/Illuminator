@@ -622,6 +622,7 @@ async function presentGpu(id, tex, w, h, { alpha = 0, dof = 0, bokeh = {}, pxPer
       oval: bokeh.oval,
       rotation: bokeh.rotation,
       onion: bokeh.onion,
+      image: bokeh.image,
       highlights: bokeh.highlights,
       tilt: bokeh.tilt,
       point: bokeh.point,
@@ -1325,7 +1326,7 @@ async function withDepthOfField(id, rgb, w, h, alpha, dof, scale = 1, bokeh = {}
   if (!(await ensureViewDepth(id))) return rgb;
   const { outW, outH } = state.sampler;
   return applyDepthOfField(rgb, w, h, state.depth.alpha, outW, outH, alpha, dof, 14 * scale * state.settings.detail, {
-    shape: bokeh.shape, blades: bokeh.blades, oval: bokeh.oval, rotation: bokeh.rotation, onion: bokeh.onion, highlights: bokeh.highlights, clip: state.dev.clip, tilt: bokeh.tilt, point: bokeh.point, spread: bokeh.spread,
+    shape: bokeh.shape, blades: bokeh.blades, oval: bokeh.oval, rotation: bokeh.rotation, onion: bokeh.onion, image: bokeh.image, highlights: bokeh.highlights, clip: state.dev.clip, tilt: bokeh.tilt, point: bokeh.point, spread: bokeh.spread,
     smooth: bokeh.smooth, feather: (bokeh.blur || 0) * 14 * scale * state.settings.detail,
   });
 }

@@ -498,21 +498,28 @@
         </details>
         <details class="subpanel">
           <summary><h3>Bokeh</h3></summary>
+          <canvas id="bokeh-preview" class="bokeh-preview" width="480" height="192" title="How an out of focus point of light looks with these settings"></canvas>
           <label>Shape
             <select id="bokeh">
               <option value="natural">Natural</option>
               <option value="optical">Optical (softer)</option>
               <option value="circle">Circle</option>
               <option value="blades">Blades</option>
+              <option value="custom">Custom image</option>
             </select>
           </label>
+          <div id="bokeh-image-row" class="bokeh-image-row" hidden>
+            <button id="bokeh-image-btn" type="button" class="wide" title="A black and white image: white is the bokeh's shape, black lets no light through">Load shape image…</button>
+            <input id="bokeh-image-file" type="file" accept="image/*" hidden>
+            <input id="bokeh-image" type="hidden" value="" data-text>
+          </div>
           <label id="bokeh-blades-row" title="Number of aperture blades: the bokeh's number of sides" hidden>Blades <output data-for="bokeh-blades" for="bokeh-blades">6</output>
             <input id="bokeh-blades" type="range" min="3" max="32" step="1" value="6" data-default="6">
           </label>
           <label id="bokeh-oval-row" title="Stretches the circle into an oval, like the cat's-eye bokeh near a lens's edges" hidden>Oval <output data-for="bokeh-oval" for="bokeh-oval">0</output>
             <input id="bokeh-oval" type="range" min="0" max="100" step="1" value="0" data-default="0">
           </label>
-          <label id="bokeh-rotation-row" title="Turns the blades or the oval" hidden>Rotation <output data-for="bokeh-rotation" for="bokeh-rotation">0°</output>
+          <label id="bokeh-rotation-row" title="Turns the blades, the oval or the custom shape" hidden>Rotation <output data-for="bokeh-rotation" for="bokeh-rotation">0°</output>
             <input id="bokeh-rotation" type="range" min="-90" max="90" step="1" value="0" data-default="0">
           </label>
           <label id="bokeh-onion-row" title="Onion rings: concentric rings inside each bokeh ball, like those from aspherical lens elements" hidden>Onion <output data-for="bokeh-onion" for="bokeh-onion">0</output>

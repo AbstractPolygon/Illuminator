@@ -22,6 +22,7 @@ import { upscaleBits16 } from './gpu/upscale.js';
 import { importCalibration, listCalibrations, loadCalibration, removeCalibration } from './core/calibration.js';
 import { encodeProcessed, decodeProcessed } from './core/processed-cache.js';
 import { hashKey, stillKeyText } from './core/still-cache.js';
+import { bokehKernel, bokehBall, encodeBokehImage, BOKEH_IMAGE_SIZE } from './core/dof.js';
 import { UPSCALE_MODELS, modelMethod, methodModel, modelState, downloadModel, removeModel, readModel } from './core/upscalemodels.js';
 import { aiUpscale, aiUpscaleAvailable, denoiseRgb16, addGrain16 } from './core/aiupscale.js';
 import { DEPTH_MODELS, depthModelMethod, methodDepthModel, depthModelState, downloadDepthModel, removeDepthModel } from './core/depthmodels.js';
@@ -1584,6 +1585,8 @@ function bokehParams(v = {}) {
     oval: shape === 'circle' ? (v.bokehOval ?? +$('bokeh-oval').value) / 100 : 0,
     rotation: v.bokehRotation ?? +$('bokeh-rotation').value,
     onion: shape === 'smooth' ? 0 : (v.bokehOnion ?? +$('bokeh-onion').value) / 100,
+    // (a custom shape's image: white where light passes, see core/dof.js)
+    image: shape === 'custom' ? $('bokeh-image').value : '',
     ...focusField(v),
   };
 }
@@ -3694,21 +3697,97 @@ $('view-reach').onchange = () => {
 // for Circle, rotation for both (a round circle has nothing to turn).
 function showBokehShape() {
   const shape = $('bokeh').value;
+  const shaped = shape === 'blades' || shape === 'circle' || shape === 'custom';
   $('bokeh-blades-row').hidden = shape !== 'blades';
   $('bokeh-oval-row').hidden = shape !== 'circle';
-  $('bokeh-rotation-row').hidden = shape !== 'blades' && shape !== 'circle';
-  $('bokeh-onion-row').hidden = shape !== 'blades' && shape !== 'circle';
+  $('bokeh-rotation-row').hidden = !shaped;
+  $('bokeh-onion-row').hidden = !shaped;
+  $('bokeh-image-row').hidden = shape !== 'custom';
+  $('bokeh-image-btn').textContent = $('bokeh-image').value ? 'Replace shape image…' : 'Load shape image…';
+  drawBokehPreview();
 }
+
+// The preview above the Shape list: three out of focus points of light, large to small, drawn with the blur's own ball (core/dof.js bokehBall), brighter with
+// more Highlights.
+function drawBokehPreview() {
+  const c = $('bokeh-preview');
+  const g = c.getContext('2d');
+  const W = c.width;
+  const H = c.height;
+  const p = bokehParams();
+  const k = bokehKernel(p);
+  const img = g.createImageData(W, H);
+  const light = new Float32Array(W * H);
+  const s = H / 96;
+  for (const [cx, r] of [[0.25 * W, 34 * s], [0.62 * W, 22 * s], [0.87 * W, 12 * s]]) {
+    const size = 2 * Math.ceil(r * 1.6) + 1;
+    const ball = bokehBall(k, size, r);
+    const x0 = Math.round(cx - (size - 1) / 2);
+    const y0 = Math.round(H / 2 - (size - 1) / 2);
+    for (let y = 0; y < size; y++) {
+      for (let x = 0; x < size; x++) {
+        const X = x0 + x;
+        const Y = y0 + y;
+        if (X >= 0 && Y >= 0 && X < W && Y < H) light[Y * W + X] += ball[y * size + x];
+      }
+    }
+  }
+  const gain = 0.6 + 0.4 * (p.highlights || 0);
+  // (warm light on a dark background, whatever the theme: bokeh is light out of the dark)
+  for (let i = 0; i < W * H; i++) {
+    const v = Math.min(1, light[i] * gain);
+    img.data[4 * i] = 18 + 237 * v;
+    img.data[4 * i + 1] = 20 + 210 * v;
+    img.data[4 * i + 2] = 24 + 160 * v;
+    img.data[4 * i + 3] = 255;
+  }
+  g.putImageData(img, 0, 0);
+}
+
+// Custom image: the loaded picture, fitted into a BOKEH_IMAGE_SIZE square on black (its shape, centered), kept as its brightness (core/dof.js encodeBokehImage).
+$('bokeh-image-btn').onclick = () => $('bokeh-image-file').click();
+$('bokeh-image-file').onchange = async () => {
+  const file = $('bokeh-image-file').files[0];
+  $('bokeh-image-file').value = '';
+  if (!file) return;
+  try {
+    const bmp = await createImageBitmap(file);
+    const N = BOKEH_IMAGE_SIZE;
+    const c = new OffscreenCanvas(N, N);
+    const g = c.getContext('2d', { willReadFrequently: true });
+    g.fillStyle = '#000';
+    g.fillRect(0, 0, N, N);
+    const f = Math.min(N / bmp.width, N / bmp.height);
+    const w = bmp.width * f;
+    const h = bmp.height * f;
+    g.imageSmoothingQuality = 'high';
+    g.drawImage(bmp, (N - w) / 2, (N - h) / 2, w, h);
+    bmp.close();
+    const text = encodeBokehImage(g.getImageData(0, 0, N, N).data);
+    if (!text) {
+      showNotice('No shape in the image', 'The image is all black. White shows where light passes; use a white shape on black.');
+      return;
+    }
+    $('bokeh-image').value = text;
+    $('bokeh').value = 'custom';
+    showBokehShape();
+    cameraChanged({ final: true });
+  } catch (err) {
+    showNotice('Could not read the image', err && err.message ? err.message : String(err));
+  }
+};
 
 for (const id of ['fstop', 'bokeh', 'dof-depth', 'highlights', 'spread', 'spread-smooth', 'spread-blur', 'tilt', 'tilt-rotation', ...BOKEH_SHAPE]) {
   $(id).oninput = () => {
     if (id === 'bokeh') showBokehShape();
+    else if (id === 'highlights' || BOKEH_SHAPE.includes(id)) drawBokehPreview();
     showFNumber();
     showSliderValue($(id));
     cameraChanged({ final: false });
   };
   $(id).onchange = () => cameraChanged({ final: true });
 }
+showBokehShape();
 
 // One tint at a time: Show spread and Show tilt switch each other off.
 $('spread-show').onchange = () => {
