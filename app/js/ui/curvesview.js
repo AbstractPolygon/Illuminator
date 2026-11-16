@@ -43,6 +43,10 @@ export function initCurvesView({ trackGroups, shownTracks, trackName, $, state, 
     { k: 'tilt', c: 0, name: 'Tilt', color: '#ff8a65' },
     { k: 'tiltRotation', c: 0, name: 'Rotation', color: '#a1887f' },
     { k: 'highlights', c: 0, name: 'Highlights', color: '#f06292' },
+    { k: 'bokehBlades', c: 0, name: 'Blades', color: '#ffb74d' },
+    { k: 'bokehOval', c: 0, name: 'Oval', color: '#4fc3f7' },
+    { k: 'bokehRotation', c: 0, name: 'Bokeh rotation', color: '#aed581' },
+    { k: 'bokehOnion', c: 0, name: 'Onion', color: '#e57373' },
     { k: 'amount', c: 0, name: 'Amount', color: '#4fc3f7' },
     { k: 'near', c: 0, name: 'Near', color: '#ba68c8' },
     { k: 'far', c: 0, name: 'Far', color: '#81c784' },
@@ -118,6 +122,10 @@ export function initCurvesView({ trackGroups, shownTracks, trackName, $, state, 
       case 'spreadBlur': return [0, 100];
       case 'tilt': return [-100, 100];
       case 'tiltRotation': return [-90, 90];
+      case 'bokehBlades': return [3, 32];
+      case 'bokehOval':
+      case 'bokehOnion': return [0, 100];
+      case 'bokehRotation': return [-90, 90];
       case 'amount': return [0.1, 1];
       case 'near': return [-1.6, 0];
       case 'far': return [0, 1.6];
