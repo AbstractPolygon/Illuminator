@@ -22,7 +22,7 @@ import { upscaleBits16 } from './gpu/upscale.js';
 import { importCalibration, listCalibrations, loadCalibration, removeCalibration } from './core/calibration.js';
 import { encodeProcessed, decodeProcessed } from './core/processed-cache.js';
 import { hashKey, stillKeyText } from './core/still-cache.js';
-import { bokehKernel, bokehBall, encodeBokehImage, BOKEH_IMAGE_SIZE } from './core/dof.js';
+import { bokehKernel, ballRGB, encodeBokehImage, BOKEH_IMAGE_SIZE } from './core/dof.js';
 import { UPSCALE_MODELS, modelMethod, methodModel, modelState, downloadModel, removeModel, readModel } from './core/upscalemodels.js';
 import { aiUpscale, aiUpscaleAvailable, denoiseRgb16, addGrain16 } from './core/aiupscale.js';
 import { DEPTH_MODELS, depthModelMethod, methodDepthModel, depthModelState, downloadDepthModel, removeDepthModel } from './core/depthmodels.js';
@@ -1603,7 +1603,7 @@ function focusField(v = {}) {
 }
 
 // Bokeh options for the worker: shape and highlights, and the focus field.
-const BOKEH_SHAPE = ['bokeh-blades', 'bokeh-oval', 'bokeh-rotation', 'bokeh-onion', 'bokeh-points', 'bokeh-inner', 'bokeh-width', 'bokeh-irregular', 'bokeh-ring-blur', 'bokeh-spots'];
+const BOKEH_SHAPE = ['bokeh-blades', 'bokeh-oval', 'bokeh-rotation', 'bokeh-onion', 'bokeh-points', 'bokeh-inner', 'bokeh-width', 'bokeh-irregular', 'bokeh-ring-blur', 'bokeh-spots', 'bokeh-cat', 'bokeh-swirl', 'bokeh-edge', 'bokeh-edge-fb', 'bokeh-bubble', 'bokeh-hole', 'bokeh-fringe', 'bokeh-hot', 'bokeh-grain', 'bokeh-diffraction'];
 function bokehParams(v = {}) {
   const shape = $('bokeh').value === 'natural' ? 'smooth' : $('bokeh').value;
   return {
@@ -1625,6 +1625,17 @@ function bokehParams(v = {}) {
     irregular: (v.bokehIrregular ?? +$('bokeh-irregular').value) / 100,
     ringBlur: (v.bokehRingBlur ?? +$('bokeh-ring-blur').value) / 100,
     spots: shape === 'smooth' || shape === 'optical' ? 0 : (v.bokehSpots ?? +$('bokeh-spots').value) / 100,
+    // The ball's character and the cat's-eye (core/dof.js): all off for Natural and Optical
+    catEye: shape === 'smooth' || shape === 'optical' ? 0 : (v.bokehCat ?? +$('bokeh-cat').value) / 100,
+    swirl: shape === 'smooth' || shape === 'optical' ? 0 : (v.bokehSwirl ?? +$('bokeh-swirl').value) / 100,
+    edge: shape === 'smooth' || shape === 'optical' ? 0 : (v.bokehEdge ?? +$('bokeh-edge').value) / 100,
+    edgeFB: shape === 'smooth' || shape === 'optical' ? 0 : (v.bokehEdgeFB ?? +$('bokeh-edge-fb').value) / 100,
+    bubble: shape === 'smooth' || shape === 'optical' ? 0 : (v.bokehBubble ?? +$('bokeh-bubble').value) / 100,
+    hole: shape === 'smooth' || shape === 'optical' ? 0 : (v.bokehHole ?? +$('bokeh-hole').value) / 100,
+    fringe: shape === 'smooth' || shape === 'optical' ? 0 : (v.bokehFringe ?? +$('bokeh-fringe').value) / 100,
+    hot: shape === 'smooth' || shape === 'optical' ? 0 : (v.bokehHot ?? +$('bokeh-hot').value) / 100,
+    grain: shape === 'smooth' || shape === 'optical' ? 0 : (v.bokehGrain ?? +$('bokeh-grain').value) / 100,
+    diffraction: shape === 'smooth' || shape === 'optical' ? 0 : (v.bokehDiffraction ?? +$('bokeh-diffraction').value) / 100,
     ...focusField(v),
   };
 }
@@ -3766,6 +3777,9 @@ function showBokehShape() {
   $('bokeh-irregular-row').hidden = !shaped || !(+$('bokeh-onion').value > 0);
   $('bokeh-ring-blur-row').hidden = !shaped || !(+$('bokeh-onion').value > 0);
   $('bokeh-spots-row').hidden = !shaped;
+  // the ball's character, in a group of its own, and Swirl with some Cat's-eye
+  $('bokeh-ball-group').hidden = !shaped;
+  $('bokeh-swirl-row').hidden = !(+$('bokeh-cat').value > 0);
   $('bokeh-image-row').hidden = shape !== 'custom';
   $('bokeh-image-btn').textContent = $('bokeh-image').value ? 'Replace shape image…' : 'Load shape image…';
   drawBokehPreview();
@@ -3781,27 +3795,27 @@ function drawBokehPreview() {
   const k = bokehKernel(p);
   const optical = opticalInEffect();
   const img = g.createImageData(W, H);
-  const light = new Float32Array(W * H);
-  for (const [cx, r] of [[W / 2, 0.4 * H]]) {
-    const size = 2 * Math.ceil(r * 1.6) + 1;
-    const ball = optical ? opticalBall(size, r) : bokehBall(k, size, r);
-    const x0 = Math.round(cx - (size - 1) / 2);
-    const y0 = Math.round(H / 2 - (size - 1) / 2);
-    for (let y = 0; y < size; y++) {
-      for (let x = 0; x < size; x++) {
-        const X = x0 + x;
-        const Y = y0 + y;
-        if (X >= 0 && Y >= 0 && X < W && Y < H) light[Y * W + X] += ball[y * size + x];
-      }
+  const light = new Float32Array(W * H * 3);
+  const r = 0.4 * H;
+  const size = 2 * Math.ceil(r * 1.6) + 1;
+  // (the cat's-eye and swirl depend on where the ball is in the frame: it is shown as it looks near the corner, a ball behind the focus)
+  const ball = optical ? null : ballRGB(k, size, r, k.catEye > 0 ? { d: 0.8, ang: Math.PI / 4 } : null, 1);
+  const mono = optical ? opticalBall(size, r) : null;
+  const x0 = Math.round(W / 2 - (size - 1) / 2);
+  const y0 = Math.round(H / 2 - (size - 1) / 2);
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const X = x0 + x;
+      const Y = y0 + y;
+      if (X < 0 || Y < 0 || X >= W || Y >= H) continue;
+      for (let ch = 0; ch < 3; ch++) light[3 * (Y * W + X) + ch] += ball ? ball[3 * (y * size + x) + ch] : mono[y * size + x];
     }
   }
   const gain = 0.6 + 0.4 * (p.highlights || 0);
-  // (warm light on a dark background, whatever the theme: bokeh is light out of the dark)
+  // (warm light on a dark background, whatever the theme: bokeh is light out of the dark; a colored ball keeps its colors)
+  const base = [[18, 237], [20, 210], [24, 160]];
   for (let i = 0; i < W * H; i++) {
-    const v = Math.min(1, light[i] * gain);
-    img.data[4 * i] = 18 + 237 * v;
-    img.data[4 * i + 1] = 20 + 210 * v;
-    img.data[4 * i + 2] = 24 + 160 * v;
+    for (let ch = 0; ch < 3; ch++) img.data[4 * i + ch] = base[ch][0] + base[ch][1] * Math.min(1, light[3 * i + ch] * gain);
     img.data[4 * i + 3] = 255;
   }
   g.putImageData(img, 0, 0);
@@ -3867,7 +3881,8 @@ $('bokeh-image-file').onchange = async () => {
 
 for (const id of ['fstop', 'bokeh', 'dof-depth', 'highlights', 'spread', 'spread-smooth', 'spread-blur', 'tilt', 'tilt-rotation', ...BOKEH_SHAPE]) {
   $(id).oninput = () => {
-    if (id === 'bokeh') showBokehShape();
+    // (these two decide which other settings show)
+    if (id === 'bokeh' || id === 'bokeh-onion' || id === 'bokeh-cat') showBokehShape();
     // (the f-stop, Depth, Focus Spread and Tilt change Optical's ball too)
     else drawBokehPreview();
     showFNumber();

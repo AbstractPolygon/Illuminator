@@ -21,7 +21,7 @@ import { ENGINE_USM, engineUsmMap, rangeSigma, chromaSigma, sharpenWindow, HALO_
 import { LOCAL_TONE, textureGain } from '../core/localtone.js';
 import { MAX_MASKS } from '../core/local.js';
 import { MAX_DABS, RING_RADIUS, RING_TAPS } from '../core/retouch.js';
-import { bokehKernel, BOKEH_IMAGE_SIZE, ONION_SIZE } from '../core/dof.js';
+import { bokehKernel, BOKEH_IMAGE_SIZE, ONION_SIZE, PROFILE_CONST } from '../core/dof.js';
 import { CHROMA_EDGE } from '../core/render.js';
 import { LYTRO_CURVE, LYTRO_HUE, CURVE_START, CURVE_STEP, ENGINE_SPLINE, FIRST_SPLINE, PROPHOTO, PROPHOTO_INV } from '../core/base.js';
 import { PHASE_BINS, latticeTiles, latticeTables, RAY_DEPTH_TOLERANCE, SR_SHARPEN, LENS_CAL, lensCandidates, lensTable, chooseLensOffsets, EDGE_SNAP, SNAP_CANDIDATES, snapCandidates, DEPTH_STEP_TOLERANCE, DITHER_FIX, BACK_PROJECTION_EDGE, depthEdgeMask, RAY_MATCH, depthFilter } from '../core/superres.js';
@@ -670,6 +670,10 @@ precision highp float;
 #define COARSE_TAPS 0.3
 #define COARSE_TAPS_SHAPED 0.8
 #define COARSE_LOD 0.0
+// The means of the ball's character over the disc (core/dof.js PROFILE_CONST), which keep its light
+#define EDGE_A ${PROFILE_CONST.edgeA}
+#define BUBBLE_A ${PROFILE_CONST.bubbleA}
+#define HOT_A ${PROFILE_CONST.hotA}
 precision highp int;
 uniform sampler2D uPrep;
 uniform sampler2D uTiles;
@@ -687,6 +691,15 @@ uniform float uOnion;  // onion rings, 0..1
 uniform sampler2D uOnionTex;  // the onion skin (core/dof.js onionMap: its gain over the ball, R32F)
 uniform sampler2D uOutline;   // a drawn or custom shape's reach in each direction (core/dof.js OUTLINE_STEPS x 1, R32F)
 uniform int uOnionOn;
+uniform int uProfOn;   // the ball's character (edge, bubble, hot spot, hole) is on
+uniform float uEdge;   // a bright (above 0) or dark rim
+uniform float uEdgeFB; // added to the rim for light from behind the focus, taken from it in front
+uniform float uBubble; // soap bubble: clear center, bright rainbow rim
+uniform float uHot;    // a bright glow in the middle
+uniform float uHole;   // a dark hole in the middle (radius, a share of the ball's)
+uniform float uCat;    // cat's-eye: balls clipped into lenses toward the frame's edge
+uniform float uSwirl;  // the lenses turned around the center
+uniform float uFringe; // color fringe: each color's ball a little larger or smaller
 uniform float uSoft;   // the edge's width, a share of the radius (Optical bokeh)
 uniform int uPass;     // 0 full size, 1 half size, 2 full size with half size
 uniform float uHalfFrom;
@@ -755,32 +768,92 @@ vec2 toDisc(vec2 q) {
   return q / d * t;
 }
 
-float weightFor(float dist, float r) {
-  r = max(r, 0.5);
-  float inside = uShape == 0
-    ? exp(-2.0 * (dist / r) * (dist / r))
-    : clamp((r + 0.5 * uSoft * r + 0.5 - dist) / (uSoft * r + 1.0), 0.0, 1.0);
-  return inside / (r * r * uAspect);
+float sq(float x) { return x * x; }
+vec3 gTint = vec3(1.0);   // the colors of the weight just worked out (bubble and fringe), mean 1
+
+// The ball's brightness at t (0 center, 1 edge): as profileGain in core/dof.js. side: 1 behind the focus, -1 in front.
+float profileGain(float t, float side) {
+  t = clamp(t, 0.0, 1.0);
+  float g = 1.0;
+  float e = uEdge + uEdgeFB * side;
+  if (e != 0.0) g *= max(0.0, 1.0 + e * (1.2 * exp(-sq((1.0 - t) / 0.12)) - 0.25)) / (1.0 + e * (1.2 * EDGE_A - 0.25));
+  if (uBubble > 0.0) g *= 1.0 + uBubble * ((0.1 + 2.2 * exp(-sq((1.0 - t) / 0.1))) / (0.1 + 2.2 * BUBBLE_A) - 1.0);
+  if (uHot > 0.0) g *= (1.0 + 3.0 * uHot * exp(-sq(t / 0.25))) / (1.0 + 3.0 * uHot * HOT_A);
+  if (uHole > 0.0) g *= smoothstep(uHole - 0.03, uHole + 0.03, t) / (1.0 - uHole * uHole);
+  return g;
 }
 
-// The weight of a pixel at offset o for a ball of radius r: the custom shape reads its image (below a radius of 2 pixels it cannot show: a small disc);
-// the others go by the distance.
-float weightAt(vec2 o, float dist, float r) {
-  if (uShape != 3) {
-    float w = weightFor(dist, r);
-    // The onion skin, once the ball is big enough to show it: turned with the shape and shrunk with it onto a round ball, so its rings follow the shape.
-    // (read at o, as the blades' polygon itself is in shapeDist, so the rings line up with it)
-    if (uOnionOn == 1 && uShape != 0 && r > 4.0) w *= onionAt(toDisc(vec2(uRot.x * o.x + uRot.y * o.y, -uRot.y * o.x + uRot.x * o.y) / max(r, 0.5)));
-    return w;
+// The soap bubble's rainbow rim (as bubbleTint in core/dof.js): dq the point of the ball shrunk onto a round one, t its distance from the center.
+vec3 bubbleTint(vec2 dq, float t) {
+  float rim = exp(-sq((1.0 - min(t, 1.0)) / 0.18));
+  float hue = atan(dq.y, dq.x) / 6.2831853 + t * 2.0;
+  vec3 c = 0.5 + 0.5 * cos(6.2831853 * (hue + vec3(0.0, 0.3333333, 0.6666667)));
+  return mix(vec3(1.0), c / ((c.r + c.g + c.b) / 3.0), uBubble * rim);
+}
+
+// The shape's coverage (0..1, not yet divided by its area) at offset o from the ball's center, radius r: the custom shape reads its image (below a radius of 2 pixels it
+// cannot show: a small disc); the others go by the distance.
+float coverAt(vec2 o, float r) {
+  if (uShape == 3) {
+    float d = length(o);
+    if (r < 2.0) return clamp(r + 0.5 - d, 0.0, 1.0);
+    // (o runs from this pixel to the tap; the light goes from the tap to this pixel, so the shape is read at -o)
+    return maskAt(-vec2(uRot.x * o.x + uRot.y * o.y, -uRot.y * o.x + uRot.x * o.y) / r);
   }
+  float dist = shapeDist(o);
+  return uShape == 0
+    ? exp(-2.0 * (dist / r) * (dist / r))
+    : clamp((r + 0.5 * uSoft * r + 0.5 - dist) / (uSoft * r + 1.0), 0.0, 1.0);
+}
+
+// Where the lenses of the cat's-eye are at frame position pos: the narrow direction (xy) and half the distance between the circles in radii (z); core/dof.js catEyeAt.
+vec3 catAt(vec2 pos, ivec2 size) {
+  if (uCat <= 0.0) return vec3(1.0, 0.0, 0.0);
+  vec2 cen = 0.5 * vec2(size);
+  vec2 v = pos - cen;
+  float L = length(v);
+  float d = L / length(cen);
+  vec2 u = L > 1e-3 ? v / L : vec2(1.0, 0.0);
+  float phi = uSwirl * d * 1.4;
+  u = vec2(u.x * cos(phi) - u.y * sin(phi), u.x * sin(phi) + u.y * cos(phi));
+  return vec3(u, 0.6 * uCat * min(1.0, 1.1 * d));
+}
+
+// The weight of a pixel at offset o for a ball of radius r. side: 1 for light from behind the focus, -1 from in front; cat: catAt. Sets gTint.
+float weightAt(vec2 o, float r, float side, vec3 cat) {
   r = max(r, 0.5);
-  float d = length(o);
-  if (r < 2.0) return clamp(r + 0.5 - d, 0.0, 1.0) / (r * r);
-  // (o runs from this pixel to the tap; the light goes from the tap to this pixel, so the shape is read at -o)
-  vec2 q = -vec2(uRot.x * o.x + uRot.y * o.y, -uRot.y * o.x + uRot.x * o.y) / r;
-  float inside = maskAt(q);
-  if (uOnionOn == 1 && r > 4.0) inside *= onionAt(toDisc(q));
-  return inside / (r * r * uKernelArea);
+  gTint = vec3(1.0);
+  float base = uShape == 3 ? (r < 2.0 ? 1.0 / (r * r) : 1.0 / (r * r * uKernelArea)) : 1.0 / (r * r * uAspect);
+  float cover;
+  if (cat.z > 0.001) {
+    // two circles' overlap (the lens), its light kept by dividing by its area
+    vec2 sh = cat.xy * (cat.z * r);
+    cover = coverAt(o - sh, r) * coverAt(o + sh, r) / ((2.0 / 3.14159265) * (acos(cat.z) - cat.z * sqrt(1.0 - cat.z * cat.z)));
+  } else if (uFringe > 0.0 && r > 4.0) {
+    // each color's ball a little larger or smaller than the green one: magenta rims in front of the focus, green behind
+    float k = 0.07 * uFringe * (side > 0.0 ? -1.0 : 1.0);
+    vec3 sc = vec3(1.0 + k, 1.0, 1.0 + k);
+    vec3 cv = vec3(coverAt(o / sc.x, r), coverAt(o, r), coverAt(o / sc.z, r)) / (sc * sc);
+    cover = (cv.x + cv.y + cv.z) / 3.0;
+    gTint = cv / max(cover, 1e-9);
+  } else {
+    cover = coverAt(o, r);
+  }
+  float g = 1.0;
+  // The onion skin and the ball's character, once the ball is big enough to show them: turned with the shape and shrunk with it onto a round ball, so they follow it.
+  // (the shape's own ball is read at o, as the blades' polygon itself is in shapeDist; the custom shape's at -o, as above)
+  if (r > 4.0 && (uOnionOn == 1 || uProfOn == 1)) {
+    vec2 q = vec2(uRot.x * o.x + uRot.y * o.y, -uRot.y * o.x + uRot.x * o.y) / r;
+    if (uShape == 3) q = -q;
+    vec2 dq = toDisc(q);
+    float t = length(dq);
+    if (uOnionOn == 1) g *= onionAt(dq);
+    if (uProfOn == 1) {
+      g *= profileGain(t, side);
+      if (uBubble > 0.0) gTint *= bubbleTint(dq, t);
+    }
+  }
+  return cover * g * base;
 }
 
 // The gathered color at full size pixel position pf (pixel centers at
@@ -791,8 +864,8 @@ float weightAt(vec2 o, float dist, float r) {
 vec3 gather(vec2 pf, vec4 c, ivec2 size, bool snap, bool coarse) {
   float rc = abs(c.a);
   // (a custom shape can be dark at its center: the pixel still counts a little, so a ball of nothing but dark taps keeps its color)
-  float w0 = max(weightAt(vec2(0.0), 0.0, rc), 1e-4 / max(rc * rc, 0.25));
-  vec3 sum = c.rgb * w0;
+  float w0 = max(weightAt(vec2(0.0), rc, c.a >= 0.0 ? 1.0 : -1.0, catAt(pf, size)), 1e-4 / max(rc * rc, 0.25));
+  vec3 sum = c.rgb * w0 * gTint;
   float wsum = w0;
   ivec2 t = clamp(ivec2(pf) / ${DOF_TILE}, ivec2(0), textureSize(uTiles, 0) - 1);
   float maxR = min(uMaxR, texelFetch(uTiles, t, 0).r * uReach + 1.0);
@@ -833,8 +906,8 @@ vec3 gather(vec2 pf, vec4 c, ivec2 size, bool snap, bool coarse) {
     float dist = shapeDist(qf - pf);
     // Behind this pixel: only within this pixel's own blur.
     if (s.a > c.a + 0.5 && dist > rc + 0.5) continue;
-    float w = weightAt(qf - pf, dist, rq) * tapArea;
-    sum += s.rgb * w;
+    float w = weightAt(qf - pf, rq, s.a >= 0.0 ? 1.0 : -1.0, catAt(qf, size)) * tapArea;
+    sum += s.rgb * w * gTint;
     wsum += w;
   }
   return sum / max(wsum, 1e-9);
@@ -4127,7 +4200,9 @@ export class GpuRenderer {
     return mask;
   }
 
-  depthOfField(src, w, h, { focus, strength, shape = 'smooth', blades = 6, oval = 0, rotation = 0, onion = 0, image = '', points = 5, inner = 0.45, width = 1, irregular = 0.5, ringBlur = 0.3, spots = 0, highlights = 0, clip = 1, tilt = [0, 0], point = [0.5, 0.5], spread = 0, smooth = 0, feather = 0, draft = false, sharp = null }) {
+  // `options` also carries the bokeh's shape settings (core/dof.js SHAPE_KEYS), which bokehKernel reads.
+  depthOfField(src, w, h, options) {
+    const { focus, strength, highlights = 0, clip = 1, tilt = [0, 0], point = [0.5, 0.5], spread = 0, smooth = 0, feather = 0, draft = false, sharp = null } = options;
     const gl = this.gl;
     const prep = this.mipmapped(w, h, 'dofPrep');
     const out = this.scratch(w, h, 'dofOut');
@@ -4177,7 +4252,7 @@ export class GpuRenderer {
     const reach = Math.abs(tilt[0]) + Math.abs(tilt[1]);
     const maxR = Math.min(64, strength * Math.max(0, Math.max(Math.abs(hi - focus), Math.abs(lo - focus)) + reach - spread));
     const taps = Math.max(32, Math.min(draft ? 160 : MAX_TAPS, Math.round(maxR * maxR * 1.2)));
-    const kernel = bokehKernel({ shape, blades, oval, rotation, onion, image, points, inner, width, irregular, ringBlur, spots });
+    const kernel = bokehKernel(options);
     const shapeId = kernel.kind;
     // How far past its own radius a blur still adds light (the smooth shape
     // fades out gradually).
@@ -4241,6 +4316,16 @@ export class GpuRenderer {
     gl.uniform1i(P.u.uOnionTex, 6);
     this.bindTex(6, this.onionTex);
     gl.uniform1i(P.u.uOnionOn, kernel.onionMap ? 1 : 0);
+    // The ball's character and the cat's-eye and fringe (core/dof.js).
+    gl.uniform1i(P.u.uProfOn, kernel.edge !== 0 || kernel.edgeFB !== 0 || kernel.bubble > 0 || kernel.hot > 0 || kernel.hole > 0 ? 1 : 0);
+    gl.uniform1f(P.u.uEdge, kernel.edge);
+    gl.uniform1f(P.u.uEdgeFB, kernel.edgeFB);
+    gl.uniform1f(P.u.uBubble, kernel.bubble);
+    gl.uniform1f(P.u.uHot, kernel.hot);
+    gl.uniform1f(P.u.uHole, kernel.hole);
+    gl.uniform1f(P.u.uCat, kernel.catEye);
+    gl.uniform1f(P.u.uSwirl, kernel.swirl);
+    gl.uniform1f(P.u.uFringe, kernel.fringe);
     // The shape's outline (with its picture: the same key), for rings that follow it.
     if (!this.outlineTex || this.outlineKey !== kernel.image) {
       const n = kernel.outline ? kernel.outline.length : 1;

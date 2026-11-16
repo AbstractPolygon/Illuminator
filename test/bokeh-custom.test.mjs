@@ -95,3 +95,53 @@ test('onion rings follow the shape, and the onion skin carries irregularity and 
   assert.ok(Math.min(...dusty.map) < 0.7, 'spots darken');
   assert.equal(onionMap({ onion: 0, spots: 0 }), null);
 });
+
+test("the ball's character: edge, bubble, hot spot and hole keep the light, and the preview and the processor draw them", async () => {
+  const { profileGain, bubbleTint, catEyeAt, ballRGB, bokehBall } = await import('../app/js/core/dof.js');
+  const mean = (k, side = 0) => {
+    let sum = 0;
+    const n = 2000;
+    for (let i = 0; i < n; i++) {
+      const t = (i + 0.5) / n;
+      sum += (2 * t * profileGain(k, t, side)) / n;
+    }
+    return sum;
+  };
+  for (const opt of [{ edge: 0.8 }, { edge: -0.8 }, { bubble: 1 }, { hot: 1 }, { hole: 0.5 }, { edge: 0.4, edgeFB: 0.5, hot: 0.5 }]) {
+    const k = bokehKernel({ shape: 'circle', ...opt });
+    assert.ok(Math.abs(mean(k, 1) - 1) < 0.02 && Math.abs(mean(k, -1) - 1) < 0.03, `${JSON.stringify(opt)} keeps the light: ${mean(k, 1)}`);
+  }
+  const edge = bokehKernel({ shape: 'circle', edge: 0.8 });
+  assert.ok(profileGain(edge, 0.97) > 1.4 * profileGain(edge, 0.5), 'a bright rim');
+  const dark = bokehKernel({ shape: 'circle', edge: -0.8 });
+  assert.ok(profileGain(dark, 0.97) < 0.7 * profileGain(dark, 0.5), 'a dark edge');
+  const fb = bokehKernel({ shape: 'circle', edgeFB: 1 });
+  assert.ok(profileGain(fb, 0.97, 1) > 1.4 && profileGain(fb, 0.97, -1) < 0.7, 'more rim behind the focus, less in front');
+  const hole = bokehKernel({ shape: 'circle', hole: 0.5 });
+  assert.ok(profileGain(hole, 0.2) < 0.01 && profileGain(hole, 0.8) > 1, 'a hole');
+  // the smooth shape and Optical have none of it
+  assert.equal(bokehKernel({ shape: 'smooth', hole: 0.5, catEye: 1 }).hole, 0);
+  assert.equal(bokehKernel({ shape: 'optical', edge: 1 }).edge, 0);
+  // the soap bubble's rim is colored, its center is not
+  const t = bubbleTint(bokehKernel({ shape: 'circle', bubble: 1 }), [0.95, 0], 0.95);
+  assert.ok(Math.max(...t) - Math.min(...t) > 0.3, `rainbow rim ${t}`);
+  assert.deepEqual(bubbleTint(bokehKernel({ shape: 'circle', bubble: 1 }), [0, 0], 0), [1, 1, 1].map((v, i) => bubbleTint(bokehKernel({ shape: 'circle', bubble: 1 }), [0, 0], 0)[i]));
+  // the cat's-eye is none at the center of the frame, and a lens narrow along the direction to the center near the corner
+  const cat = bokehKernel({ shape: 'circle', catEye: 1 });
+  assert.equal(catEyeAt(cat, 0, 0).c, 0);
+  const lens = catEyeAt(cat, 1, 0);
+  assert.ok(lens.c > 0.5 && lens.ratio < 0.4 && Math.abs(lens.ux - 1) < 1e-9);
+  const size = 81;
+  const ball = bokehBall(cat, size, 30, { d: 1, ang: 0 });
+  assert.ok(ball[40 * size + 40 + 25] < 0.2 && ball[(40 + 20) * size + 40] > 0.8, 'narrow along the direction to the center (x), long across it (y)');
+  // the processor's blur shows the hole: a point of light far out of focus is dark at the center of its ball and lit around it
+  const w = 128;
+  const rgb = new Float32Array(w * w * 3);
+  rgb.fill(50, 3 * (64 * w + 64), 3 * (64 * w + 64) + 3);
+  const out = applyDepthOfField(rgb, w, w, new Float32Array(w * w).fill(1), w, w, 0, 1, 40, { shape: 'circle', hole: 0.5 });
+  assert.ok(out[3 * (64 * w + 64)] < 0.2 * out[3 * (64 * w + 64 + 30)] && out[3 * (64 * w + 64 + 30)] > 0, 'dark center, lit ring');
+  // and the preview's colors: a fringe and a bubble have different channels at the rim
+  const rgbBall = ballRGB(bokehKernel({ shape: 'circle', fringe: 1 }), 121, 50, null, 1);
+  const edgeIdx = 3 * (60 * 121 + 60 + 48);
+  assert.ok(rgbBall[edgeIdx + 1] > 1.5 * rgbBall[edgeIdx], 'green past the rim of red and blue, behind the focus');
+});

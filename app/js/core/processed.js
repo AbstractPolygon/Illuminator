@@ -12,7 +12,7 @@
 // values from -1.6 to 1.6 (as for raw photos); those map linearly onto the
 // picture's lambda range.
 
-import { applyDepthOfField } from './dof.js';
+import { applyDepthOfField, shapeOptions } from './dof.js';
 import { smoothDepth } from './depth.js';
 import { nthSmallest } from './typed.js';
 
@@ -265,18 +265,7 @@ export class ProcessedPicture {
     const lambdaGrid = this.depthGrid();
     return applyDepthOfField(rgb, this.width, this.height, lambdaGrid.lambda, lambdaGrid.width, lambdaGrid.height, lambda,
       blur, APERTURE_RADIUS * this.pxPerLambda, {
-        shape: bokeh.shape,
-        blades: bokeh.blades,
-        oval: bokeh.oval,
-        rotation: bokeh.rotation,
-        onion: bokeh.onion,
-        image: bokeh.image,
-        points: bokeh.points,
-        inner: bokeh.inner,
-        width: bokeh.width,
-        irregular: bokeh.irregular,
-        ringBlur: bokeh.ringBlur,
-        spots: bokeh.spots,
+        ...shapeOptions(bokeh),
         highlights: bokeh.highlights,
         clip: 1,
         spread: (bokeh.spread || 0) * scale,

@@ -53,6 +53,16 @@ export function initCurvesView({ trackGroups, shownTracks, trackName, $, state, 
     { k: 'bokehIrregular', c: 0, name: 'Irregularity', color: '#a1887f' },
     { k: 'bokehRingBlur', c: 0, name: 'Ring blur', color: '#90a4ae' },
     { k: 'bokehSpots', c: 0, name: 'Spots', color: '#bcaaa4' },
+    { k: 'bokehCat', c: 0, name: "Cat's-eye", color: '#ffcc80' },
+    { k: 'bokehSwirl', c: 0, name: 'Swirl', color: '#b39ddb' },
+    { k: 'bokehEdge', c: 0, name: 'Edge', color: '#ef9a9a' },
+    { k: 'bokehEdgeFB', c: 0, name: 'Front / back', color: '#ce93d8' },
+    { k: 'bokehBubble', c: 0, name: 'Bubble', color: '#80deea' },
+    { k: 'bokehHole', c: 0, name: 'Hole', color: '#bcaaa4' },
+    { k: 'bokehFringe', c: 0, name: 'Color fringe', color: '#a5d6a7' },
+    { k: 'bokehHot', c: 0, name: 'Hot spot', color: '#ffe082' },
+    { k: 'bokehGrain', c: 0, name: 'Grain', color: '#b0bec5' },
+    { k: 'bokehDiffraction', c: 0, name: 'Diffraction', color: '#90caf9' },
     { k: 'amount', c: 0, name: 'Amount', color: '#4fc3f7' },
     { k: 'near', c: 0, name: 'Near', color: '#ba68c8' },
     { k: 'far', c: 0, name: 'Far', color: '#81c784' },
@@ -138,6 +148,16 @@ export function initCurvesView({ trackGroups, shownTracks, trackName, $, state, 
       case 'bokehIrregular':
       case 'bokehRingBlur':
       case 'bokehSpots': return [0, 100];
+      case 'bokehCat': return [0, 100];
+      case 'bokehSwirl': return [0, 100];
+      case 'bokehEdge': return [-100, 100];
+      case 'bokehEdgeFB': return [-100, 100];
+      case 'bokehBubble': return [0, 100];
+      case 'bokehHole': return [0, 90];
+      case 'bokehFringe': return [0, 100];
+      case 'bokehHot': return [0, 100];
+      case 'bokehGrain': return [0, 100];
+      case 'bokehDiffraction': return [0, 100];
       case 'amount': return [0.1, 1];
       case 'near': return [-1.6, 0];
       case 'far': return [0, 1.6];
