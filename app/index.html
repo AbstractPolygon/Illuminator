@@ -497,48 +497,6 @@
           </label>
         </details>
       </details>
-      <details class="panel details-panel" data-panel="camera">
-        <summary><h2>Details</h2></summary>
-        <details class="subpanel">
-          <summary><h3>Sharpening</h3></summary>
-          <label title="Strength of sharpening">Amount <output for="sharp-amount" data-for="sharp-amount">85</output>
-            <input id="sharp-amount" type="range" min="0" max="150" step="1" value="85" data-default="85">
-          </label>
-          <label title="Size of the details sharpened">Radius <output for="sharp-radius" data-for="sharp-radius">1.2</output>
-            <input id="sharp-radius" type="range" min="0.5" max="3" step="0.1" value="1.2" data-default="1.2">
-          </label>
-          <label title="How much fine texture is sharpened">Detail <output for="sharp-detail" data-for="sharp-detail">50</output>
-            <input id="sharp-detail" type="range" min="0" max="100" step="1" value="50" data-default="50">
-          </label>
-          <label title="Sharpen only edges: 0 sharpens everything, 100 only the strongest edges">Masking <output for="sharp-masking" data-for="sharp-masking">0</output>
-            <input id="sharp-masking" type="range" min="0" max="100" step="1" value="0" data-default="0">
-          </label>
-        </details>
-        <details class="subpanel">
-          <summary><h3>Noise Reduction</h3></summary>
-          <label class="check"><input id="mv-on" type="checkbox" checked> Multi-view</label>
-          <label title="How much the other views are blended in to reduce noise">Blend <output for="mv-blend" data-for="mv-blend">100</output>
-            <input id="mv-blend" type="range" min="0" max="100" step="1" value="100" data-default="100">
-          </label>
-          <label class="check" title="Finds hot and dead pixels on the sensor and fills them from their neighbors before the picture is made"><input id="nr-hot" type="checkbox" checked> Remove hot pixels</label>
-          <label title="Smooths grain in brightness">Luminance <output for="nr-luminance" data-for="nr-luminance">30</output>
-            <input id="nr-luminance" type="range" min="0" max="100" step="1" value="30" data-default="30">
-          </label>
-          <label title="Removes color speckles">Color <output for="nr-color" data-for="nr-color">20</output>
-            <input id="nr-color" type="range" min="0" max="100" step="1" value="20" data-default="20">
-          </label>
-          <label title="Fills small, faint dark spots left by dust on the sensor or lens: higher removes larger spots">Dust <output for="nr-dust" data-for="nr-dust">0</output>
-            <input id="nr-dust" type="range" min="0" max="100" step="1" value="0" data-default="0">
-          </label>
-          <label title="Removes small bright or dark specks; edges are kept">Despeckle <output for="nr-speckle" data-for="nr-speckle">0</output>
-            <input id="nr-speckle" type="range" min="0" max="100" step="1" value="0" data-default="0">
-          </label>
-          <label title="The largest speck removed, in pixels across: specks up to this size go, larger spots and lines stay">Speck size <output for="nr-speckle-size" data-for="nr-speckle-size">2 px</output>
-            <input id="nr-speckle-size" type="range" min="1" max="5" step="1" value="2" data-default="2">
-          </label>
-        </details>
-      </details>
-
       <details class="panel" data-panel="camera">
         <summary><h2>Optics</h2></summary>
         <details class="subpanel">
@@ -709,6 +667,48 @@
           <label class="check" title="Removes the haze lens flare lays over the picture"><input id="flare-on" type="checkbox"> Reduce flare</label>
           <label title="How much of the flare haze is removed">Amount <output data-for="flare-amount" for="flare-amount">70</output>
             <input id="flare-amount" type="range" min="0" max="100" step="1" value="70" data-default="70" disabled>
+          </label>
+        </details>
+      </details>
+
+      <details class="panel details-panel" data-panel="camera">
+        <summary><h2>Details</h2></summary>
+        <details class="subpanel">
+          <summary><h3>Sharpening</h3></summary>
+          <label title="Strength of sharpening">Amount <output for="sharp-amount" data-for="sharp-amount">85</output>
+            <input id="sharp-amount" type="range" min="0" max="150" step="1" value="85" data-default="85">
+          </label>
+          <label title="Size of the details sharpened">Radius <output for="sharp-radius" data-for="sharp-radius">1.2</output>
+            <input id="sharp-radius" type="range" min="0.5" max="3" step="0.1" value="1.2" data-default="1.2">
+          </label>
+          <label title="How much fine texture is sharpened">Detail <output for="sharp-detail" data-for="sharp-detail">50</output>
+            <input id="sharp-detail" type="range" min="0" max="100" step="1" value="50" data-default="50">
+          </label>
+          <label title="Sharpen only edges: 0 sharpens everything, 100 only the strongest edges">Masking <output for="sharp-masking" data-for="sharp-masking">0</output>
+            <input id="sharp-masking" type="range" min="0" max="100" step="1" value="0" data-default="0">
+          </label>
+        </details>
+        <details class="subpanel">
+          <summary><h3>Noise Reduction</h3></summary>
+          <label class="check"><input id="mv-on" type="checkbox" checked> Multi-view</label>
+          <label title="How much the other views are blended in to reduce noise">Blend <output for="mv-blend" data-for="mv-blend">100</output>
+            <input id="mv-blend" type="range" min="0" max="100" step="1" value="100" data-default="100">
+          </label>
+          <label class="check" title="Finds hot and dead pixels on the sensor and fills them from their neighbors before the picture is made"><input id="nr-hot" type="checkbox" checked> Remove hot pixels</label>
+          <label title="Smooths grain in brightness">Luminance <output for="nr-luminance" data-for="nr-luminance">30</output>
+            <input id="nr-luminance" type="range" min="0" max="100" step="1" value="30" data-default="30">
+          </label>
+          <label title="Removes color speckles">Color <output for="nr-color" data-for="nr-color">20</output>
+            <input id="nr-color" type="range" min="0" max="100" step="1" value="20" data-default="20">
+          </label>
+          <label title="Fills small, faint dark spots left by dust on the sensor or lens: higher removes larger spots">Dust <output for="nr-dust" data-for="nr-dust">0</output>
+            <input id="nr-dust" type="range" min="0" max="100" step="1" value="0" data-default="0">
+          </label>
+          <label title="Removes small bright or dark specks; edges are kept">Despeckle <output for="nr-speckle" data-for="nr-speckle">0</output>
+            <input id="nr-speckle" type="range" min="0" max="100" step="1" value="0" data-default="0">
+          </label>
+          <label title="The largest speck removed, in pixels across: specks up to this size go, larger spots and lines stay">Speck size <output for="nr-speckle-size" data-for="nr-speckle-size">2 px</output>
+            <input id="nr-speckle-size" type="range" min="1" max="5" step="1" value="2" data-default="2">
           </label>
         </details>
       </details>
