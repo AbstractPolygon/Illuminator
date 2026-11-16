@@ -47,6 +47,33 @@
       }
     },
     {
+      "id": "2xNomosUni_span_multijpg",
+      "name": "SPAN x2",
+      "note": "fast, photos, best for 1.5× and 2×",
+      "file": "2xNomosUni_span_multijpg.onnx",
+      "size": 1656556,
+      "sha256": "8fcfaa1c0a2ccb8d73b7b76bf9b0305dfb7db3cca9ebac56f514e72e3977595f",
+      "scale": 2,
+      "weights": "2xNomosUni_span_multijpg (Philip Hofmann, CC BY 4.0), a SPAN network (Wan et al., Apache-2.0)",
+      "converted": {
+        "from": {
+          "repo": "Phips/2xNomosUni_span_multijpg",
+          "file": "2xNomosUni_span_multijpg.safetensors",
+          "revision": "ed6111c4cabdaf42b75e6535600d5370cce9e4e2",
+          "sha256": "bee2a9c082f2b8f6e7f5db504b36593c24a1a959511f587114c399ca58b9c92c"
+        },
+        "script": "scripts/convert-model.py",
+        "tools": {
+          "torch": "2.15.0",
+          "spandrel": "0.4.2",
+          "onnx": "1.23.2",
+          "opset": 17
+        },
+        "license": "CC-BY-4.0",
+        "licenseFile": "LICENSE-2xNomosUni_span_multijpg.txt"
+      }
+    },
+    {
       "id": "RealESRGAN_x4plus",
       "name": "Real-ESRGAN x4plus",
       "note": "best quality",
