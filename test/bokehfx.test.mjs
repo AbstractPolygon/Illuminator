@@ -66,3 +66,26 @@ test('fog and dirt glow round the light; the dirt is a fixed pattern', () => {
   assert.ok(Math.min(...m) >= 0 && Math.max(...m) <= 1);
   assert.equal(dirtMap(), m, 'the same every time');
 });
+
+test('a streak is smooth along its row at any length, and only points brighter than its threshold streak', () => {
+  // (a streak that stepped showed as vertical bands: along the row it falls off smoothly, by the same factor each pixel)
+  const rgb = scene();
+  for (const len of [0.2, 0.6, 1]) {
+    const out = applyBokehFx(rgb, W, H, fxOptions({ fxStreak: 1, fxStreakLen: len }), 1);
+    const row = [];
+    for (let x = 112; x < 190; x++) row.push(added(out, rgb, x, 60));
+    for (let i = 1; i < row.length; i++) {
+      assert.ok(row[i] <= row[i - 1] + 1e-6, `length ${len}: rises at ${112 + i}`);
+      assert.ok(row[i] > 0.85 * row[i - 1], `length ${len}: steps at ${112 + i}: ${row[i - 1]} -> ${row[i]}`);
+    }
+    // it is thin: little light a few rows off
+    assert.ok(added(out, rgb, 140, 66) < 0.2 * added(out, rgb, 140, 60));
+  }
+  // a dim light (80% of white) streaks only when the threshold lets it
+  const dim = new Float32Array(W * H * 3).fill(0.05);
+  for (let y = 58; y < 62; y++) for (let x = 98; x < 102; x++) dim.fill(0.9, 3 * (y * W + x), 3 * (y * W + x) + 3);
+  const at = (th) => added(applyBokehFx(dim, W, H, fxOptions({ fxStreak: 1, fxStreakThreshold: th }), 1), dim, 125, 60);
+  assert.equal(fxOptions({ fxStreak: 1 }).streakThreshold, 0.7);
+  assert.equal(fxOptions({ fxStreak: 1, fxStreakThreshold: 5 }).streakThreshold, 1);
+  assert.ok(at(0.3) > at(0.7) && at(0.7) > 0 && at(0.97) === 0, `${at(0.3)} ${at(0.7)} ${at(0.97)}`);
+});

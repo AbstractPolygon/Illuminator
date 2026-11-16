@@ -4,13 +4,14 @@
 //
 // Settings (bokeh options, each 0 for off):
 //   fxStreak, fxStreakLen  a horizontal streak of light through bright points (0..1) and how far it reaches (0..1 of up to a third of the width)
+//   fxStreakThreshold      how bright a point must be to streak, as a share of the clip level (0.1..1; 0.7: from 70% of white)
 //   fxStar, fxSpikes       thin spikes of light from bright points (0..1) and their number (3..16)
 //   fxGhosts               faint, colored copies of the bright parts across the frame's center, as in-lens reflections (0..1)
 //   fxFog                  a soft glow round the bright parts, which lifts the shadows near them (0..1)
 //   fxDirt                 the glow caught by dirt on the glass: a fixed pattern of smudges (0..1)
 import { boxBlur } from './dof.js';
 
-export const FX_KEYS = ['fxStreak', 'fxStreakLen', 'fxStar', 'fxSpikes', 'fxGhosts', 'fxFog', 'fxDirt'];
+export const FX_KEYS = ['fxStreak', 'fxStreakLen', 'fxStreakThreshold', 'fxStar', 'fxSpikes', 'fxGhosts', 'fxFog', 'fxDirt'];
 // (the starburst's gain is for 6 spikes; its light stays the same with more or fewer)
 export const FX_GAIN = { streak: 7, star: 3, ghosts: 0.6, fog: 6, dirt: 12 };
 // Streaks and spikes come from small lights: they are fed the bright parts less their average over a box of this mip level (a large bright area gives none inside).
@@ -18,7 +19,6 @@ export const POINT_LOD = 4;
 // Each effect's light is held below this (a soft limit: x / (1 + x / limit)), so a large bright area gives a glow, not a white bar: the gains are for small lights.
 export const FX_LIMIT = 0.7;
 export const softLimit = (x) => x / (1 + x / FX_LIMIT);
-export const STREAK_TAPS = 24;   // on each side
 export const STAR_TAPS = 20;     // along each spike
 // Ghosts: where each one lies on the line through the light and the frame's center (a multiple of the light's distance from the center; negative: across it, and a
 // larger one is a larger ghost) and its color. A ghost's pixel is read from the point 1 / that multiple of the way from the center.
@@ -32,6 +32,7 @@ export function fxOptions(b = {}) {
   const o = {
     streak: Math.max(0, Math.min(1, b.fxStreak || 0)),
     streakLen: Math.max(0, Math.min(1, b.fxStreakLen ?? 0.5)),
+    streakThreshold: Math.max(0.1, Math.min(1, b.fxStreakThreshold ?? 0.7)),
     star: Math.max(0, Math.min(1, b.fxStar || 0)),
     spikes: Math.max(3, Math.min(16, Math.round(b.fxSpikes || 6))),
     ghosts: Math.max(0, Math.min(1, b.fxGhosts || 0)),
@@ -44,11 +45,12 @@ export function fxOptions(b = {}) {
 // How big things are on the half size picture of width hw: the streak's reach L and the spacing of its taps, the spikes' reach and spacing, and the mip levels (box
 // sizes) the ghosts, the fog and the dirt read the bright parts at.
 export function fxGeometry(fx, hw) {
+  // (the streak: its reach L in half size pixels, the glow's fall-off per pixel a, and the number of doubling passes the graphics card needs to reach 3 L)
   const L = Math.max(2, (0.02 + 0.3 * fx.streakLen) * hw);
-  const step = Math.max(1, (3 * L) / STREAK_TAPS);
+  const passes = Math.max(1, Math.ceil(Math.log2(3 * L)));
   const L0 = Math.max(2, 0.06 * hw);
   const starStep = Math.max(1, (3 * L0) / STAR_TAPS);
-  return { L, step, L0, starStep, ghostLod: 1.5, fogLod: Math.log2(Math.max(2, 0.06 * hw)), dirtLod: 4 };
+  return { L, a: Math.exp(-1 / L), passes, L0, starStep, ghostLod: 1.5, fogLod: Math.log2(Math.max(2, 0.06 * hw)), dirtLod: 4 };
 }
 
 let dirt = null;
@@ -86,13 +88,14 @@ export function dirtMap() {
 
 const LUMA = [0.2126, 0.7152, 0.0722];
 
-// The bright parts: each pixel's color times a weight that goes from 0 at 70% of the clip level to 1 at it (squared), as a half size picture (2 x 2 pixels averaged).
-export function brightParts(rgb, w, h, clip) {
+// The bright parts: each pixel's color times a weight that goes from 0 at kneeShare (70%) of the clip level to 1 at it (squared), as a half size picture (2 x 2 pixels averaged).
+export function brightParts(rgb, w, h, clip, kneeShare = 0.7) {
   const hw = Math.ceil(w / 2);
   const hh = Math.ceil(h / 2);
   const out = new Float32Array(hw * hh * 3);
-  const knee = 0.7 * clip;
-  const span = 0.3 * clip;
+  // (from kneeShare of the clip level: 0.7 goes from 70% of white to white; a higher one is a narrower ramp, at least 5% of white)
+  const knee = kneeShare * clip;
+  const span = Math.max(0.05, 1 - kneeShare) * clip;
   for (let y = 0; y < hh; y++) {
     for (let x = 0; x < hw; x++) {
       for (let dy = 0; dy < 2; dy++) {
@@ -119,6 +122,37 @@ export function pointsOf(hl, hw, hh) {
   return out;
 }
 
+// The horizontal glow of the small peaks: each row's sum over d of a^|d| times the (vertically smoothed, [1 2 1] / 4) peak d pixels away, the way the graphics card builds it
+// from log2 passes. Exactly the same everywhere along a row, so it has no steps; a is exp(-1 / L).
+export function streakGlow(pts, hw, hh, a) {
+  const sm = new Float32Array(pts.length);
+  for (let y = 0; y < hh; y++) {
+    const y0 = Math.max(0, y - 1);
+    const y1 = Math.min(hh - 1, y + 1);
+    for (let i = 0; i < hw * 3; i++) sm[y * hw * 3 + i] = 0.25 * pts[y0 * hw * 3 + i] + 0.5 * pts[y * hw * 3 + i] + 0.25 * pts[y1 * hw * 3 + i];
+  }
+  const out = new Float32Array(pts.length);
+  const right = new Float32Array(hw * 3);
+  for (let y = 0; y < hh; y++) {
+    const row = y * hw * 3;
+    for (let c = 0; c < 3; c++) {
+      // from the left: out[x] = sm[x] + a * out[x - 1]; from the right the same; their sum counts the pixel itself twice
+      let acc = 0;
+      for (let x = 0; x < hw; x++) {
+        acc = sm[row + 3 * x + c] + a * acc;
+        out[row + 3 * x + c] = acc;
+      }
+      acc = 0;
+      for (let x = hw - 1; x >= 0; x--) {
+        acc = sm[row + 3 * x + c] + a * acc;
+        right[3 * x + c] = acc;
+      }
+      for (let x = 0; x < hw; x++) out[row + 3 * x + c] += right[3 * x + c] - sm[row + 3 * x + c];
+    }
+  }
+  return out;
+}
+
 // A copy of the bright parts averaged over a box (a mip level `lod` of the graphics card's: 2^lod pixels wide).
 function atLod(hl, hw, hh, lod) {
   const r = Math.max(0, Math.round((2 ** lod - 1) / 2));
@@ -133,9 +167,9 @@ export function applyBokehFx(rgb, w, h, fx, clip = 1) {
   const hl = brightParts(rgb, w, h, clip);
   const G = fxGeometry(fx, hw);
   const out = new Float32Array(hw * hh * 3);
-  const pts = fx.streak > 0 || fx.star > 0 ? pointsOf(hl, hw, hh) : null;
-  const streakImg = fx.streak > 0 ? atLod(pts, hw, hh, Math.log2(G.step)) : null;
-  const starImg = fx.star > 0 ? atLod(pts, hw, hh, Math.log2(G.starStep)) : null;
+  // (the streak has its own bright parts, with its own threshold)
+  const streakImg = fx.streak > 0 ? streakGlow(pointsOf(brightParts(rgb, w, h, clip, fx.streakThreshold), hw, hh), hw, hh, G.a) : null;
+  const starImg = fx.star > 0 ? atLod(pointsOf(hl, hw, hh), hw, hh, Math.log2(G.starStep)) : null;
   const ghostImg = fx.ghosts > 0 ? atLod(hl, hw, hh, G.ghostLod) : null;
   let fogImg = null;
   if (fx.fog > 0) fogImg = boxBlur(atLod(hl, hw, hh, G.fogLod), hw, hh, Math.max(1, Math.round(0.02 * hw)));
@@ -147,14 +181,7 @@ export function applyBokehFx(rgb, w, h, fx, clip = 1) {
       const o = 3 * (y * hw + x);
       for (let c = 0; c < 3; c++) {
         let v = 0;
-        if (streakImg) {
-          let s = 0;
-          for (let j = -STREAK_TAPS; j <= STREAK_TAPS; j++) {
-            const d = j * G.step;
-            s += Math.exp(-Math.abs(d) / G.L) * sample(streakImg, Math.round(x + d), y, c);
-          }
-          v += softLimit(fx.streak * FX_GAIN.streak * ((G.step * G.step) / (2 * G.L)) * s * STREAK_TINT[c]);
-        }
+        if (streakImg) v += softLimit(fx.streak * FX_GAIN.streak * (1 / (2 * G.L)) * streakImg[o + c] * STREAK_TINT[c]);
         if (starImg) {
           let s = 0;
           for (let m = 0; m < fx.spikes; m++) {

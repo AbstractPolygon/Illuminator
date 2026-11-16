@@ -65,6 +65,8 @@ export function initCurvesView({ trackGroups, shownTracks, trackName, $, state, 
     { k: 'bokehDiffraction', c: 0, name: 'Diffraction', color: '#90caf9' },
     { k: 'bokehStreak', c: 0, name: 'Streaks', color: '#90caf9' },
     { k: 'bokehStreakLen', c: 0, name: 'Streak length', color: '#ffcc80' },
+    { k: 'bokehStreakThreshold', c: 0, name: 'Streak threshold', color: '#ffab91' },
+    { k: 'bokehOuter', c: 0, name: 'Outer radius', color: '#d1c4e9' },
     { k: 'bokehStar', c: 0, name: 'Starburst', color: '#ffe082' },
     { k: 'bokehSpikes', c: 0, name: 'Spikes', color: '#b39ddb' },
     { k: 'bokehGhosts', c: 0, name: 'Ghosts', color: '#ce93d8' },
@@ -167,6 +169,8 @@ export function initCurvesView({ trackGroups, shownTracks, trackName, $, state, 
       case 'bokehDiffraction': return [0, 100];
       case 'bokehStreak': return [0, 100];
       case 'bokehStreakLen': return [0, 100];
+      case 'bokehStreakThreshold': return [10, 100];
+      case 'bokehOuter': return [30, 100];
       case 'bokehStar': return [0, 100];
       case 'bokehSpikes': return [3, 16];
       case 'bokehGhosts': return [0, 100];

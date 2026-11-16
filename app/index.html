@@ -524,6 +524,9 @@
           <label id="bokeh-inner-row" title="How deep the notches between the star's points go: lower is a thinner, spikier star" hidden>Inner radius <output data-for="bokeh-inner" for="bokeh-inner">45</output>
             <input id="bokeh-inner" type="range" min="10" max="90" step="1" value="45" data-default="45">
           </label>
+          <label id="bokeh-outer-row" title="How far the star's tips reach, as a share of the ball's size" hidden>Outer radius <output data-for="bokeh-outer" for="bokeh-outer">100</output>
+            <input id="bokeh-outer" type="range" min="30" max="100" step="1" value="100" data-default="100">
+          </label>
           <label id="bokeh-width-row" title="Makes the heart narrower or wider" hidden>Width <output data-for="bokeh-width" for="bokeh-width">100</output>
             <input id="bokeh-width" type="range" min="60" max="140" step="1" value="100" data-default="100">
           </label>
@@ -545,6 +548,7 @@
           <label id="bokeh-spots-row" title="Dust specks and faint bubble rings inside each bokeh ball, as from dust on the lens's glass" hidden>Spots <output data-for="bokeh-spots" for="bokeh-spots">0</output>
             <input id="bokeh-spots" type="range" min="0" max="100" step="1" value="0" data-default="0">
           </label>
+          <label title="How brightly highlights glow into bokeh">Highlights <input id="highlights" type="range" min="0" max="1" step="0.05" value="0.3"></label>
           <details id="bokeh-ball-group" class="bokeh-group" hidden>
             <summary>Bokeh character</summary>
             <label id="bokeh-cat-row" title="Balls near the frame's edge are clipped into lens shapes, like a fast lens's cat's-eye bokeh">Cat's-eye <output data-for="bokeh-cat" for="bokeh-cat">0</output>
@@ -586,6 +590,9 @@
             <label id="bokeh-streak-len-row" title="How far the streaks reach" hidden>Streak length <output data-for="bokeh-streak-len" for="bokeh-streak-len">50</output>
               <input id="bokeh-streak-len" type="range" min="0" max="100" step="1" value="50" data-default="50">
             </label>
+            <label id="bokeh-streak-threshold-row" title="How bright a point must be to streak, as a share of white: lower makes more streaks" hidden>Streak threshold <output data-for="bokeh-streak-threshold" for="bokeh-streak-threshold">70</output>
+              <input id="bokeh-streak-threshold" type="range" min="10" max="100" step="1" value="70" data-default="70">
+            </label>
             <label id="bokeh-star-row" title="Thin spikes of light from bright points, as from a lens stopped down">Starburst <output data-for="bokeh-star" for="bokeh-star">0</output>
               <input id="bokeh-star" type="range" min="0" max="100" step="1" value="0" data-default="0">
             </label>
@@ -602,7 +609,6 @@
               <input id="bokeh-dirt" type="range" min="0" max="100" step="1" value="0" data-default="0">
             </label>
           </details>
-          <label title="How brightly highlights glow into bokeh">Highlights <input id="highlights" type="range" min="0" max="1" step="0.05" value="0.3"></label>
         </details>
       </details>
       <details class="panel color-panel" data-panel="camera">

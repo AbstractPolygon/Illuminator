@@ -22,7 +22,7 @@ import { LOCAL_TONE, textureGain } from '../core/localtone.js';
 import { MAX_MASKS } from '../core/local.js';
 import { MAX_DABS, RING_RADIUS, RING_TAPS } from '../core/retouch.js';
 import { bokehKernel, BOKEH_IMAGE_SIZE, ONION_SIZE, PROFILE_CONST } from '../core/dof.js';
-import { FX_GAIN, FX_LIMIT, POINT_LOD, STREAK_TAPS, STAR_TAPS, GHOSTS, STREAK_TINT, DIRT_SIZE, fxGeometry, dirtMap } from '../core/bokehfx.js';
+import { FX_GAIN, FX_LIMIT, POINT_LOD, STAR_TAPS, GHOSTS, STREAK_TINT, DIRT_SIZE, fxGeometry, dirtMap } from '../core/bokehfx.js';
 import { CHROMA_EDGE } from '../core/render.js';
 import { LYTRO_CURVE, LYTRO_HUE, CURVE_START, CURVE_STEP, ENGINE_SPLINE, FIRST_SPLINE, PROPHOTO, PROPHOTO_INV } from '../core/base.js';
 import { PHASE_BINS, latticeTiles, latticeTables, RAY_DEPTH_TOLERANCE, SR_SHARPEN, LENS_CAL, lensCandidates, lensTable, chooseLensOffsets, EDGE_SNAP, SNAP_CANDIDATES, snapCandidates, DEPTH_STEP_TOLERANCE, DITHER_FIX, BACK_PROJECTION_EDGE, depthEdgeMask, RAY_MATCH, depthFilter } from '../core/superres.js';
@@ -969,9 +969,16 @@ uniform sampler2D uPt;     // the small peaks of the bright parts, mipmapped (pa
 uniform sampler2D uDirt;   // the dirty lens (R32F)
 uniform int uPass;
 uniform float uClip;
+uniform float uKnee;       // pass 0: where the bright parts start, a share of the clip level
+uniform sampler2D uPtS;    // the streak's small peaks (its own bright parts and threshold)
 uniform float uStreak;
 uniform float uStreakL;
-uniform float uStreakStep;
+uniform sampler2D uAcc;    // pass 4: the glow so far (one direction)
+uniform sampler2D uSA;     // pass 1: the glow from the left and from the right
+uniform sampler2D uSB;
+uniform int uFirst;        // pass 4: the first of the doubling passes (reads the smoothed peaks)
+uniform float uShift;      // pass 4: how far this doubling pass reaches (pixels, with its direction)
+uniform float uShiftW;     // and the weight of that reach: a^shift
 uniform float uStar;
 uniform int uSpikes;
 uniform float uStarL0;
@@ -984,7 +991,7 @@ out vec4 outColor;
 
 vec3 bright(ivec2 q, ivec2 size) {
   vec3 c = texelFetch(uSrc, min(q, size - 1), 0).rgb;
-  float t = clamp((dot(c, vec3(0.2126, 0.7152, 0.0722)) - 0.7 * uClip) / (0.3 * uClip), 0.0, 1.0);
+  float t = clamp((dot(c, vec3(0.2126, 0.7152, 0.0722)) - uKnee * uClip) / (max(0.05, 1.0 - uKnee) * uClip), 0.0, 1.0);
   return c * t * t * 0.25;
 }
 
@@ -996,6 +1003,20 @@ vec3 hl(vec2 uv, float lod) {
   if (uv.x < 0.0 || uv.y < 0.0 || uv.x > 1.0 || uv.y > 1.0) return vec3(0.0);
   return textureLod(uHl, uv, lod).rgb;
 }
+// The small peaks at a pixel, smoothed vertically ([1 2 1] / 4) so a streak is a little thick; 0 outside the picture.
+vec3 ptSm(ivec2 q, ivec2 hs) {
+  vec3 s = vec3(0.0);
+  for (int j = -1; j <= 1; j++) {
+    ivec2 r = ivec2(q.x, q.y + j);
+    if (r.x < 0 || r.y < 0 || r.x >= hs.x || r.y >= hs.y) continue;
+    s += (j == 0 ? 0.5 : 0.25) * texelFetch(uPtS, r, 0).rgb;
+  }
+  return s;
+}
+vec3 accAt(ivec2 q, ivec2 hs) {
+  if (q.x < 0 || q.y < 0 || q.x >= hs.x || q.y >= hs.y) return vec3(0.0);
+  return uFirst == 1 ? ptSm(q, hs) : texelFetch(uAcc, q, 0).rgb;
+}
 vec3 pt(vec2 uv, float lod) {
   if (uv.x < 0.0 || uv.y < 0.0 || uv.x > 1.0 || uv.y > 1.0) return vec3(0.0);
   return textureLod(uPt, uv, lod).rgb;
@@ -1006,6 +1027,12 @@ void main() {
   if (uPass == 0) {
     ivec2 size = textureSize(uSrc, 0);
     outColor = vec4(bright(2 * p, size) + bright(2 * p + ivec2(1, 0), size) + bright(2 * p + ivec2(0, 1), size) + bright(2 * p + ivec2(1, 1), size), 1.0);
+    return;
+  }
+  if (uPass == 4) {
+    // one doubling pass of the exponential glow: acc(x) + a^shift * acc(x - shift), shift signed for the direction
+    ivec2 hs = textureSize(uPtS, 0);
+    outColor = vec4(accAt(p, hs) + uShiftW * accAt(p - ivec2(int(uShift), 0), hs), 1.0);
     return;
   }
   if (uPass == 3) {
@@ -1029,13 +1056,9 @@ void main() {
   vec2 uv = (vec2(p) + 0.5) / hsf;
   vec3 fx = vec3(0.0);
   if (uStreak > 0.0) {
-    float lod = log2(uStreakStep);
-    vec3 s = vec3(0.0);
-    for (int j = -${STREAK_TAPS}; j <= ${STREAK_TAPS}; j++) {
-      float d = float(j) * uStreakStep;
-      s += exp(-abs(d) / uStreakL) * pt(uv + vec2(d / hsf.x, 0.0), lod);
-    }
-    fx += softLimit(uStreak * ${FX_GAIN.streak.toFixed(3)} * (uStreakStep * uStreakStep / (2.0 * uStreakL)) * s * vec3(${STREAK_TINT.map((v) => v.toFixed(2)).join(', ')}));
+    // the glow from the left and from the right (the pixel's own peak is in both: counted once)
+    vec3 s = texelFetch(uSA, p, 0).rgb + texelFetch(uSB, p, 0).rgb - ptSm(p, hs);
+    fx += softLimit(uStreak * ${FX_GAIN.streak.toFixed(3)} * (1.0 / (2.0 * uStreakL)) * s * vec3(${STREAK_TINT.map((v) => v.toFixed(2)).join(', ')}));
   }
   if (uStar > 0.0) {
     float lod = log2(uStarStep);
@@ -4479,6 +4502,8 @@ export class GpuRenderer {
     const G = fxGeometry(fx, hw);
     const hlTex = this.mipmapped(hw, hh, 'fxHl');
     const ptTex = this.mipmapped(hw, hh, 'fxPt');
+    const hsTex = this.mipmapped(hw, hh, 'fxHs');
+    const ptSTex = this.mipmapped(hw, hh, 'fxPtS');
     const half = this.scratch(hw, hh, 'fxHalf');
     const out = this.scratch(w, h, 'fxFull');
     const P = this.programs.bokehFx;
@@ -4487,20 +4512,27 @@ export class GpuRenderer {
     gl.uniform1i(P.u.uHl, 2);
     gl.uniform1i(P.u.uDirt, 3);
     gl.uniform1i(P.u.uPt, 4);
+    gl.uniform1i(P.u.uPtS, 7);
+    gl.uniform1i(P.u.uSA, 5);
+    gl.uniform1i(P.u.uSB, 6);
     gl.uniform1f(P.u.uClip, clip);
+    gl.uniform1f(P.u.uKnee, 0.7);
     // pass 0: the bright parts, half size, with their mip levels
     gl.uniform1i(P.u.uPass, 0);
     // (the bright parts' texture was an input of the last call: it is drawn into now, so it must not be bound as one)
     this.bindTex(2, src);
     this.bindTex(3, src);
     this.bindTex(4, src);
+    this.bindTex(5, src);
+    this.bindTex(6, src);
+    this.bindTex(7, src);
     this.target(hlTex, hw, hh);
     this.bindTex(1, src);
     this.draw();
     gl.bindTexture(gl.TEXTURE_2D, hlTex);
     gl.generateMipmap(gl.TEXTURE_2D);
-    // pass 3: the small peaks, with their mip levels, for the streaks and spikes
-    if (fx.streak > 0 || fx.star > 0) {
+    // pass 3: the small peaks, with their mip levels, for the spikes
+    if (fx.star > 0) {
       gl.uniform1i(P.u.uPass, 3);
       this.bindTex(4, src);
       this.target(ptTex, hw, hh);
@@ -4509,6 +4541,51 @@ export class GpuRenderer {
       gl.bindTexture(gl.TEXTURE_2D, ptTex);
       gl.generateMipmap(gl.TEXTURE_2D);
     }
+    // the streak's own bright parts (its threshold), and its small peaks
+    if (fx.streak > 0) {
+      gl.uniform1i(P.u.uPass, 0);
+      gl.uniform1f(P.u.uKnee, fx.streakThreshold);
+      this.bindTex(2, src);
+      this.bindTex(7, src);
+      this.target(hsTex, hw, hh);
+      this.bindTex(1, src);
+      this.draw();
+      gl.bindTexture(gl.TEXTURE_2D, hsTex);
+      gl.generateMipmap(gl.TEXTURE_2D);
+      gl.uniform1i(P.u.uPass, 3);
+      this.bindTex(4, src);
+      this.target(ptSTex, hw, hh);
+      this.bindTex(2, hsTex);
+      this.draw();
+      this.bindTex(7, ptSTex);
+    }
+    // pass 4: the streak's glow, in doubling passes: after n of them each side holds the sum of a^d times the peak d pixels away, up to 2^n - 1 (pixels, from the left and
+    // from the right), as the processor's streakGlow does along a row
+    let streakA = null;
+    let streakB = null;
+    if (fx.streak > 0) {
+      gl.uniform1i(P.u.uPass, 4);
+      gl.uniform1i(P.u.uAcc, 5);
+      const chains = [[1, 'fxSA', 'fxSB'], [-1, 'fxSC', 'fxSD']];
+      for (const [dir, nameA, nameB] of chains) {
+        const pair = [this.scratch(hw, hh, nameA), this.scratch(hw, hh, nameB)];
+        let from = null;
+        for (let k = 0; k < G.passes; k++) {
+          const to = pair[k % 2];
+          const shift = 2 ** k;
+          gl.uniform1i(P.u.uFirst, k === 0 ? 1 : 0);
+          gl.uniform1f(P.u.uShift, shift * dir);
+          gl.uniform1f(P.u.uShiftW, Math.exp(-shift / G.L));
+          this.bindTex(5, from || src);
+          this.target(to, hw, hh);
+          this.bindTex(4, ptTex);
+          this.draw();
+          from = to;
+        }
+        if (dir > 0) streakA = from;
+        else streakB = from;
+      }
+    }
     // pass 1: the effects' light
     if (fx.dirt > 0) {
       if (!this.fxDirtTex) this.fxDirtTex = this.uploadR32F(null, null, dirtMap(), DIRT_SIZE, DIRT_SIZE);
@@ -4516,7 +4593,6 @@ export class GpuRenderer {
     gl.uniform1i(P.u.uPass, 1);
     gl.uniform1f(P.u.uStreak, fx.streak);
     gl.uniform1f(P.u.uStreakL, G.L);
-    gl.uniform1f(P.u.uStreakStep, G.step);
     gl.uniform1f(P.u.uStar, fx.star);
     gl.uniform1i(P.u.uSpikes, fx.spikes);
     gl.uniform1f(P.u.uStarL0, G.L0);
@@ -4529,6 +4605,8 @@ export class GpuRenderer {
     this.bindTex(2, hlTex);
     this.bindTex(3, this.fxDirtTex || hlTex);
     this.bindTex(4, ptTex);
+    this.bindTex(5, streakA || ptTex);
+    this.bindTex(6, streakB || ptTex);
     this.draw();
     // pass 2: added to the picture
     gl.uniform1i(P.u.uPass, 2);
