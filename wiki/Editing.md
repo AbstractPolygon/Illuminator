@@ -14,8 +14,8 @@ The editing panels are in the right sidebar; click a title to open or close it. 
 
 - [[Histogram and Info]]
 - [[Crop]]: rotate, flip, straighten and crop
-- [[Details]]: sharpening and noise reduction
 - [[Optics]]: bokeh, chromatic aberration, lens correction and flare
+- [[Details]]: sharpening and noise reduction
 - [[Process]]: white balance, tone, tone curve, color and color matrix
 - [[Local Adjustments]]: masks and filters
 - [[Camera]]: aperture, depth, focus spread, tilt and perspective
