@@ -1490,6 +1490,8 @@ async function superRes({ id, job, alpha = 0, scale, u = 0, v = 0, aperture = 0,
   let keepStill = null;
   let baseKey = null;
   let diskHash = null;
+  // (the background sharp picture, `quiet`, keeps only the all in focus picture: a later focus or blur change then only puts the blur and the color pass on it again)
+  if (state.gpu && !color && quiet && allInFocus) baseKey = superResBaseKey(scale, passes, u, v, colorState(color));
   if (state.gpu && !color && !quiet) {
     const csKept = colorState(color);
     const lensKey = csKept.lens ? [csKept.lens.k || 0, csKept.lens.k2 || 0, csKept.lens.edge || 0, csKept.lens.zoom || 1] : null;
