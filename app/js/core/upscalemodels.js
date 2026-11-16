@@ -3,7 +3,8 @@
 // until the box is unticked. The files are a format conversion of the official weights; copies are in this repository's models/ folder (see models/README.md for how they
 // are kept up to date), and the models and their hashes are listed in upscalemodels-data.js, generated from models/manifest.json.
 //
-// Model contract (from the card): input `input`, float32 [1, 3, H, W], RGB 0..1, H and W dynamic; output `output`, float32 [1, 3, 4H, 4W], RGB 0..1 (to be clipped).
+// Model contract (from the card): input `input`, float32 [1, 3, H, W], RGB 0..1, H and W dynamic; output `output`, float32 [1, 3, sH, sW] (s the model's
+// `scale`, 4 or 2), RGB 0..1 (to be clipped).
 
 import { MODEL_DATA, MODEL_SOURCE } from './upscalemodels-data.js';
 

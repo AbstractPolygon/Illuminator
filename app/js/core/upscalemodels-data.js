@@ -34,7 +34,7 @@ export const MODEL_DATA = [
         "revision": "eb7c9845fb088203dcc9b5d94735c2a5f6b6213a",
         "sha256": "3bedff643a1ba51b12e0174ebca62649a930ae3e7b0868be9706d8659d4d32a2"
       },
-      "script": "scripts/convert-span.py",
+      "script": "scripts/convert-model.py",
       "tools": {
         "torch": "2.15.0",
         "spandrel": "0.4.2",
@@ -54,5 +54,32 @@ export const MODEL_DATA = [
     "sha256": "c6a0cc3b0535ea566f30f20b8dd42f0462502b9e22cf45ea6e0b3ccf55d03d98",
     "scale": 4,
     "weights": "RealESRGAN_x4plus.pth (Real-ESRGAN v0.1.0)"
+  },
+  {
+    "id": "RealESRGAN_x2plus",
+    "name": "Real-ESRGAN x2plus",
+    "note": "best for 1.5× and 2×",
+    "file": "RealESRGAN_x2plus.onnx",
+    "size": 67156233,
+    "sha256": "401eabff08c010c105f42535c40c360e58dbdbaa1aef4a5601c872ded61ef7bb",
+    "scale": 2,
+    "weights": "RealESRGAN_x2plus.pth (Real-ESRGAN v0.2.1)",
+    "converted": {
+      "from": {
+        "repo": "xinntao/Real-ESRGAN",
+        "release": "v0.2.1",
+        "file": "RealESRGAN_x2plus.pth",
+        "sha256": "49fafd45f8fd7aa8d31ab2a22d14d91b536c34494a5cfe31eb5d89c2fa266abb"
+      },
+      "script": "scripts/convert-model.py",
+      "tools": {
+        "torch": "2.15.0",
+        "spandrel": "0.4.2",
+        "onnx": "1.23.2",
+        "opset": 17
+      },
+      "license": "BSD-3-Clause",
+      "licenseFile": "LICENSE-Real-ESRGAN.txt"
+    }
   }
 ];

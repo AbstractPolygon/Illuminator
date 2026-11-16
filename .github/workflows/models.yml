@@ -36,7 +36,7 @@ jobs:
           node scripts/update-models.mjs --converted
           code=$?
           if [ "$code" = "3" ] && [ -z "$(gh issue list --state open --search 'Upscaling model needs converting again in:title' --json number --jq '.[].number')" ]; then
-            gh issue create --title "Upscaling model needs converting again" --body "The weights of a model converted in this repository changed at their source (see the Upscaling models workflow log). Run scripts/convert-span.py on the new weights and update models/manifest.json (see models/README.md)."
+            gh issue create --title "Upscaling model needs converting again" --body "The weights of a model converted in this repository changed at their source (see the Upscaling models workflow log). Run scripts/convert-model.py on the new weights and update models/manifest.json (see models/README.md)."
           fi
           exit 0
       - name: Open a pull request
