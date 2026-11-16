@@ -113,6 +113,10 @@ h2 { font-size: 13px; font-weight: 600; color: var(--heading); margin: 14px 0 8p
 .panel:not([open]) > summary::before { transform: rotate(-45deg); }
 .panel > summary:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
 #histogram { display: block; width: 100%; height: 80px; border-radius: 6px; background: #0b0c0e; border: 1px solid var(--line); }
+/* Editing in the histogram (ui/histedit.js): the zone under the pointer and its slider's name and value. */
+.hist-wrap { position: relative; cursor: ew-resize; touch-action: none; }
+.hist-zone { position: absolute; top: 1px; bottom: 1px; background: rgba(255, 255, 255, 0.08); border-left: 1px solid rgba(255, 255, 255, 0.18); border-right: 1px solid rgba(255, 255, 255, 0.18); pointer-events: none; }
+.hist-label { position: absolute; left: 6px; bottom: 4px; font-size: 11px; color: var(--text, #e6e8eb); background: rgba(11, 12, 14, 0.75); padding: 1px 5px; border-radius: 4px; pointer-events: none; font-variant-numeric: tabular-nums; }
 
 #library-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 #library-list li {
