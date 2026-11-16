@@ -3041,7 +3041,7 @@ function setMode(mode) {
   // Pictures Lytro Desktop finished already have its look.
   $('base-look').disabled = !raw;
   $('detail').disabled = !raw;
-  for (const id of ['stop-btn', 'play-btn', 'loop-btn', 'webm-btn', 'scrub', ...PREVIEW_IDS]) $(id).disabled = !state.info || !camera || !$('anim-on').checked;
+  for (const id of ['stop-btn', 'key-prev', 'key-next', 'play-btn', 'loop-btn', 'webm-btn', 'scrub', ...PREVIEW_IDS]) $(id).disabled = !state.info || !camera || !$('anim-on').checked;
   $('png-btn').disabled = !state.info;
   $('quick-export-btn').disabled = !state.info;
   $('stereo-btn').disabled = !(state.info && state.info.hasRaw) || !camera;
@@ -4711,6 +4711,24 @@ $('loop-btn').onclick = () => {
 
 const icon = (d) => `<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="${d}"/></svg>`;
 $('stop-btn').innerHTML = icon('M3.5 3.5h9v9h-9z');
+$('key-prev').innerHTML = icon('M7.5 3v10L1.5 8zM11.5 4.5L15 8l-3.5 3.5L8 8z');
+$('key-next').innerHTML = icon('M8.5 3v10l6-5zM4.5 4.5L8 8l-3.5 3.5L1 8z');
+// Previous / next keyframe: the playhead to the nearest keyframe time before / after it, on any track.
+function stepKeyframe(dir) {
+  const anim = state.anim;
+  if (!anim || !anim.tracks) return;
+  const now = playheadTime();
+  const near = 0.5 / state.fps;
+  let best = null;
+  for (const keys of Object.values(anim.tracks)) {
+    for (const key of keys || []) {
+      if (dir > 0 ? key.t > now + near && (best === null || key.t < best) : key.t < now - near && (best === null || key.t > best)) best = key.t;
+    }
+  }
+  if (best !== null) seekTo(best);
+}
+$('key-prev').onclick = () => stepKeyframe(-1);
+$('key-next').onclick = () => stepKeyframe(1);
 const ICON_PLAY = icon('M4 2.5v11l9.5-5.5z');
 const ICON_PAUSE = icon('M3.5 2.5h3v11h-3zM9.5 2.5h3v11h-3z');
 $('loop-btn').innerHTML = '<svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 9V7.5a3 3 0 0 1 3-3h8M11 2l2.5 2.5L11 7"/><path d="M13.5 7v1.5a3 3 0 0 1-3 3h-8M5 14l-2.5-2.5L5 9"/></g></svg>';
@@ -5065,7 +5083,7 @@ function showAnimationEnabled() {
   $('anim-controls').disabled = !on;
   previewMirror.want(on && !!state.info);
   const camera = state.mode === 'camera';
-  for (const id of ['stop-btn', 'play-btn', 'loop-btn', 'webm-btn', 'scrub', ...PREVIEW_IDS]) $(id).disabled = !state.info || !camera || !on;
+  for (const id of ['stop-btn', 'key-prev', 'key-next', 'play-btn', 'loop-btn', 'webm-btn', 'scrub', ...PREVIEW_IDS]) $(id).disabled = !state.info || !camera || !on;
   // The keyframe controls in the sidebar show only while animation is enabled.
   updateKeyButtons();
 }
@@ -5505,7 +5523,9 @@ function showSliderValue(input) {
   else if (input.id === 'ml-angle') out.textContent = `${v}°`;
   else if (/^grade-.*-hue$/.test(input.id)) out.textContent = `${v}°`;
   else if (/^grade-.*-sat$/.test(input.id) || input.id === 'grade-blend') out.textContent = `${v}`;
-  else if (input.id === 'frame-zoom' || input.id === 'view-reach' || input.id === 'lent-depth') out.textContent = `${v}%`;
+  else if (input.id === 'frame-zoom') out.textContent = `${Math.round(v)}%`;
+  else if (input.id === 'frame-pan-x' || input.id === 'frame-pan-y') out.textContent = `${Math.round(v) > 0 ? '+' : Math.round(v) < 0 ? '−' : ''}${Math.abs(Math.round(v))}`;
+  else if (input.id === 'view-reach' || input.id === 'lent-depth') out.textContent = `${v}%`;
   else if (input.id === 'video-quality') out.textContent = `${v} Mbit/s`;
   else if (['photo-quality', 'bokeh-blades', 'stereo-baseline', 'upscale-sharpen', 'upscale-strength', 'upscale-lobes', 'upscale-denoise', 'upscale-grain', 'depth-model-smooth', 'depth-model-curve', 'lattice-strength', 'lattice-detect'].includes(input.id)) out.textContent = `${v}`;
   else if (input.id === 'mx-strength' || input.id === 'lut-amount') out.textContent = `${v}%`;

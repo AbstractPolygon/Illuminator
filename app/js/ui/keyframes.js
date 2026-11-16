@@ -415,8 +415,16 @@ export function initKeyframes({ $, getMasks, maskLabel, state, canRender, F_STOP
     return { shift: [-panX * room, -panY * room], zoom };
   }
 
+  // Zoom and pan set from keyframes, as they were, finer than their sliders' steps (Zoom moves in 5%): the live picture (the slider, a play before
+  // Render preview) uses them, so a keyframed zoom moves smoothly instead of in 5% jumps. Kept only while the slider shows what they set it to.
+  const exactFraming = {};
+  function framingValue(k, id) {
+    const e = exactFraming[k];
+    return e && e.shown === $(id).value ? e.v : +$(id).value / 100;
+  }
+
   function liveFraming() {
-    return framing(+$('frame-zoom').value / 100, +$('frame-pan-x').value / 100, +$('frame-pan-y').value / 100);
+    return framing(framingValue('zoom', 'frame-zoom'), framingValue('panX', 'frame-pan-x'), framingValue('panY', 'frame-pan-y'));
   }
 
   // Pivot and framing together.
@@ -504,11 +512,13 @@ export function initKeyframes({ $, getMasks, maskLabel, state, canRender, F_STOP
       el.value = +el.step >= 1 ? Math.round(v) : v;
       showSliderValue(el);
     } else if (k === 'zoom') {
-      $('frame-zoom').value = Math.round(v * 100);
+      $('frame-zoom').value = v * 100;
+      exactFraming.zoom = { v, shown: $('frame-zoom').value };
       showSliderValue($('frame-zoom'));
     } else {
       const id = k === 'panX' ? 'frame-pan-x' : 'frame-pan-y';
-      $(id).value = Math.round(v * 100);
+      $(id).value = v * 100;
+      exactFraming[k] = { v, shown: $(id).value };
       showSliderValue($(id));
     }
   }

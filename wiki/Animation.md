@@ -20,6 +20,8 @@ Below the picture:
 
 <img src="images/pause.png" width="20" height="20" alt="Pause"> **Pause**
 
+**Previous keyframe** and **Next keyframe:** move the playhead to the nearest keyframe before or after it, on any setting.
+
 <img src="images/play.png" width="20" height="20" alt="Play"> **Play:** plays the rendered preview; before it is rendered (*Render preview*), plays the quick picture the slider shows, skipping frames where the computer cannot keep up.
 
 <img src="images/loop.png" width="20" height="20" alt="Loop"> **Loop:** play over and over; off, playback stops at the end.
