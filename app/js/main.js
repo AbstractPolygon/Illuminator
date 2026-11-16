@@ -1530,6 +1530,14 @@ function fNumber() {
 // ILLUM). Stopping down uses a smaller part of it (synthetic aperture as a
 // fraction of the recorded one); opening up past it adds blur from the depth
 // map, scaled so the blur grows like a real lens's would.
+// Optical bokeh averages the camera's own views, which only refocuses: with the Depth slider moved, or Focus Spread or Tilt on, the blur has to come from the depth
+// map, and Natural is used (a note under Shape says so).
+function opticalInEffect() {
+  if ($('bokeh').value !== 'optical') return false;
+  const field = focusField();
+  return +$('dof-depth').value === 0 && !(field.spread > 0 || field.smooth > 0 || field.blur > 0 || field.tilt.some((t) => t));
+}
+
 function apertureFor(n) {
   const native = (state.info && state.info.cam && state.info.cam.capture && state.info.cam.capture.fNumber) || 2;
   const ratio = native / n;
@@ -1538,8 +1546,7 @@ function apertureFor(n) {
   // (or the multi-view denoised merge), like Lytro's own renders: whatever
   // is in focus keeps full sharpness. "Optical" instead refocuses by
   // averaging the views, which is softer but follows the real optics.
-  const field = focusField();
-  if ($('bokeh').value !== 'optical' || +$('dof-depth').value !== 0 || field.spread > 0 || field.smooth > 0 || field.blur > 0 || field.tilt.some((t) => t)) return { aperture: 0, dof: ratio < 0.15 ? 0 : (radius * ratio) / 14 };
+  if (!opticalInEffect()) return { aperture: 0, dof: ratio < 0.15 ? 0 : (radius * ratio) / 14 };
   // About one view's worth of the aperture: render that single view (fast).
   if (ratio < 0.15) return { aperture: 0, dof: 0 };
   if (ratio <= 1) return { aperture: ratio, dof: 0 };
@@ -1574,9 +1581,9 @@ function focusField(v = {}) {
 }
 
 // Bokeh options for the worker: shape and highlights, and the focus field.
-const BOKEH_SHAPE = ['bokeh-blades', 'bokeh-oval', 'bokeh-rotation', 'bokeh-onion'];
+const BOKEH_SHAPE = ['bokeh-blades', 'bokeh-oval', 'bokeh-rotation', 'bokeh-onion', 'bokeh-points', 'bokeh-inner', 'bokeh-width'];
 function bokehParams(v = {}) {
-  const shape = ['natural', 'optical'].includes($('bokeh').value) ? 'smooth' : $('bokeh').value;
+  const shape = $('bokeh').value === 'natural' ? 'smooth' : $('bokeh').value;
   return {
     shape,
     highlights: v.highlights ?? +$('highlights').value,
@@ -1584,9 +1591,14 @@ function bokehParams(v = {}) {
     blades: Math.round(v.bokehBlades ?? +$('bokeh-blades').value),
     oval: shape === 'circle' ? (v.bokehOval ?? +$('bokeh-oval').value) / 100 : 0,
     rotation: v.bokehRotation ?? +$('bokeh-rotation').value,
-    onion: shape === 'smooth' ? 0 : (v.bokehOnion ?? +$('bokeh-onion').value) / 100,
+    onion: shape === 'smooth' || shape === 'optical' ? 0 : (v.bokehOnion ?? +$('bokeh-onion').value) / 100,
     // (a custom shape's image: white where light passes, see core/dof.js)
     image: shape === 'custom' ? $('bokeh-image').value : '',
+    // Star and Heart (core/dof.js drawnShape)
+    // (keyframed: a frame's own values; points in whole numbers)
+    points: Math.round(v.bokehPoints ?? +$('bokeh-points').value),
+    inner: (v.bokehInner ?? +$('bokeh-inner').value) / 100,
+    width: (v.bokehWidth ?? +$('bokeh-width').value) / 100,
     ...focusField(v),
   };
 }
@@ -3704,8 +3716,11 @@ $('view-reach').onchange = () => {
 // for Circle, rotation for both (a round circle has nothing to turn).
 function showBokehShape() {
   const shape = $('bokeh').value;
-  const shaped = shape === 'blades' || shape === 'circle' || shape === 'custom';
+  const shaped = ['blades', 'circle', 'custom', 'star', 'heart'].includes(shape);
   $('bokeh-blades-row').hidden = shape !== 'blades';
+  $('bokeh-points-row').hidden = shape !== 'star';
+  $('bokeh-inner-row').hidden = shape !== 'star';
+  $('bokeh-width-row').hidden = shape !== 'heart';
   $('bokeh-oval-row').hidden = shape !== 'circle';
   $('bokeh-rotation-row').hidden = !shaped;
   $('bokeh-onion-row').hidden = !shaped;
@@ -3714,8 +3729,7 @@ function showBokehShape() {
   drawBokehPreview();
 }
 
-// The preview above the Shape list: three out of focus points of light, large to small, drawn with the blur's own ball (core/dof.js bokehBall), brighter with
-// more Highlights.
+// The preview above the Shape list: one out of focus point of light, drawn with the blur's own ball (core/dof.js bokehBall), brighter with more Highlights.
 function drawBokehPreview() {
   const c = $('bokeh-preview');
   const g = c.getContext('2d');
@@ -3723,12 +3737,12 @@ function drawBokehPreview() {
   const H = c.height;
   const p = bokehParams();
   const k = bokehKernel(p);
+  const optical = opticalInEffect();
   const img = g.createImageData(W, H);
   const light = new Float32Array(W * H);
-  const s = H / 96;
-  for (const [cx, r] of [[0.25 * W, 34 * s], [0.62 * W, 22 * s], [0.87 * W, 12 * s]]) {
+  for (const [cx, r] of [[W / 2, 0.4 * H]]) {
     const size = 2 * Math.ceil(r * 1.6) + 1;
-    const ball = bokehBall(k, size, r);
+    const ball = optical ? opticalBall(size, r) : bokehBall(k, size, r);
     const x0 = Math.round(cx - (size - 1) / 2);
     const y0 = Math.round(H / 2 - (size - 1) / 2);
     for (let y = 0; y < size; y++) {
@@ -3749,6 +3763,31 @@ function drawBokehPreview() {
     img.data[4 * i + 3] = 255;
   }
   g.putImageData(img, 0, 0);
+}
+
+// Optical: the views across the lens averaged (worker apertureOptions): wide open every view counts the same, a disc with the lens's own soft, slightly darker
+// edge; stopped down the views are weighted by a Gaussian of 0.6 x the opening, so the disc softens toward a glow. Past the camera's widest f-stop the depth map's
+// Gaussian blur is added on top.
+function opticalBall(size, r) {
+  const lens = apertureFor(fNumber());
+  const a = Math.max(0.05, lens.aperture || 0);
+  const sigma = a >= 1 ? Infinity : 0.6 * a;
+  const extra = lens.aperture >= 1 && lens.dof > 0 ? 0.25 : 0;
+  const out = new Float32Array(size * size);
+  const c = (size - 1) / 2;
+  let top = 0;
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const t = Math.hypot(x - c, y - c) / r;
+      const edge = Math.max(0, Math.min(1, (1 + 0.06 + extra * 0.5 - t) / (0.12 + extra)));
+      const weight = Number.isFinite(sigma) ? Math.exp(-(t * t) / (2 * sigma * sigma)) : 1;
+      const v = edge * weight * (1 - 0.15 * t * t);
+      out[y * size + x] = v;
+      if (v > top) top = v;
+    }
+  }
+  if (top > 0) for (let i = 0; i < out.length; i++) out[i] /= top;
+  return out;
 }
 
 // Custom image: the loaded picture, fitted into a BOKEH_IMAGE_SIZE square on black (its shape, centered), kept as its brightness (core/dof.js encodeBokehImage).
@@ -3787,7 +3826,8 @@ $('bokeh-image-file').onchange = async () => {
 for (const id of ['fstop', 'bokeh', 'dof-depth', 'highlights', 'spread', 'spread-smooth', 'spread-blur', 'tilt', 'tilt-rotation', ...BOKEH_SHAPE]) {
   $(id).oninput = () => {
     if (id === 'bokeh') showBokehShape();
-    else if (id === 'highlights' || BOKEH_SHAPE.includes(id)) drawBokehPreview();
+    // (the f-stop, Depth, Focus Spread and Tilt change Optical's ball too)
+    else drawBokehPreview();
     showFNumber();
     showSliderValue($(id));
     cameraChanged({ final: false });
@@ -3806,6 +3846,7 @@ $('tilt-show').onchange = () => {
   updateSpreadOverlay();
 };
 $('tilt-on').onchange = () => {
+  drawBokehPreview();
   const off = !$('tilt-on').checked;
   for (const id of ['tilt', 'tilt-rotation', 'tilt-show']) $(id).disabled = off || $('tilt-on').disabled;
   // Its keyframes show only while it is on.

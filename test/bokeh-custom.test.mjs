@@ -3,7 +3,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { starRgba } from './helpers/bokeh.mjs';
-import { BOKEH_IMAGE_SIZE, encodeBokehImage, decodeBokehImage, bokehKernel, bokehBall, applyDepthOfField } from '../app/js/core/dof.js';
+import { BOKEH_IMAGE_SIZE, encodeBokehImage, decodeBokehImage, bokehKernel, bokehBall, applyDepthOfField, maskValue } from '../app/js/core/dof.js';
 
 test('a custom shape is kept as text and read back', () => {
   const text = encodeBokehImage(starRgba());
@@ -43,4 +43,25 @@ test('the preview ball and the processor blur take the custom shape', () => {
   const out = applyDepthOfField(rgb, w, h, depth, w, h, 0, 1, 24, { shape: 'custom', image: encodeBokehImage(starRgba()) });
   const q = tipAndGap((x, y) => out[3 * (y * w + x)], c, c, 24);
   assert.ok(q.tip > 10 * q.gap && q.tip > 0, JSON.stringify(q));
+});
+
+test('Star and Heart are drawn shapes with their settings', () => {
+  const star = bokehKernel({ shape: 'star', points: 6, inner: 0.3 });
+  assert.equal(star.kind, 3);
+  assert.equal(star.image, 'star:6:0.300');
+  // a thinner star has less area
+  assert.ok(bokehKernel({ shape: 'star', points: 6, inner: 0.7 }).area > star.area);
+  const heart = bokehKernel({ shape: 'heart', width: 1 });
+  assert.equal(heart.kind, 3);
+  // the heart's two lobes at the top, its notch between them, its point at the bottom
+  const v = (x, y) => maskValue(heart, x, y);
+  assert.ok(v(-0.45, -0.4) > 0.9 && v(0.45, -0.4) > 0.9, 'lobes');
+  assert.ok(v(0, -0.85) < 0.1, 'notch');
+  assert.ok(v(0, 0.75) > 0.5 && v(0.5, 0.75) < 0.1, 'point');
+  // the widest heart still fits its square: nothing touches the sides
+  const wide = bokehKernel({ shape: 'heart', width: 1.4 });
+  const N = BOKEH_IMAGE_SIZE;
+  let edge = 0;
+  for (let y = 0; y < N; y++) edge += wide.mask[y * N] + wide.mask[y * N + N - 1];
+  assert.equal(edge, 0);
 });

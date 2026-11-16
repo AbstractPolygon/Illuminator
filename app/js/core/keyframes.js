@@ -16,6 +16,7 @@
 //             with Tilt on
 //   highlights  bokeh highlights (0..1)
 //   bokehBlades, bokehOval, bokehRotation, bokehOnion  the bokeh's Blades (3..32), Oval (0..100), Rotation (degrees) and Onion (0..100)
+//   bokehPoints, bokehInner, bokehWidth  the Star's Points (3..12) and Inner radius (10..90), the Heart's Width (60..140)
 //   amount    the Viewpoint path's Amount (0.1..1), with Animate: Viewpoint
 //   near, far the Focus sweep's Near and Far, with Animate: Focus sweep
 // ease: { type: 'auto' | 'linear' | 'smooth' | 'in' | 'out' | 'hold' | 'custom',
@@ -25,7 +26,7 @@
 // clamped handles: the speed carries through each keyframe, flattening at
 // highs, lows and the ends, without overshooting.
 
-export const TRACKS = ['aperture', 'depth', 'focus', 'view', 'zoom', 'panX', 'panY', 'pivot', 'pointX', 'pointY', 'spread', 'spreadSmooth', 'spreadBlur', 'tilt', 'tiltRotation', 'highlights', 'bokehBlades', 'bokehOval', 'bokehRotation', 'bokehOnion', 'amount', 'near', 'far'];
+export const TRACKS = ['aperture', 'depth', 'focus', 'view', 'zoom', 'panX', 'panY', 'pivot', 'pointX', 'pointY', 'spread', 'spreadSmooth', 'spreadBlur', 'tilt', 'tiltRotation', 'highlights', 'bokehBlades', 'bokehOval', 'bokehRotation', 'bokehOnion', 'bokehPoints', 'bokehInner', 'bokehWidth', 'amount', 'near', 'far'];
 // Besides those, 'mask:<id>:<attr>': a setting of local adjustment <id>
 // (its strength, a shape setting or an effect; see core/local.js).
 export const isMaskTrack = (k) => /^mask:[\w-]+:[a-z]+$/.test(k);
