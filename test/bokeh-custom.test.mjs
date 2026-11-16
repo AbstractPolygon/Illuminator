@@ -159,3 +159,17 @@ test("the star's outer radius sets how far its tips reach", () => {
   assert.equal(bokehKernel({ shape: 'star', outer: 0.01 }).image, 'star:5:0.450:0.300');
   assert.equal(bokehKernel({ shape: 'star', outer: 9 }).image, 'star:5:0.450');
 });
+
+test('onion: Rings warp bends the rings; with no onion the ring settings change nothing', async () => {
+  const { onionMap, bokehKernel } = await import('../app/js/core/dof.js');
+  const flat = onionMap({ onion: 0.8, irregular: 0, blur: 0, warp: 0 });
+  const bent = onionMap({ onion: 0.8, irregular: 0, blur: 0, warp: 1 });
+  let diff = 0;
+  for (let i = 0; i < flat.map.length; i++) diff += Math.abs(flat.map[i] - bent.map[i]);
+  assert.ok(diff / flat.map.length > 0.02, `warp changes the rings (${diff / flat.map.length})`);
+  // (no rings: dust alone gives one picture whatever the ring settings are)
+  const a = onionMap({ onion: 0, irregular: 1, blur: 1, warp: 1, spots: 0.5 });
+  const b = onionMap({ onion: 0, irregular: 0, blur: 0, warp: 0, spots: 0.5 });
+  assert.equal(a, b);
+  assert.equal(bokehKernel({ shape: 'circle', onion: 0.5, warp: 0.5 }).onionMap.map.length > 0, true);
+});

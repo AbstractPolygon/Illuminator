@@ -117,7 +117,7 @@ export function drawnShape(shape, { points = 5, inner = 0.45, width = 1, outer =
 }
 
 // What the shape settings of the bokeh are (every one that decides how a ball looks), picked out of a bokeh options object: for the places that hand them on.
-export const SHAPE_KEYS = ['shape', 'blades', 'oval', 'rotation', 'onion', 'image', 'points', 'inner', 'outer', 'width', 'irregular', 'ringBlur', 'spots', 'grain', 'diffraction',
+export const SHAPE_KEYS = ['shape', 'blades', 'oval', 'rotation', 'onion', 'image', 'points', 'inner', 'outer', 'width', 'irregular', 'ringBlur', 'warp', 'spots', 'grain', 'diffraction',
   'catEye', 'swirl', 'edge', 'edgeFB', 'bubble', 'hole', 'fringe', 'hot'];
 export function shapeOptions(bokeh = {}) {
   const out = {};
@@ -180,7 +180,7 @@ export function catEyeAt(k, d, ang) {
   return { c, ux: Math.cos(ang + phi), uy: Math.sin(ang + phi), ratio: c > 0 ? (2 / Math.PI) * (Math.acos(c) - c * Math.sqrt(1 - c * c)) : 1 };
 }
 
-export function bokehKernel({ shape = 'smooth', blades = 6, oval = 0, rotation = 0, onion = 0, image = '', points = 5, inner = 0.45, outer = 1, width = 1, irregular = 0.5, ringBlur = 0.3, spots = 0, grain = 0, diffraction = 0,
+export function bokehKernel({ shape = 'smooth', blades = 6, oval = 0, rotation = 0, onion = 0, image = '', points = 5, inner = 0.45, outer = 1, width = 1, irregular = 0.5, ringBlur = 0.3, warp = 0, spots = 0, grain = 0, diffraction = 0,
   catEye = 0, swirl = 0, edge = 0, edgeFB = 0, bubble = 0, hole = 0, fringe = 0, hot = 0 } = {}) {
   const custom = shape === 'custom' ? decodeBokehImage(image) : shape === 'star' || shape === 'heart' ? drawnShape(shape, { points, inner, width, outer }) : null;
   const optical = shape === 'optical';
@@ -197,7 +197,7 @@ export function bokehKernel({ shape = 'smooth', blades = 6, oval = 0, rotation =
     sin: Math.sin(a),
     onion: kind === 0 || optical ? 0 : Math.max(0, Math.min(1, onion)),
     // the onion skin as a picture (onionMap), with its irregularity, ring blur and dust spots
-    onionMap: kind === 0 || optical ? null : onionMap({ onion: Math.max(0, Math.min(1, onion)), irregular: Math.max(0, Math.min(1, irregular)), blur: Math.max(0, Math.min(1, ringBlur)), spots: Math.max(0, Math.min(1, spots)), grain: Math.max(0, Math.min(1, grain)), diffraction: Math.max(0, Math.min(1, diffraction)) }),
+    onionMap: kind === 0 || optical ? null : onionMap({ onion: Math.max(0, Math.min(1, onion)), irregular: Math.max(0, Math.min(1, irregular)), blur: Math.max(0, Math.min(1, ringBlur)), warp: Math.max(0, Math.min(1, warp)), spots: Math.max(0, Math.min(1, spots)), grain: Math.max(0, Math.min(1, grain)), diffraction: Math.max(0, Math.min(1, diffraction)) }),
     // the ball's character (profileGain) and the graphics card's ball effects: all off for the smooth shape and Optical
     ...(kind === 0 || optical ? { catEye: 0, swirl: 0, edge: 0, edgeFB: 0, bubble: 0, hole: 0, fringe: 0, hot: 0 } : {
       catEye: Math.max(0, Math.min(1, catEye)), swirl: Math.max(0, Math.min(1, swirl)), edge: Math.max(-1, Math.min(1, edge)), edgeFB: Math.max(-1, Math.min(1, edgeFB)),
@@ -296,9 +296,12 @@ export function onionGain(onion, t) {
 // every time from its settings (a fixed seed), so the picture does not change between renders. null when there is nothing to draw.
 export const ONION_SIZE = 128;
 const onionMaps = new Map();
-export function onionMap({ onion = 0, irregular = 0.5, blur = 0.3, spots = 0, grain = 0, diffraction = 0 } = {}) {
+export function onionMap({ onion = 0, irregular = 0.5, blur = 0.3, warp = 0, spots = 0, grain = 0, diffraction = 0 } = {}) {
   if (!(onion > 0) && !(spots > 0) && !(grain > 0) && !(diffraction > 0)) return null;
-  const key = [onion, irregular, blur, spots, grain, diffraction].map((v) => v.toFixed(3)).join(':');
+  // (the ring settings only matter with some rings: with none, none of the ring work is done, and they share one picture)
+  const rings = onion > 0;
+  if (!rings) { irregular = 0; blur = 0; warp = 0; }
+  const key = [onion, irregular, blur, warp, spots, grain, diffraction].map((v) => v.toFixed(3)).join(':');
   if (onionMaps.has(key)) return onionMaps.get(key);
   const N = ONION_SIZE;
   let seed = 12345;
@@ -310,10 +313,17 @@ export function onionMap({ onion = 0, irregular = 0.5, blur = 0.3, spots = 0, gr
   const strength = waves(4, 4);
   const sum = (ws, x) => ws.reduce((acc, [f, p, a]) => acc + a * Math.sin(f * x + p), 0) / ws.length;
   const ring = new Float32Array(N * N);
-  for (let y = 0; y < N; y++) {
+  for (let y = 0; rings && y < N; y++) {
     for (let x = 0; x < N; x++) {
-      const X = ((x + 0.5) / N) * 2 - 1;
-      const Y = ((y + 0.5) / N) * 2 - 1;
+      let X = ((x + 0.5) / N) * 2 - 1;
+      let Y = ((y + 0.5) / N) * 2 - 1;
+      // Rings warp: the whole ring pattern pushed about by a smooth field, so the rings leave the ball's center and bend into ovals, crescents and waves
+      if (warp > 0) {
+        const wx = 0.6 * Math.sin(1.7 * Y + 0.4) + 0.4 * Math.sin(2.9 * X + 1.3 * Y + 2.1);
+        const wy = 0.6 * Math.sin(1.9 * X + 3.3) + 0.4 * Math.sin(2.3 * X - 2.1 * Y + 5.2);
+        X += 0.45 * warp * wx;
+        Y += 0.45 * warp * wy;
+      }
       const t = Math.min(1, Math.hypot(X, Y));
       const th = Math.atan2(Y, X);
       // the rings' radius wobbles round the ball and their spacing drifts; their strength changes from ring to ring and round the ball
@@ -325,7 +335,7 @@ export function onionMap({ onion = 0, irregular = 0.5, blur = 0.3, spots = 0, gr
     }
   }
   // Ring blur: the ring pattern softened (a Gaussian of up to 3% of the ball's width).
-  const sm = blur > 0 ? gaussianMap(ring, N, N, Math.max(0.3, blur * 0.03 * N)) : ring;
+  const sm = rings && blur > 0 ? gaussianMap(ring, N, N, Math.max(0.3, blur * 0.03 * N)) : ring;
   const map = new Float32Array(N * N);
   for (let y = 0; y < N; y++) {
     for (let x = 0; x < N; x++) {

@@ -1603,7 +1603,7 @@ function focusField(v = {}) {
 }
 
 // Bokeh options for the worker: shape and highlights, and the focus field.
-const BOKEH_SHAPE = ['bokeh-blades', 'bokeh-oval', 'bokeh-rotation', 'bokeh-onion', 'bokeh-points', 'bokeh-inner', 'bokeh-width', 'bokeh-irregular', 'bokeh-ring-blur', 'bokeh-spots', 'bokeh-cat', 'bokeh-swirl', 'bokeh-edge', 'bokeh-edge-fb', 'bokeh-bubble', 'bokeh-hole', 'bokeh-fringe', 'bokeh-hot', 'bokeh-grain', 'bokeh-diffraction', 'bokeh-streak', 'bokeh-streak-len', 'bokeh-streak-threshold', 'bokeh-outer', 'bokeh-star', 'bokeh-spikes', 'bokeh-ghosts', 'bokeh-fog', 'bokeh-dirt'];
+const BOKEH_SHAPE = ['bokeh-blades', 'bokeh-oval', 'bokeh-rotation', 'bokeh-onion', 'bokeh-points', 'bokeh-inner', 'bokeh-width', 'bokeh-irregular', 'bokeh-ring-blur', 'bokeh-warp', 'bokeh-onion-on', 'bokeh-size', 'bokeh-spots', 'bokeh-cat', 'bokeh-swirl', 'bokeh-edge', 'bokeh-edge-fb', 'bokeh-bubble', 'bokeh-hole', 'bokeh-fringe', 'bokeh-hot', 'bokeh-grain', 'bokeh-diffraction', 'bokeh-streak', 'bokeh-streak-len', 'bokeh-streak-threshold', 'bokeh-outer', 'bokeh-star', 'bokeh-spikes', 'bokeh-ghosts', 'bokeh-fog', 'bokeh-dirt'];
 function bokehParams(v = {}) {
   const shape = $('bokeh').value === 'natural' ? 'smooth' : $('bokeh').value;
   return {
@@ -1613,7 +1613,10 @@ function bokehParams(v = {}) {
     blades: Math.round(v.bokehBlades ?? +$('bokeh-blades').value),
     oval: shape === 'circle' ? (v.bokehOval ?? +$('bokeh-oval').value) / 100 : 0,
     rotation: v.bokehRotation ?? +$('bokeh-rotation').value,
-    onion: shape === 'smooth' || shape === 'optical' ? 0 : (v.bokehOnion ?? +$('bokeh-onion').value) / 100,
+    // (with Onion rings off, no ring is made or drawn)
+    onion: shape === 'smooth' || shape === 'optical' || !$('bokeh-onion-on').checked ? 0 : (v.bokehOnion ?? +$('bokeh-onion').value) / 100,
+    // the size of the balls, as a multiple of the lens's blur (applied where the blur is drawn)
+    size: (v.bokehSize ?? +$('bokeh-size').value) / 100,
     // (a custom shape's image: white where light passes, see core/dof.js)
     image: shape === 'custom' ? $('bokeh-image').value : '',
     // Star and Heart (core/dof.js drawnShape)
@@ -1625,6 +1628,7 @@ function bokehParams(v = {}) {
     // the onion skin's irregularity and ring blur, and dust spots (core/dof.js onionMap)
     irregular: (v.bokehIrregular ?? +$('bokeh-irregular').value) / 100,
     ringBlur: (v.bokehRingBlur ?? +$('bokeh-ring-blur').value) / 100,
+    warp: (v.bokehWarp ?? +$('bokeh-warp').value) / 100,
     spots: shape === 'smooth' || shape === 'optical' ? 0 : (v.bokehSpots ?? +$('bokeh-spots').value) / 100,
     // The ball's character and the cat's-eye (core/dof.js): all off for Natural and Optical
     catEye: shape === 'smooth' || shape === 'optical' ? 0 : (v.bokehCat ?? +$('bokeh-cat').value) / 100,
@@ -3783,10 +3787,13 @@ function showBokehShape() {
   $('bokeh-width-row').hidden = shape !== 'heart';
   $('bokeh-oval-row').hidden = shape !== 'circle';
   $('bokeh-rotation-row').hidden = !shaped;
-  $('bokeh-onion-row').hidden = !shaped;
-  // (irregularity and ring blur shape the rings, so they show with some Onion)
-  $('bokeh-irregular-row').hidden = !shaped || !(+$('bokeh-onion').value > 0);
-  $('bokeh-ring-blur-row').hidden = !shaped || !(+$('bokeh-onion').value > 0);
+  $('bokeh-onion-on-row').hidden = !shaped;
+  const rings = shaped && $('bokeh-onion-on').checked;
+  $('bokeh-onion-row').hidden = !rings;
+  // (irregularity, ring blur and warp shape the rings, so they show with some Onion)
+  $('bokeh-irregular-row').hidden = !rings || !(+$('bokeh-onion').value > 0);
+  $('bokeh-ring-blur-row').hidden = !rings || !(+$('bokeh-onion').value > 0);
+  $('bokeh-warp-row').hidden = !rings || !(+$('bokeh-onion').value > 0);
   $('bokeh-spots-row').hidden = !shaped;
   // the ball's character, in a group of its own, and Swirl with some Cat's-eye
   $('bokeh-ball-group').hidden = !shaped;
@@ -3897,7 +3904,7 @@ $('bokeh-image-file').onchange = async () => {
 for (const id of ['fstop', 'bokeh', 'dof-depth', 'highlights', 'spread', 'spread-smooth', 'spread-blur', 'tilt', 'tilt-rotation', ...BOKEH_SHAPE]) {
   $(id).oninput = () => {
     // (these two decide which other settings show)
-    if (id === 'bokeh' || id === 'bokeh-onion' || id === 'bokeh-cat' || id === 'bokeh-streak' || id === 'bokeh-star') showBokehShape();
+    if (id === 'bokeh' || id === 'bokeh-onion' || id === 'bokeh-onion-on' || id === 'bokeh-cat' || id === 'bokeh-streak' || id === 'bokeh-star') showBokehShape();
     // (the f-stop, Depth, Focus Spread and Tilt change Optical's ball too)
     else drawBokehPreview();
     showFNumber();

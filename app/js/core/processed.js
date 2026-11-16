@@ -267,7 +267,7 @@ export class ProcessedPicture {
     const scale = (this.lambdaRange[1] - this.lambdaRange[0]) / 2 / FOCUS_RANGE;
     const lambdaGrid = this.depthGrid();
     return applyBokehFx(applyDepthOfField(rgb, this.width, this.height, lambdaGrid.lambda, lambdaGrid.width, lambdaGrid.height, lambda,
-      blur, APERTURE_RADIUS * this.pxPerLambda, {
+      blur * (bokeh.size ?? 1), APERTURE_RADIUS * this.pxPerLambda, {
         ...shapeOptions(bokeh),
         highlights: bokeh.highlights,
         clip: 1,

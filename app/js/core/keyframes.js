@@ -18,6 +18,7 @@
 //   bokehBlades, bokehOval, bokehRotation, bokehOnion  the bokeh's Blades (3..32), Oval (0..100), Rotation (degrees) and Onion (0..100)
 //   bokehPoints, bokehInner, bokehWidth  the Star's Points (3..12) and Inner radius (10..90), the Heart's Width (60..140)
 //   bokehIrregular, bokehRingBlur, bokehSpots  the onion skin's Irregularity and Ring blur, and the dust Spots (each 0..100)
+//   bokehWarp, bokehSize  the onion rings' Rings warp (0..100) and the balls' Size (25..400, percent)
 //   bokehCat, bokehSwirl, bokehEdge, bokehEdgeFB, bokehBubble, bokehHole, bokehFringe, bokehHot, bokehGrain, bokehDiffraction  the ball's character (0..100; Edge and Front / back
 //     -100..100; Hole 0..90), see core/dof.js
 //   bokehStreak, bokehStreakLen, bokehStreakThreshold, bokehStar, bokehSpikes, bokehGhosts, bokehFog, bokehDirt  the lens effects round bright points (0..100; Streak threshold
@@ -32,7 +33,7 @@
 // clamped handles: the speed carries through each keyframe, flattening at
 // highs, lows and the ends, without overshooting.
 
-export const TRACKS = ['aperture', 'depth', 'focus', 'view', 'zoom', 'panX', 'panY', 'pivot', 'pointX', 'pointY', 'spread', 'spreadSmooth', 'spreadBlur', 'tilt', 'tiltRotation', 'highlights', 'bokehBlades', 'bokehOval', 'bokehRotation', 'bokehOnion', 'bokehPoints', 'bokehInner', 'bokehWidth', 'bokehIrregular', 'bokehRingBlur', 'bokehSpots', 'bokehCat', 'bokehSwirl', 'bokehEdge', 'bokehEdgeFB', 'bokehBubble', 'bokehHole', 'bokehFringe', 'bokehHot', 'bokehGrain', 'bokehDiffraction', 'bokehStreak', 'bokehStreakLen', 'bokehStreakThreshold', 'bokehOuter', 'bokehStar', 'bokehSpikes', 'bokehGhosts', 'bokehFog', 'bokehDirt', 'amount', 'near', 'far'];
+export const TRACKS = ['aperture', 'depth', 'focus', 'view', 'zoom', 'panX', 'panY', 'pivot', 'pointX', 'pointY', 'spread', 'spreadSmooth', 'spreadBlur', 'tilt', 'tiltRotation', 'highlights', 'bokehBlades', 'bokehOval', 'bokehRotation', 'bokehOnion', 'bokehPoints', 'bokehInner', 'bokehWidth', 'bokehIrregular', 'bokehRingBlur', 'bokehWarp', 'bokehSize', 'bokehSpots', 'bokehCat', 'bokehSwirl', 'bokehEdge', 'bokehEdgeFB', 'bokehBubble', 'bokehHole', 'bokehFringe', 'bokehHot', 'bokehGrain', 'bokehDiffraction', 'bokehStreak', 'bokehStreakLen', 'bokehStreakThreshold', 'bokehOuter', 'bokehStar', 'bokehSpikes', 'bokehGhosts', 'bokehFog', 'bokehDirt', 'amount', 'near', 'far'];
 // Besides those, 'mask:<id>:<attr>': a setting of local adjustment <id>
 // (its strength, a shape setting or an effect; see core/local.js).
 export const isMaskTrack = (k) => /^mask:[\w-]+:[a-z]+$/.test(k);

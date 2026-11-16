@@ -52,6 +52,8 @@ export function initCurvesView({ trackGroups, shownTracks, trackName, $, state, 
     { k: 'bokehWidth', c: 0, name: 'Heart width', color: '#f48fb1' },
     { k: 'bokehIrregular', c: 0, name: 'Irregularity', color: '#a1887f' },
     { k: 'bokehRingBlur', c: 0, name: 'Ring blur', color: '#90a4ae' },
+    { k: 'bokehWarp', c: 0, name: 'Rings warp', color: '#f48fb1' },
+    { k: 'bokehSize', c: 0, name: 'Size', color: '#80cbc4' },
     { k: 'bokehSpots', c: 0, name: 'Spots', color: '#bcaaa4' },
     { k: 'bokehCat', c: 0, name: "Cat's-eye", color: '#ffcc80' },
     { k: 'bokehSwirl', c: 0, name: 'Swirl', color: '#b39ddb' },
@@ -156,7 +158,9 @@ export function initCurvesView({ trackGroups, shownTracks, trackName, $, state, 
       case 'bokehWidth': return [60, 140];
       case 'bokehIrregular':
       case 'bokehRingBlur':
+      case 'bokehWarp':
       case 'bokehSpots': return [0, 100];
+      case 'bokehSize': return [25, 400];
       case 'bokehCat': return [0, 100];
       case 'bokehSwirl': return [0, 100];
       case 'bokehEdge': return [-100, 100];
