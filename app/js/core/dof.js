@@ -220,7 +220,8 @@ function kernelRows(k, r) {
 // Shaped blur: the weighted average over the kernel, built from per-row
 // prefix sums. Onion rings split the kernel into nested shapes, each adding
 // the change in ring brightness at its edge.
-function shapedBlur(src, w, h, r, k) {
+// `need` (optional, one byte a pixel): only those pixels are made (the rest are left 0), for a level of the stack only some pixels use.
+function shapedBlur(src, w, h, r, k, need = null) {
   const out = new Float32Array(src.length);
   const prefix = new Float64Array((w + 1) * h * 3);
   for (let y = 0; y < h; y++) {
@@ -246,6 +247,7 @@ function shapedBlur(src, w, h, r, k) {
   }
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
+      if (need && !need[y * w + x]) continue;
       let s0 = 0;
       let s1 = 0;
       let s2 = 0;
@@ -312,10 +314,11 @@ function boxBlur(src, w, h, r) {
   return out;
 }
 
-function blur(src, w, h, r, k) {
+function blur(src, w, h, r, k, need = null) {
   if (r < 1) return src;
   if (k.kind) {
-    const out = shapedBlur(src, w, h, r, k);
+    // (a soft edge blurs the result again, which needs every pixel around the ones wanted)
+    const out = shapedBlur(src, w, h, r, k, k.soft > 0 ? null : need);
     // (a soft edge: the disc spread over the edge's width)
     const e = Math.round((k.soft * r) / 2);
     return e >= 1 ? boxBlur(out, w, h, e) : out;
@@ -396,11 +399,6 @@ export function applyDepthOfField(rgb, w, h, depth, dw, dh, focus, strength, pxP
   const { feather = 0, highlights = 0, clip = 1, spread = 0, smooth = 0, tilt = [0, 0], point = [0.5, 0.5] } = options;
   const kernel = bokehKernel(options);
   const src = boostHighlights(rgb, clip, highlights);
-  const maxR = Math.max(1, strength * 1.6 * pxPerUnit);
-  const radii = [0];
-  for (let r = 1; r < maxR * 1.5; r *= kernel.kind ? Math.SQRT2 : 2) radii.push(r);
-  if (radii.length < 2) radii.push(1);
-  const levels = radii.map((r) => blur(src, w, h, r, kernel));
   const out = new Float32Array(rgb.length);
   const sx = dw / w;
   const sy = dh / h;
@@ -416,11 +414,32 @@ export function applyDepthOfField(rgb, w, h, depth, dw, dh, focus, strength, pxP
     }
   }
   if (feather > 0) radius = smoothMap(radius, w, h, feather);
+  // The stack of blurred copies goes only as far as the largest radius in the picture, and each copy is made only where a pixel uses it (each pixel mixes the two
+  // copies around its radius).
+  let top = 0;
+  for (let i = 0; i < radius.length; i++) if (radius[i] > top) top = radius[i];
+  const radii = [0];
+  for (let r = 1; ; r *= kernel.kind ? Math.SQRT2 : 2) {
+    radii.push(r);
+    if (r >= top) break;
+  }
+  const bracket = new Int16Array(w * h);
+  for (let i = 0; i < radius.length; i++) {
+    let k = 0;
+    while (k < radii.length - 2 && radii[k + 1] < radius[i]) k++;
+    bracket[i] = k;
+  }
+  const levels = radii.map((r, L) => {
+    if (L === 0) return src;
+    const need = new Uint8Array(w * h);
+    let any = false;
+    for (let i = 0; i < need.length; i++) if (bracket[i] === L || bracket[i] + 1 === L) any = need[i] = 1;
+    return any ? blur(src, w, h, r, kernel, need) : null;
+  });
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
       const r = radius[y * w + x];
-      let k = 0;
-      while (k < radii.length - 2 && radii[k + 1] < r) k++;
+      const k = bracket[y * w + x];
       const t = Math.max(0, Math.min(1, (r - radii[k]) / (radii[k + 1] - radii[k] || 1)));
       const p = (y * w + x) * 3;
       // In-focus pixels keep their original (unboosted) values.

@@ -2,6 +2,7 @@
 // an answer on glossy or blank surfaces; the measurement gives the real scale. The model's depth is fitted to the measurement (a straight line through the pixels both
 // trust) and the two are mixed by a setting.
 
+import { loadOrt } from './ortload.js';
 import { aiUpscaleAvailable } from './aiupscale.js';
 import { nthSmallest, nthSmallestPair } from './typed.js';
 
@@ -10,9 +11,7 @@ const sessions = new Map();
 async function session(model, readModel) {
   if (!sessions.has(model.id)) {
     sessions.set(model.id, (async () => {
-      const ort = await import('../../vendor/ort/ort.webgpu.min.mjs');
-      ort.env.wasm.wasmPaths = new URL('../../vendor/ort/', import.meta.url).href;
-      ort.env.wasm.numThreads = 1;
+      const ort = await loadOrt();
       const bytes = await readModel(model);
       let s = null;
       if (await aiUpscaleAvailable()) {

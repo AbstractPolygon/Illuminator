@@ -7,6 +7,7 @@
 // What they give is a relative depth (larger = nearer, in no unit); core/depthmodel.js fits it to the measured depth.
 
 import { sha256Hex } from './upscalemodels.js';
+import { fetchBig } from './bigfile.js';
 
 const CACHE = 'illuminator-depth-models-v1';
 
@@ -94,9 +95,8 @@ export async function downloadDepthModel(model, onProgress = () => {}) {
 
 export async function readDepthModel(model) {
   if (model.bundled) {
-    const res = await fetch(new URL(`../../${model.bundled}`, import.meta.url));
-    if (!res.ok) throw new Error(`${model.name} is missing from the app (${res.status}).`);
-    return new Uint8Array(await res.arrayBuffer());
+    // (whole, or in parts where the host cannot keep it whole: core/bigfile.js)
+    return fetchBig(new URL(`../../${model.bundled}`, import.meta.url).href);
   }
   const cache = await openCache();
   const hit = cache && (await cache.match(model.url));

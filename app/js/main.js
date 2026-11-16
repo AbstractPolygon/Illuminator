@@ -4110,7 +4110,7 @@ async function refreshDepthModels() {
     box.disabled = !!m.bundled;
     const value = depthModelMethod(m.id);
     const option = [...select.options].find((o) => o.value === value);
-    if (have && !option) select.append(new Option(`${m.name} (model)`, value));
+    if (have && !option) select.append(new Option(m.name, value));
     else if (!have && option) option.remove();
   }
   // a model that was the method and is gone: back to Automatic
@@ -4238,7 +4238,7 @@ async function refreshUpscaleModels() {
     box.title = gpuOk ? '' : 'Needs a graphics card with WebGPU';
     const value = modelMethod(m.id);
     const option = [...select.options].find((o) => o.value === value);
-    if (have && !option) select.append(new Option(`${m.name} (${m.note})`, value));
+    if (have && !option) select.append(new Option(m.name, value));
     else if (!have && option) option.remove();
   }
   // a model that was the method and is gone: back to Lanczos
