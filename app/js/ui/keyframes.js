@@ -873,7 +873,8 @@ export function initKeyframes({ $, getMasks, maskLabel, state, canRender, F_STOP
   function seekTo(t) {
     stopProcessing();
     state.keyTime = t;
-    if (state.playing) setPlaying(false);
+    // (also stops a play without a rendered preview, which leaves state.playing off)
+    setPlaying(false);
     if (state.frames.length) {
       const i = Math.min(state.frames.length - 1, Math.round(t * state.fps));
       state.showingFrames = true;

@@ -1006,6 +1006,13 @@
           <button id="pv-render" class="wide" type="button" title="Renders every frame, then plays them at the frame rate">Render preview</button>
           <p id="pv-status" class="hint" hidden></p>
         </details>
+        <label>Animate
+          <select id="anim">
+            <option value="viewpoint">Viewpoint</option>
+            <option value="focus">Focus sweep</option>
+            <option value="keyframes">Keyframes</option>
+          </select>
+        </label>
         <label title="Frames a second, for playback, keyframes and exported video">Frame rate
           <select id="fps-preset">
             <option value="23.976">23.976 fps (film, NTSC)</option>
@@ -1033,13 +1040,6 @@
             <option value="dolly">Dolly with parallax</option>
             <option value="float">Float (figure eight)</option>
             <option value="pan">Pan across</option>
-          </select>
-        </label>
-        <label>Animate
-          <select id="anim">
-            <option value="viewpoint">Viewpoint</option>
-            <option value="focus">Focus sweep</option>
-            <option value="keyframes">Keyframes</option>
           </select>
         </label>
         <div id="anim-viewpoint">
@@ -1077,6 +1077,50 @@
 
       <details class="panel" data-panel="camera">
         <summary><h2>Render Settings</h2></summary>
+        <details class="subpanel">
+          <summary><h3>Quality</h3></summary>
+          <label title="Size of the picture made from the lenses, for photos and every video frame">Resolution
+            <select id="detail">
+              <option value="1" selected>1× (fast)</option>
+              <option value="1.5">1.5×</option>
+              <option value="2">2×</option>
+            </select>
+          </label>
+          <label title="Extra passes that bring back finer detail from every sensor pixel (slower)">Detail recovery
+            <select id="still-passes">
+              <option value="0" selected>Off</option>
+              <option value="2">Low (2 passes)</option>
+              <option value="4">High (4 passes, slower)</option>
+            </select>
+          </label>
+          <div class="stack">
+            <label class="check" title="Rebuilds the picture from every sensor pixel (F). Photos: press Render. Videos: slower"><input id="fullres-on" type="checkbox"> Full sensor</label>
+            <div id="fullres-panel" hidden>
+              <label title="Size of the full sensor picture, for photos and every video frame">Scale
+                <select id="still-scale">
+                  <option value="2">2× lens grid</option>
+                  <option value="3" selected>3× lens grid</option>
+                  <option value="4">4× lens grid</option>
+                </select>
+              </label>
+              <label title="Where each microlens really is. Automatic uses the camera calibration if imported, else the photo's white image">Lens centers
+                <select id="lens-centres">
+                  <option value="auto" selected>Automatic</option>
+                  <option value="camera">Camera calibration</option>
+                  <option value="photo">Measured from photo</option>
+                  <option value="off">Off</option>
+                </select>
+              </label>
+              <label class="check" title="Takes out the diamond pattern at 3× and 4×. Off by default: it can soften detail"><input id="lattice-on" type="checkbox"> Lattice filter</label>
+              <label title="How faint a pattern the filter looks for. Higher finds fainter ones">Lattice detection <output data-for="lattice-detect" for="lattice-detect">50</output>
+                <input id="lattice-detect" type="range" min="0" max="100" step="5" value="50" data-default="50">
+              </label>
+              <label title="How hard the filter pulls the pattern down; high can soften fine texture">Lattice strength <output data-for="lattice-strength" for="lattice-strength">75</output>
+                <input id="lattice-strength" type="range" min="10" max="100" step="5" value="75" data-default="75">
+              </label>
+            </div>
+          </div>
+        </details>
         <details class="subpanel">
           <summary><h3>3D</h3></summary>
           <label id="stereo-on-row" class="check" title="Shows the picture in 3D, in the chosen 3D type, while you edit"><input id="stereo-on" type="checkbox"> Show 3D</label>
@@ -1145,50 +1189,6 @@
           <div class="lent-buttons">
             <button id="lent-test-btn" title="Saves a pitch test chart to print and view through the sheet; the band that flips evenly is the pitch">Save pitch</button>
             <button id="lent-btn" title="Saves the print: a PNG at the printer's resolution, to print at 100% without scaling" disabled>Save print</button>
-          </div>
-        </details>
-        <details class="subpanel">
-          <summary><h3>Quality</h3></summary>
-          <label title="Size of the picture made from the lenses, for photos and every video frame">Resolution
-            <select id="detail">
-              <option value="1" selected>1× (fast)</option>
-              <option value="1.5">1.5×</option>
-              <option value="2">2×</option>
-            </select>
-          </label>
-          <label title="Extra passes that bring back finer detail from every sensor pixel (slower)">Detail recovery
-            <select id="still-passes">
-              <option value="0" selected>Off</option>
-              <option value="2">Low (2 passes)</option>
-              <option value="4">High (4 passes, slower)</option>
-            </select>
-          </label>
-          <div class="stack">
-            <label class="check" title="Rebuilds the picture from every sensor pixel (F). Photos: press Render. Videos: slower"><input id="fullres-on" type="checkbox"> Full sensor</label>
-            <div id="fullres-panel" hidden>
-              <label title="Size of the full sensor picture, for photos and every video frame">Scale
-                <select id="still-scale">
-                  <option value="2">2× lens grid</option>
-                  <option value="3" selected>3× lens grid</option>
-                  <option value="4">4× lens grid</option>
-                </select>
-              </label>
-              <label title="Where each microlens really is. Automatic uses the camera calibration if imported, else the photo's white image">Lens centers
-                <select id="lens-centres">
-                  <option value="auto" selected>Automatic</option>
-                  <option value="camera">Camera calibration</option>
-                  <option value="photo">Measured from photo</option>
-                  <option value="off">Off</option>
-                </select>
-              </label>
-              <label class="check" title="Takes out the diamond pattern at 3× and 4×. Off by default: it can soften detail"><input id="lattice-on" type="checkbox"> Lattice filter</label>
-              <label title="How faint a pattern the filter looks for. Higher finds fainter ones">Lattice detection <output data-for="lattice-detect" for="lattice-detect">50</output>
-                <input id="lattice-detect" type="range" min="0" max="100" step="5" value="50" data-default="50">
-              </label>
-              <label title="How hard the filter pulls the pattern down; high can soften fine texture">Lattice strength <output data-for="lattice-strength" for="lattice-strength">75</output>
-                <input id="lattice-strength" type="range" min="10" max="100" step="5" value="75" data-default="75">
-              </label>
-            </div>
           </div>
         </details>
         <details class="subpanel">

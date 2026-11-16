@@ -2384,8 +2384,94 @@ function tick(t) {
 }
 requestAnimationFrame(tick);
 
+// The preview's frames are all rendered for the animation as it is now (Render preview, or a play that rendered them).
+function previewRendered() {
+  if (!state.animKey || !state.frames.length || !state.frames.every(Boolean)) return false;
+  const req = animationRequest();
+  return state.animKey === JSON.stringify([req.type, req.args, previewDivisor()]);
+}
+
+// Play without a rendered preview: the playhead moves at the frame rate and each moment is shown the way the slider shows it (the live view for keyframes,
+// a quick frame for a viewpoint or focus sweep), only the newest one being made, so playback skips frames instead of waiting for them.
+const live = { on: false, t0: 0, start: 0, shown: -1, loop: null, n: 1 };
+
+function startLivePlay() {
+  updateFrameLabel(); // (the slider's length is the animation's)
+  // The number of frames, from the animation's plan (the slider's length can change while it plays).
+  const n = Math.max(1, animationPlan().list.length || +$('scrub').max + 1);
+  live.n = n;
+  live.on = true;
+  live.t0 = performance.now();
+  live.start = (state.keyTime || 0) >= (n - 1) / state.fps ? 0 : state.keyTime || 0;
+  live.shown = -1;
+  live.loop = animationRequest().loop;
+  setFullRes(false, { restore: false });
+  setDepthShown(false, { restore: false });
+  showPlayIcon(true);
+  requestAnimationFrame(liveTick);
+}
+
+function stopLivePlay() {
+  if (!live.on) return;
+  live.on = false;
+  if (!state.playing) showPlayIcon(false);
+}
+
+function liveTick(now) {
+  if (!live.on) return;
+  const n = live.n;
+  const len = n / state.fps;
+  let t = live.start + (now - live.t0) / 1000;
+  if (live.loop === 'pingpong') {
+    // there and back
+    if (!state.repeat && t >= 2 * len) {
+      stopLivePlay();
+      return;
+    }
+    t %= 2 * len;
+    if (t >= len) t = 2 * len - t;
+  } else if (t >= len) {
+    if (!state.repeat) {
+      stopLivePlay();
+      return;
+    }
+    t %= len;
+  }
+  const i = Math.min(n - 1, Math.max(0, Math.floor(t * state.fps)));
+  if (i !== live.shown) {
+    live.shown = i;
+    showLiveFrame(i);
+  }
+  requestAnimationFrame(liveTick);
+}
+
+function showLiveFrame(i) {
+  $('scrub').value = i;
+  if (state.frames[i] && state.animKey) {
+    state.showingFrames = true;
+    state.index = i;
+    showFrame(i);
+    return;
+  }
+  state.keyTime = i / state.fps;
+  if ($('anim').value === 'keyframes') {
+    // (the live view: not the frames, without stopping the play)
+    state.showingFrames = false;
+    previewAt(state.keyTime);
+  } else {
+    renderSingleFrame(i);
+  }
+  updateFrameLabel();
+}
+
 function setPlaying(p) {
   if (p && !$('anim-on').checked) return;
+  if (!p) stopLivePlay();
+  if (p && !previewRendered()) {
+    state.playing = false;
+    startLivePlay();
+    return;
+  }
   state.playing = p;
   showPlayIcon(p);
   if (p) {
@@ -2725,6 +2811,7 @@ function setDepthShown(on, { restore = true } = {}) {
   state.depthShown = on;
   updateSpreadOverlay();
   $('depth-btn').checked = on;
+  $('depth-grey').disabled = !on;
   if (on) {
     setPlaying(false);
     state.showingFrames = false;
@@ -2943,6 +3030,8 @@ function setMode(mode) {
   $('fullres-on').disabled = !raw || !camera;
   if (!raw || !camera) setFullResMode(false);
   for (const id of ['depth-btn', 'depth-grey', 'depth-contrast', 'depth-contrast-persp', 'spread-show', 'depth-smooth', 'depth-hq', 'depth-style', 'depth-blend', 'depth-model-blend', 'depth-objects', 'depth-objects-soft', 'depth-model-smooth', 'depth-model-curve', 'lytro-depth']) $(id).disabled = !depthTools;
+  // Grayscale only changes the depth map's picture: it can be used while the map is shown.
+  $('depth-grey').disabled = !depthTools || !state.depthShown;
   // Photos imported with a depth map edited in Lytro Desktop can use it.
   $('lytro-depth-row').hidden = !(state.info && state.info.userDepth);
   for (const id of ['fstop', 'bokeh', 'dof-depth', 'highlights', 'spread', 'spread-smooth', 'spread-blur', 'tilt-on', 'tilt-preset', 'tilt', 'tilt-rotation', 'tilt-show', ...BOKEH_SHAPE]) $(id).disabled = !depthTools || stack;
@@ -4602,7 +4691,7 @@ $('sample-btn').onclick = async () => {
   openWith({ synthetic: { width: 3864, height: 2684 } }, undefined, my);
 };
 // One button plays and pauses (its icon shows what a press does).
-$('play-btn').onclick = () => setPlaying(!state.playing);
+$('play-btn').onclick = () => setPlaying(!(state.playing || live.on));
 // Stop: pause and go back to the start.
 $('stop-btn').onclick = () => {
   stopProcessing();
@@ -4651,7 +4740,7 @@ $('pv-stop').innerHTML = $('stop-btn').innerHTML;
 $('pv-next').innerHTML = icon('M5 3v10l6.5-5z');
 $('pv-last').innerHTML = icon('M13 3h-1.6v10H13zM3 3v10l7.5-5z');
 $('pv-loop').innerHTML = $('loop-btn').innerHTML;
-$('pv-play').onclick = () => setPlaying(!state.playing);
+$('pv-play').onclick = () => setPlaying(!(state.playing || live.on));
 $('pv-res').onchange = () => {
   invalidateAnimation();
   if (state.showingFrames) backToCamera();
@@ -4742,6 +4831,7 @@ showLoop();
 $('scrub').oninput = () => {
   stopProcessing();
   setDepthShown(false, { restore: false });
+  stopLivePlay();
   state.playing = false;
   showPlayIcon(false);
   const i = Math.round(+$('scrub').value);
@@ -5496,7 +5586,7 @@ document.addEventListener('keydown', (e) => {
   if (e.code === 'Space' && !e.repeat && state.mode === 'camera' && state.info && $('anim-on').checked
     && !e.target.matches('textarea, select, button, a[href], summary, [role=button], [contenteditable], input:not([type=range])')) {
     e.preventDefault();
-    setPlaying(!state.playing);
+    setPlaying(!(state.playing || live.on));
     spacePlayed = true;
     return;
   }
