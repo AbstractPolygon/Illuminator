@@ -214,7 +214,28 @@ function showProgress(stage, p) {
   $('progress-fill').style.width = p == null ? '' : `${Math.round(p * 100)}%`;
 }
 
+// A change that is slow to show (another depth method, the high quality depth): its message stays up from the change until the next picture is drawn (draw()),
+// with the worker's own stages over it as they come.
+let busyNote = '';
+let busyTimer = 0;
+function noteBusy(text) {
+  busyNote = text;
+  showProgress(text, null);
+  // (never left up for good if no picture comes: an error, the lenslets view)
+  clearTimeout(busyTimer);
+  busyTimer = setTimeout(clearBusy, 180000);
+}
+function clearBusy() {
+  if (!busyNote) return;
+  busyNote = '';
+  hideProgress();
+}
+
 function hideProgress() {
+  if (busyNote) {
+    showProgress(busyNote, null);
+    return;
+  }
   $('progress').hidden = true;
 }
 
@@ -1392,6 +1413,7 @@ function cancelSaves(photo) {
 // `gen`: the open generation the picture was asked for in; a picture of the photo before is dropped.
 function draw(img, gen = openSeq.current()) {
   if (!img || openSeq.superseded(gen)) return;
+  clearBusy();
   processingStep(gen, 'drawn');
   state.enlarged = false;
   if (img.pair) return drawPair(img);
@@ -3616,7 +3638,10 @@ $('depth-smooth').oninput = () => {
 };
 $('depth-smooth').onchange = () => {};
 // Normal or high quality depth: the depth map is measured again.
-$('depth-hq').onchange = () => applySettingsSoon();
+$('depth-hq').onchange = () => {
+  if (canRender()) noteBusy($('depth-hq').checked ? 'Measuring the high quality depth…' : 'Switching to the normal depth…');
+  applySettingsSoon();
+};
 // The mix of the two depth measurements, shown for Blended only; the worker recombines without measuring again.
 const showDepthBlend = (loaded = false) => {
   $('depth-blend-row').hidden = $('depth-style').value !== 'combined';
@@ -3662,6 +3687,7 @@ for (const id of Object.values(DEPTH_MODEL_SLIDERS)) {
 }
 $('depth-style').onchange = () => {
   if (depthModelShown) rememberDepthModel(); // the old model's settings, still in the sliders
+  if (canRender()) noteBusy(`Switching to ${$('depth-style').selectedOptions[0]?.textContent || 'the depth method'}…`);
   showDepthBlend();
   applySettingsSoon();
 };
@@ -4027,7 +4053,8 @@ $('cal-folder').onclick = async () => {
 // Upscaling > Method. They need a graphics card with WebGPU.
 let modelBusy = false;
 const updatingModels = new Set();
-// Depth models (Settings > Depth models): a downloaded model is a choice under Camera > Depth > Depth method.
+// Depth models (Settings > Depth models): a downloaded model is a choice under Camera > Depth > Depth method. A built in one (Depth Anything V2 Small) is always a
+// choice, and its row in Settings says it is built in, with nothing to tick.
 let depthModelBusy = false;
 async function refreshDepthModels() {
   const select = $('depth-style');
@@ -4044,6 +4071,12 @@ async function refreshDepthModels() {
       const status = Object.assign(document.createElement('span'), { className: 'hint model-state' });
       row.append(box, text, status);
       list.append(row);
+      if (m.bundled) {
+        box.hidden = true;
+        text.textContent = `${m.name}, ${m.note}`;
+        status.textContent = 'Built in';
+        continue;
+      }
       box.onchange = async () => {
         if (depthModelBusy) {
           box.checked = !box.checked;
@@ -4074,7 +4107,7 @@ async function refreshDepthModels() {
     const have = (await depthModelState(m)) === 'ready';
     const box = list.querySelector(`input[data-model="${m.id}"]`);
     box.checked = have;
-    box.disabled = false;
+    box.disabled = !!m.bundled;
     const value = depthModelMethod(m.id);
     const option = [...select.options].find((o) => o.value === value);
     if (have && !option) select.append(new Option(`${m.name} (model)`, value));
@@ -5244,6 +5277,7 @@ async function applySettings() {
     await applySettingsNow(gen);
   } catch (err) {
     if (!openSeq.superseded(gen)) {
+      clearBusy();
       hideProgress();
       showError(err, 'Could not apply the settings');
     }
