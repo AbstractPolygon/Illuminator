@@ -65,3 +65,33 @@ test('Star and Heart are drawn shapes with their settings', () => {
   for (let y = 0; y < N; y++) edge += wide.mask[y * N] + wide.mask[y * N + N - 1];
   assert.equal(edge, 0);
 });
+
+test('onion rings follow the shape, and the onion skin carries irregularity and spots', async () => {
+  const { toDisc, onionMap, ONION_SIZE } = await import('../app/js/core/dof.js');
+  // a point on the star's outline lands on the round ball's edge, at a tip and at a notch alike
+  const star = bokehKernel({ shape: 'star', points: 5, inner: 0.45, onion: 0.5 });
+  const onEdge = (x, y) => Math.hypot(...toDisc(star, x, y));
+  assert.ok(Math.abs(onEdge(0, -0.97) - 1) < 0.06, `tip ${onEdge(0, -0.97)}`);
+  const a = -Math.PI / 2 + Math.PI / 5;
+  assert.ok(Math.abs(onEdge(Math.cos(a) * 0.45, Math.sin(a) * 0.45) - 1) < 0.08, 'notch');
+  // the oval's rings are ovals
+  const oval = bokehKernel({ shape: 'circle', oval: 0.5, onion: 0.5 });
+  assert.ok(Math.abs(Math.hypot(...toDisc(oval, oval.aspect, 0)) - 1) < 1e-6);
+  // regular rings are the same all round; irregular ones are not; spots darken parts of the ball
+  const ringAt = (m, a) => {
+    const vals = [];
+    for (let i = 0; i < 64; i++) {
+      const t = 0.55;
+      const x = Math.round(((Math.cos(a + i * 0.098) * t) * 0.5 + 0.5) * ONION_SIZE);
+      const y = Math.round(((Math.sin(a + i * 0.098) * t) * 0.5 + 0.5) * ONION_SIZE);
+      vals.push(m.map[y * ONION_SIZE + x]);
+    }
+    return Math.max(...vals) - Math.min(...vals);
+  };
+  const regular = onionMap({ onion: 0.8, irregular: 0, blur: 0, spots: 0 });
+  const uneven = onionMap({ onion: 0.8, irregular: 1, blur: 0, spots: 0 });
+  assert.ok(ringAt(uneven, 0) > 3 * ringAt(regular, 0) + 0.01, `${ringAt(uneven, 0)} vs ${ringAt(regular, 0)}`);
+  const dusty = onionMap({ onion: 0, irregular: 0, blur: 0, spots: 1 });
+  assert.ok(Math.min(...dusty.map) < 0.7, 'spots darken');
+  assert.equal(onionMap({ onion: 0, spots: 0 }), null);
+});
