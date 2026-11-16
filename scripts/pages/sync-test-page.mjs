@@ -3,7 +3,7 @@
 //   node scripts/pages/sync-test-page.mjs MIRROR_DIR
 //
 // Copies app/js/**, app/luts/**, app/vendor/**, app/models/** and app/styles.css into MIRROR_DIR when they differ (a file over PART_BYTES, which an Artifact page cannot
-// keep whole, as parts: name.part0, name.part1, ... and name.parts.json, which the app puts back together, core/bigfile.js), rebuilds MIRROR_DIR/page.html from app/index.html (the page body, the style sheet link and
+// keep whole, as parts: name.part0.wasm, name.part1.wasm, ... and name.parts.json, which the app puts back together, core/bigfile.js), rebuilds MIRROR_DIR/page.html from app/index.html (the page body, the style sheet link and
 // js/share.js, the Artifact page's own script), and prints the changed paths as JSON: pass them as `files` (with `root` = MIRROR_DIR and the same list as `overwrite_unread`)
 // when publishing page.html. Files that exist only in MIRROR_DIR (js/share.js) are left alone.
 import fs from 'node:fs';
@@ -42,7 +42,7 @@ function copyTree(rel) {
   // (the whole file is not kept next to its parts)
   fs.rmSync(path.join(mirror, rel), { force: true });
   const count = Math.ceil(data.length / PART_BYTES);
-  for (let i = 0; i < count; i++) write(`${rel}.part${i}`, data.subarray(i * PART_BYTES, (i + 1) * PART_BYTES));
+  for (let i = 0; i < count; i++) write(`${rel}.part${i}.wasm`, data.subarray(i * PART_BYTES, (i + 1) * PART_BYTES));
   write(`${rel}.parts.json`, Buffer.from(JSON.stringify({ count, size: data.length })));
 }
 for (const rel of ['js', 'luts', 'vendor', 'models', 'styles.css']) copyTree(rel);
