@@ -88,5 +88,11 @@ export function reportText({ version = '', platform = '', facts = {}, rows = [],
   for (const r of rows) lines.push(`  ${r.name}: ${formatDuration(r.last)}, ${formatDuration(r.best)}, ${r.count}×${r.where ? `, on the ${r.where}` : ''}`);
   lines.push('', 'What limits it:');
   for (const l of speedLimits(facts, rows)) lines.push(`  - ${l.text}`);
+  if (facts.depth && facts.depth.stages && facts.depth.stages.length) {
+    const d = facts.depth;
+    const num = (v) => (v == null ? '–' : v.toFixed(3));
+    lines.push('', `Depth map (${d.style}, ${d.quality} quality, smoothed on the ${d.smoothing}):`);
+    for (const st of d.stages) lines.push(`  ${st.stage}: ${st.pixels} pixels, ${st.nonFinite} not numbers, range ${num(st.min)} to ${num(st.max)}, ${st.spikes} spikes`);
+  }
   return lines.join('\n');
 }

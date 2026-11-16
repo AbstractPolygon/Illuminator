@@ -1587,6 +1587,35 @@ export function fillNonFinite(alpha, width, height) {
   return out;
 }
 
+// What a depth map looks like, for the speed report: values that are not numbers, the range, and spikes (pixels more than `jump` away from the
+// median of their eight neighbors, which show as dots in the depth view and in the depth of field).
+export function depthStats(alpha, width, height, jump = 0.15) {
+  let nonFinite = 0;
+  let min = Infinity;
+  let max = -Infinity;
+  for (const v of alpha) {
+    if (!Number.isFinite(v)) nonFinite++;
+    else {
+      if (v < min) min = v;
+      if (v > max) max = v;
+    }
+  }
+  let spikes = 0;
+  const nb = new Float64Array(8);
+  for (let y = 1; y < height - 1; y++) {
+    for (let x = 1; x < width - 1; x++) {
+      const v = alpha[y * width + x];
+      if (!Number.isFinite(v)) continue;
+      let k = 0;
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (dx || dy) { const q = alpha[(y + dy) * width + x + dx]; if (Number.isFinite(q)) nb[k++] = q; }
+      if (k < 5) continue;
+      const m = Array.from(nb.subarray(0, k)).sort((a, b) => a - b)[k >> 1];
+      if (Math.abs(v - m) > jump) spikes++;
+    }
+  }
+  return { pixels: alpha.length, nonFinite, min: Number.isFinite(min) ? min : null, max: Number.isFinite(max) ? max : null, spikes };
+}
+
 export function smoothDepth(alpha, width, height, guide, { amount = 0.3, confidence = null, step = 0 } = {}) {
   const passes = Math.round(amount * 8);
   if (passes <= 0) return Float32Array.from(alpha);
