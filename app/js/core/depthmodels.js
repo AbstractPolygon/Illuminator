@@ -1,7 +1,8 @@
-// Optional monocular depth models, as ONNX files run with ONNX Runtime Web (on the graphics card where there is one, else on the CPU): Depth Anything V2 Small (Apache-2.0,
-// Lihe Yang et al.) and MiDaS v2.1 Small (MIT, Intel ISL). Not part of the app's own download: each is fetched when its box in Settings is ticked, checked against its
-// SHA-256 and kept in the browser's cache (the desktop app's too) until the box is unticked. They are fetched from the pinned revision of the repository that publishes
-// them (Hugging Face), so a changed file there does not reach the app: only a file with the expected hash is kept.
+// Monocular depth models, as ONNX files run with ONNX Runtime Web (on the graphics card where there is one, else on the CPU): Depth Anything V2 Small (Apache-2.0,
+// Lihe Yang et al.) and MiDaS v2.1 Small (MIT, Intel ISL). Depth Anything V2 Small is built in: its file ships with the app (app/models, `bundled`), in the
+// installers and the web version, and needs no download. MiDaS is optional: it is fetched when its box in Settings is ticked, checked against its SHA-256 and
+// kept in the browser's cache (the desktop app's too) until the box is unticked, from the pinned revision of the repository that publishes it (Hugging Face), so a
+// changed file there does not reach the app: only a file with the expected hash is kept.
 //
 // What they give is a relative depth (larger = nearer, in no unit); core/depthmodel.js fits it to the measured depth.
 
@@ -17,6 +18,8 @@ export const DEPTH_MODELS = [
     url: 'https://huggingface.co/onnx-community/depth-anything-v2-small/resolve/4472b7362082ad9968fee890ca0f1e5aca36b93d/onnx/model.onnx',
     size: 99060839,
     sha256: 'afb6a5c28f3b6bf1618c6e43f02073ef9dfdc70e937502d51603e57b0a1df10c',
+    // (the same file, shipped with the app: app/models, with its licence next to it)
+    bundled: 'models/depth-anything-v2-small.onnx',
     input: 518, // the square picture the model is given
     inputName: 'pixel_values',
     mean: [0.485, 0.456, 0.406],
@@ -50,6 +53,7 @@ async function openCache() {
 
 // 'none' (not downloaded), 'ready', or 'stale' (a file with another hash is kept).
 export async function depthModelState(model) {
+  if (model.bundled) return 'ready';
   const cache = await openCache();
   const hit = cache && (await cache.match(model.url));
   if (!hit) return 'none';
@@ -89,6 +93,11 @@ export async function downloadDepthModel(model, onProgress = () => {}) {
 }
 
 export async function readDepthModel(model) {
+  if (model.bundled) {
+    const res = await fetch(new URL(`../../${model.bundled}`, import.meta.url));
+    if (!res.ok) throw new Error(`${model.name} is missing from the app (${res.status}).`);
+    return new Uint8Array(await res.arrayBuffer());
+  }
   const cache = await openCache();
   const hit = cache && (await cache.match(model.url));
   if (!hit || hit.headers.get('x-sha256') !== model.sha256) throw new Error(`${model.name} is not downloaded (Settings > Depth models).`);
