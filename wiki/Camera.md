@@ -25,7 +25,7 @@ The light field controls. Each can be animated: the <img src="images/key-prev.pn
 - *Spread:* a range of depth kept sharp on each side of the focus.
 - *Smoothing:* softens the edges of that range, so blur builds up gradually.
 - *Blur:* feathers the spread in the picture: the map of how much each pixel is blurred is smoothed across the picture, so where the sharp range meets blurred areas the change is gradual (and depth map errors show less). It does not blur the picture itself; Smoothing works on depth, Blur on the picture's area.
-- *Show spread:* tints what lies outside it, blue nearer and orange farther.
+- *Show spread:* tints what lies outside it, blue nearer and orange farther; with *Blur*, the tint fades across the picture as the blur does.
 
 ## Tilt
 
@@ -47,7 +47,7 @@ Moving the viewpoint shifts every depth but one, the focus plane (or, with the a
 
 ## Bokeh
 
-The shape of out-of-focus highlights: *Natural*, *Optical (softer)*, *Circle* or *Blades*, and *Highlights* to make bright points glow into bokeh balls.
+The shape of out-of-focus highlights: *Natural*, *Optical (softer)*, *Circle* or *Blades*, and *Highlights* to make bright points glow into bokeh balls. *Blades*, *Oval*, *Rotation*, *Onion* and *Highlights* can be keyframed.
 
 - *Blades* (Blades shape): the number of aperture blades, 3 to 32, which is the number of sides of each bokeh ball.
 - *Oval* (Circle shape): stretches the circle into an oval, like the cat's-eye bokeh near the edges of a fast lens.

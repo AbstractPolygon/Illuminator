@@ -26,7 +26,7 @@ import { snapDepthEdges, snapToObjects, softenObjectEdges, EDGE_SNAP_DEPTH } fro
 import { methodDepthModel, readDepthModel } from './core/depthmodels.js';
 import { releaseDepthSession, runDepthModel, fitModelDepth, shapeModelDepth, fuseModelDepth } from './core/depthmodel.js';
 import { depthStats, fillNonFinite, shapeDepthContrast, setDepthStyle, estimateDepth, estimateDepthPooled, poolable, DEPTH_FAST_SEARCH, focusAtPoint, smoothDepth, finishDepth, depthGuide, depthColorGuide, luminance, brightnessFloor, DEPTH_SEARCH, DEPTH_LCOST, DEPTH_CBCA, DEPTH_TRWS, DEPTH_COARSE, DEPTH_STEP, DEPTH_REGIONS, combineCoarse } from './core/depth.js';
-import { applyDepthOfField } from './core/dof.js';
+import { applyDepthOfField, smoothMap } from './core/dof.js';
 import { defringe, autoDefringe } from './core/defringe.js';
 import { makeLook, whiteBalanceGains, DEFAULT_KELVIN, solveWhiteBalance, autoWhiteBalance } from './core/color.js';
 import { makeDetail, applyDetail, detailForSize, engineUnsharp, engineUsmMap, totalGain } from './core/detail.js';
@@ -3381,12 +3381,14 @@ async function whiteBalanceAt({ x, y }) {
 // focus (with spread and tilt) in blue when nearer, orange when farther.
 // Tints what lies outside the sharp range: blue nearer, orange farther,
 // fading in over the Smoothing width the way the blur builds up there.
-async function spreadMask({ id, alpha = 0, spread = 0, smooth = 0, tilt = [0, 0], point = [0.5, 0.5] }) {
+async function spreadMask({ id, alpha = 0, spread = 0, smooth = 0, blur = 0, tilt = [0, 0], point = [0.5, 0.5] }) {
   const src = await depthSource(id);
   if (!src) return { cancelled: true };
   const { w, h } = src;
   const depth = src.alpha;
-  const pixels = new Uint8ClampedArray(w * h * 4);
+  // How far past the sharp range each pixel is (negative: nearer than the focus), then, as the depth of field does with Blur under Focus Spread,
+  // smoothed over the picture (core/dof.js smoothMap; the feather in pixels of this map, which is the view's size).
+  let past = new Float32Array(w * h);
   for (let y = 0; y < h; y++) {
     const rowFocus = alpha + tilt[1] * ((y + 0.5) / h - point[1]);
     for (let x = 0; x < w; x++) {
@@ -3394,19 +3396,28 @@ async function spreadMask({ id, alpha = 0, spread = 0, smooth = 0, tilt = [0, 0]
       // alpha < 0 is nearer than the focus.
       const d = depth[i] - (rowFocus + tilt[0] * ((x + 0.5) / w - point[0]));
       const excess = Math.abs(d) - spread;
-      if (excess <= 0) continue;
-      const o = i * 4;
-      if (d < 0) {
-        pixels[o] = 40;
-        pixels[o + 1] = 120;
-        pixels[o + 2] = 255;
-      } else {
-        pixels[o] = 255;
-        pixels[o + 1] = 140;
-        pixels[o + 2] = 20;
-      }
-      pixels[o + 3] = smooth > 0 ? Math.round(255 * Math.min(1, excess / smooth)) : 255;
+      past[i] = excess > 0 ? Math.sign(d) * excess : 0;
     }
+  }
+  const feather = blur * (state.pp ? 14 : viewPxPerUnit());
+  if (feather > 0) past = smoothMap(past, w, h, feather);
+  // A feathered edge fades over about a tenth of a unit when there is no Smooth to show it.
+  const fade = smooth > 0 ? smooth : feather > 0 ? 0.1 : 0;
+  const pixels = new Uint8ClampedArray(w * h * 4);
+  for (let i = 0; i < w * h; i++) {
+    const p = past[i];
+    if (!(Math.abs(p) > 1e-6)) continue;
+    const o = i * 4;
+    if (p < 0) {
+      pixels[o] = 40;
+      pixels[o + 1] = 120;
+      pixels[o + 2] = 255;
+    } else {
+      pixels[o] = 255;
+      pixels[o + 1] = 140;
+      pixels[o + 2] = 20;
+    }
+    pixels[o + 3] = fade > 0 ? Math.round(255 * Math.min(1, Math.abs(p) / fade)) : 255;
   }
   post({ id, type: 'result', width: w, height: h, pixels: pixels.buffer }, [pixels.buffer]);
   return undefined;

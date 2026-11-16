@@ -28,7 +28,7 @@ export function initKeyframes({ $, getMasks, maskLabel, state, canRender, F_STOP
   // picture is drawn, like the pivot.
   const TRACK_NAMES = {
     aperture: 'Aperture', depth: 'Depth of field', focus: 'Focus', view: 'Viewpoint', zoom: 'Zoom', panX: 'Pan X', panY: 'Pan Y', pivot: 'Pivot depth',
-    pointX: 'Focus point X', pointY: 'Focus point Y', spread: 'Spread', spreadSmooth: 'Smoothing', spreadBlur: 'Blur', tilt: 'Tilt', tiltRotation: 'Rotation', highlights: 'Highlights',
+    pointX: 'Focus point X', pointY: 'Focus point Y', spread: 'Spread', spreadSmooth: 'Smoothing', spreadBlur: 'Blur', tilt: 'Tilt', tiltRotation: 'Rotation', highlights: 'Highlights', bokehBlades: 'Blades', bokehOval: 'Oval', bokehRotation: 'Bokeh rotation', bokehOnion: 'Onion',
     amount: 'Amount', near: 'Near', far: 'Far',
   };
 
@@ -40,12 +40,15 @@ export function initKeyframes({ $, getMasks, maskLabel, state, canRender, F_STOP
     // Tilt and Pivot depth show (and count) only while they are on.
     { id: 'cam-tilt', name: 'Tilt', tracks: ['tilt', 'tiltRotation'], when: () => $('tilt-on').checked },
     { id: 'cam-perspective', name: 'Perspective', tracks: ['view', 'pivot'] },
-    { id: 'cam-bokeh', name: 'Bokeh', tracks: ['highlights'] },
+    // The shape's settings show (and count) while their sliders do (the bokeh shape decides which).
+    { id: 'cam-bokeh', name: 'Bokeh', tracks: ['bokehBlades', 'bokehOval', 'bokehRotation', 'bokehOnion', 'highlights'] },
   ];
 
   // The Animation panel's tracks, by what is animated: Framing with
   // keyframes, Amount with the viewpoint path, Near and Far with the focus
   // sweep.
+  const BOKEH_TRACK_ROWS = { bokehBlades: 'bokeh-blades-row', bokehOval: 'bokeh-oval-row', bokehRotation: 'bokeh-rotation-row', bokehOnion: 'bokeh-onion-row' };
+
   const ANIMATION_SECTIONS = [
     { id: 'anim-framing', name: 'Framing', tracks: ['zoom', 'panX', 'panY'], mode: 'keyframes' },
     { id: 'anim-viewpoint', name: 'Viewpoint path', tracks: ['amount'], mode: 'viewpoint' },
@@ -110,7 +113,7 @@ export function initKeyframes({ $, getMasks, maskLabel, state, canRender, F_STOP
       section('local', 'Local Adjustments', getMasks().map((m, i) => ({ id: m.id, name: m.name || maskLabel(m, i), off: !m.on, tracks: maskAttrs(m).map((a) => `mask:${m.id}:${a}`) })));
       section('camera', 'Camera', CAMERA_SECTIONS
         .filter((sec) => !sec.when || sec.when())
-        .map((sec) => ({ id: sec.id, name: sec.name, tracks: sec.tracks.filter((k) => k !== 'pivot' || $('pivot-on').checked) })));
+        .map((sec) => ({ id: sec.id, name: sec.name, tracks: sec.tracks.filter((k) => (k !== 'pivot' || $('pivot-on').checked) && !(BOKEH_TRACK_ROWS[k] && $(BOKEH_TRACK_ROWS[k]).hidden)) })));
       settingSection(opticsPanel);
     }
     section('animation', 'Animation', ANIMATION_SECTIONS.filter((sec) => sec.mode === mode).map((sec) => ({ id: sec.id, name: sec.name, tracks: sec.tracks })));
@@ -130,6 +133,7 @@ export function initKeyframes({ $, getMasks, maskLabel, state, canRender, F_STOP
     fstop: ['aperture'], 'dof-depth': ['depth'], 'focus-point': ['focus', 'pointX', 'pointY'],
     spread: ['spread'], 'spread-smooth': ['spreadSmooth'], 'spread-blur': ['spreadBlur'], tilt: ['tilt'], 'tilt-rotation': ['tiltRotation'],
     viewpoint: ['view'], pivot: ['pivot'], highlights: ['highlights'],
+    'bokeh-blades': ['bokehBlades'], 'bokeh-oval': ['bokehOval'], 'bokeh-rotation': ['bokehRotation'], 'bokeh-onion': ['bokehOnion'],
     'frame-zoom': ['zoom'], 'frame-pan-x': ['panX'], 'frame-pan-y': ['panY'],
     amount: ['amount'], near: ['near'], far: ['far'],
   };
@@ -457,6 +461,10 @@ export function initKeyframes({ $, getMasks, maskLabel, state, canRender, F_STOP
       case 'tilt': return +$('tilt').value;
       case 'tiltRotation': return +$('tilt-rotation').value;
       case 'highlights': return +$('highlights').value;
+      case 'bokehBlades': return +$('bokeh-blades').value;
+      case 'bokehOval': return +$('bokeh-oval').value;
+      case 'bokehRotation': return +$('bokeh-rotation').value;
+      case 'bokehOnion': return +$('bokeh-onion').value;
       case 'amount': return +$('amount').value;
       case 'near': return +$('near').value;
       case 'far': return +$('far').value;
@@ -465,7 +473,7 @@ export function initKeyframes({ $, getMasks, maskLabel, state, canRender, F_STOP
   }
 
   // Camera tracks set straight from a slider.
-  const TRACK_SLIDERS = { spread: 'spread', spreadSmooth: 'spread-smooth', spreadBlur: 'spread-blur', tilt: 'tilt', tiltRotation: 'tilt-rotation', highlights: 'highlights', amount: 'amount', near: 'near', far: 'far' };
+  const TRACK_SLIDERS = { spread: 'spread', spreadSmooth: 'spread-smooth', spreadBlur: 'spread-blur', tilt: 'tilt', tiltRotation: 'tilt-rotation', highlights: 'highlights', bokehBlades: 'bokeh-blades', bokehOval: 'bokeh-oval', bokehRotation: 'bokeh-rotation', bokehOnion: 'bokeh-onion', amount: 'amount', near: 'near', far: 'far' };
 
   // Shows a keyframe's value in the controls (and the picture).
   // Sets the control behind track k to v.

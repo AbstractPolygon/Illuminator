@@ -1578,10 +1578,11 @@ function bokehParams(v = {}) {
   return {
     shape,
     highlights: v.highlights ?? +$('highlights').value,
-    blades: +$('bokeh-blades').value,
-    oval: shape === 'circle' ? +$('bokeh-oval').value / 100 : 0,
-    rotation: +$('bokeh-rotation').value,
-    onion: shape === 'smooth' ? 0 : +$('bokeh-onion').value / 100,
+    // (keyframed: a frame's own values; blades in whole numbers)
+    blades: Math.round(v.bokehBlades ?? +$('bokeh-blades').value),
+    oval: shape === 'circle' ? (v.bokehOval ?? +$('bokeh-oval').value) / 100 : 0,
+    rotation: v.bokehRotation ?? +$('bokeh-rotation').value,
+    onion: shape === 'smooth' ? 0 : (v.bokehOnion ?? +$('bokeh-onion').value) / 100,
     ...focusField(v),
   };
 }
