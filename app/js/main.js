@@ -2029,9 +2029,9 @@ async function renderCamera({ final = false } = {}) {
   }
 }
 
-// The live view is one view of the light field, at the lens grid's resolution: with a lens per pixel. Once changes stop, the all-in-focus picture from
-// every sensor pixel (at twice the view's size; at f/16 and f/22 the engine's, as Render makes it) is made in the background and shown instead, with the
-// depth of field's blur put on it at wider f-stops; any change goes back to the live view and cancels it. Not on a
+// At f/22 (aperture closed, no depth-of-field blur) the live view is one view of the light field, at the lens grid's resolution: sharp in
+// depth but with a lens per pixel. Once changes stop, the all-in-focus picture from every sensor pixel (the engine's, as Render makes it, at
+// twice the view's size) is made in the background and shown instead; any change goes back to the live view and cancels it. Not on a
 // software renderer (minutes), not while Full resolution mode is on (it has its own Render), and not when the card's memory limit says no.
 const SHARP_DELAY = 1500;
 const SHARP_SCALE = 2;
@@ -2042,10 +2042,8 @@ function sharpWanted() {
   const info = state.info;
   if (!info || !info.hasRaw || state.mode !== 'camera' || !showsCamera() || state.fullResMode || state.playing || drag.on || stereoShown()) return false;
   if (!hook('sharpAnyGpu') && /swiftshader|llvmpipe|software|softpipe|^CPU/i.test(info.renderer || 'CPU')) return false;  // (the flag: tests on a software renderer)
-  // With the blur drawn from the depth map (aperture 0, the default bokeh) the sharp picture is made too, and the blur is put on it: what is in focus keeps
-  // every sensor pixel's detail at any f-stop (on the live view alone it was as soft as one view). Optical refocusing (aperture above 0) keeps its view.
   const lens = state.retouchTool ? { aperture: 0, dof: 0 } : apertureFor(fNumber());
-  if (lens.aperture !== 0) return false;
+  if (lens.aperture !== 0 || lens.dof !== 0) return false;
   const size = info.stillSizes && info.stillSizes[SHARP_SCALE];
   return !(size && !fitsMemory('vram', superResVram(size[0], size[1])));
 }
