@@ -108,12 +108,12 @@ export function initKeyframes({ $, getMasks, maskLabel, state, canRender, F_STOP
     const [processPanel, opticsPanel] = settingPanels();
     // In the sidebar's order.
     if (mode === 'keyframes') {
-      settingSection(processPanel);
-      // `off`: a disabled adjustment, whose keyframes the editor hides.
-      section('local', 'Local Adjustments', getMasks().map((m, i) => ({ id: m.id, name: m.name || maskLabel(m, i), off: !m.on, tracks: maskAttrs(m).map((a) => `mask:${m.id}:${a}`) })));
       section('camera', 'Camera', CAMERA_SECTIONS
         .filter((sec) => !sec.when || sec.when())
         .map((sec) => ({ id: sec.id, name: sec.name, tracks: sec.tracks.filter((k) => (k !== 'pivot' || $('pivot-on').checked) && !(BOKEH_TRACK_ROWS[k] && $(BOKEH_TRACK_ROWS[k]).hidden)) })));
+      settingSection(processPanel);
+      // `off`: a disabled adjustment, whose keyframes the editor hides.
+      section('local', 'Local Adjustments', getMasks().map((m, i) => ({ id: m.id, name: m.name || maskLabel(m, i), off: !m.on, tracks: maskAttrs(m).map((a) => `mask:${m.id}:${a}`) })));
       settingSection(opticsPanel);
     }
     section('animation', 'Animation', ANIMATION_SECTIONS.filter((sec) => sec.mode === mode).map((sec) => ({ id: sec.id, name: sec.name, tracks: sec.tracks })));

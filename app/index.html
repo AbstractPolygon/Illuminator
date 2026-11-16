@@ -388,6 +388,135 @@
         <input id="crop-h" type="hidden" value="1">
       </details>
 
+      <details class="panel" data-panel="camera">
+        <summary><h2>Camera</h2></summary>
+        <details class="subpanel">
+          <summary><h3>Depth</h3></summary>
+          <label title="Lens opening: a wider aperture (lower f-number) blurs more away from the focus">Aperture <output id="fstop-label" for="fstop">f/22</output>
+            <input id="fstop" type="range" min="0" max="11" step="1" value="0">
+          </label>
+          <label title="How quickly things blur away from the focus">Depth <output data-for="dof-depth" for="dof-depth">0</output>
+            <input id="dof-depth" type="range" min="-100" max="100" step="1" value="0" data-default="0">
+          </label>
+          <input id="focus" type="hidden" value="0">
+          <div id="depth-ruler-row" class="depth-ruler" title="Depth: near on the left (blue), far on the right (orange). Click or drag to focus there" hidden>
+            <canvas id="depth-ruler"></canvas>
+            <div class="depth-ruler-labels" aria-hidden="true"><span class="near">Near</span><output id="depth-ruler-focus"></output><span class="far">Far</span></div>
+          </div>
+          <label class="check" title="Marks the sharp edges in the picture in green, so you can see what is in focus"><input id="focus-peaking" type="checkbox"> Focus peaking</label>
+          <label title="How strong an edge has to be to be marked: higher marks more">Peaking level <output data-for="peaking-level" for="peaking-level">60</output>
+            <input id="peaking-level" type="range" min="0" max="100" step="1" value="60">
+          </label>
+          <label title="Smooths the depth map, following the picture’s edges">Smoothing <output for="depth-smooth" data-for="depth-smooth">30</output>
+            <input id="depth-smooth" type="range" min="0" max="100" step="5" value="30" data-default="30">
+          </label>
+          <label id="lytro-depth-row" class="check" title="Uses the depth map edited in Lytro Desktop, imported with the photo, instead of measuring depth" hidden><input id="lytro-depth" type="checkbox" checked> Lytro Desktop depth map</label>
+          <label id="depth-style-row" title="How depth is measured. Blended mixes the other two; Illuminator and Classic Desktop are one style each">Depth method
+            <select id="depth-style">
+              <option value="classic">Illuminator</option>
+              <option value="match" selected>Classic Desktop</option>
+              <option value="combined">Blended</option>
+            </select>
+          </label>
+          <label id="depth-model-blend-row" title="How much of the depth model's result is used. 0: measured depth alone, 100: model alone" hidden>Model blend <output for="depth-model-blend" data-for="depth-model-blend">70</output>
+            <input id="depth-model-blend" type="range" min="0" max="100" step="5" value="70" data-default="70">
+          </label>
+          <label id="depth-model-smooth-row" title="Blurs the model's depth before it is fitted: gentler where it is noisy or blocky. 0: none" hidden>Model smoothing <output data-for="depth-model-smooth" for="depth-model-smooth">0</output>
+            <input id="depth-model-smooth" type="range" min="0" max="100" step="5" value="0" data-default="0">
+          </label>
+          <label id="depth-model-curve-row" title="Bends the model's depth. Below 50 pulls middle distances far, above 50 near" hidden>Model curve <output data-for="depth-model-curve" for="depth-model-curve">50</output>
+            <input id="depth-model-curve" type="range" min="0" max="100" step="5" value="50" data-default="50">
+          </label>
+          <input id="depth-model-params" type="hidden" value="{}" data-text>
+          <label id="depth-blend-row" title="Mix of the two depth measurements. 0: Illuminator alone, 100: Classic Desktop alone" hidden>Blend <output for="depth-blend" data-for="depth-blend">50</output>
+            <input id="depth-blend" type="range" min="0" max="100" step="5" value="50" data-default="50">
+          </label>
+          <label id="depth-objects-row" class="check" title="Finds objects and puts depth edges on their outlines. Downloads a 45 MB model the first time"><input id="depth-objects" type="checkbox"> Object edges</label>
+          <label id="depth-objects-soft-row" title="Softens depth where objects meet, so outlines look less cut out. 0: hard outlines" hidden>Smooth edges <output data-for="depth-objects-soft" for="depth-objects-soft">30</output>
+            <input id="depth-objects-soft" type="range" min="0" max="100" step="1" value="30" data-default="30">
+          </label>
+          <label id="depth-hq-row" class="check" title="Sharper depth edges for photos and videos; about twice as slow. Off: faster, rougher"><input id="depth-hq" type="checkbox" checked> High quality depth map</label>
+          <div class="row check-row">
+            <label class="check"><input id="depth-btn" type="checkbox"> Show depth map</label>
+            <label class="check" title="Shows the depth map in gray, light for near and dark for far, instead of in color"><input id="depth-grey" type="checkbox"> Grayscale</label>
+          </div>
+          <label title="Stretches depth map colors over a narrower range, as Lytro Desktop's do. Changes the depth itself">Depth map contrast <output for="depth-contrast" data-for="depth-contrast">0</output>
+            <input id="depth-contrast" type="range" min="0" max="100" step="5" value="0" data-default="0">
+          </label>
+          <label class="check" title="Uses the reshaped depth when the viewpoint moves too. A Full sensor render does not"><input id="depth-contrast-persp" type="checkbox"> Apply to perspective shift</label>
+        </details>
+        <details class="subpanel">
+          <summary><h3>Focus Spread</h3></summary>
+          <label>Focus Point <output id="focus-point">Center</output></label>
+          <label title="Range of depth kept sharp on each side of the focus">Spread <output data-for="spread" for="spread">0</output>
+            <input id="spread" type="range" min="0" max="100" step="1" value="0" data-default="0">
+          </label>
+          <label title="Softens the edges of the sharp range: blur builds up gradually instead of starting at once">Smoothing <output data-for="spread-smooth" for="spread-smooth">0</output>
+            <input id="spread-smooth" type="range" min="0" max="100" step="1" value="0" data-default="0">
+          </label>
+          <label title="Smooths the blur map so the sharp range fades into blur gradually">Blur <output data-for="spread-blur" for="spread-blur">0</output>
+            <input id="spread-blur" type="range" min="0" max="100" step="1" value="0" data-default="0">
+          </label>
+          <label class="check"><input id="spread-show" type="checkbox"> Show spread</label>
+        </details>
+        <details class="subpanel">
+          <summary><h3>Tilt</h3></summary>
+          <label title="One-click tilt starting points, such as a miniature look. They set tilt, aperture and blur">Preset
+            <select id="tilt-preset">
+              <option value="" selected>Choose…</option>
+              <option value="miniature">Miniature (horizontal band)</option>
+              <option value="miniatureVertical">Miniature (vertical band)</option>
+              <option value="landscape">Landscape tilt</option>
+              <option value="diagonal">Diagonal tilt</option>
+              <option value="off">Tilt off</option>
+            </select>
+          </label>
+          <label class="check"><input id="tilt-on" type="checkbox"> Enabled</label>
+          <label title="How far the plane of focus tilts">Tilt <output data-for="tilt" for="tilt">0</output>
+            <input id="tilt" type="range" min="-100" max="100" step="1" value="0" data-default="0">
+          </label>
+          <label title="Direction the plane of focus tilts">Rotation <output data-for="tilt-rotation" for="tilt-rotation">0°</output>
+            <input id="tilt-rotation" type="range" min="-90" max="90" step="1" value="0" data-default="0">
+          </label>
+          <label class="check" title="Tints by distance from the plane of focus: blue nearer, orange farther"><input id="tilt-show" type="checkbox" disabled> Show tilt</label>
+        </details>
+        <details class="subpanel">
+          <summary><h3>Perspective</h3></summary>
+          <label title="Drag on the picture to move the viewpoint">Viewpoint <output id="viewpoint">Center</output></label>
+          <label title="How far the viewpoint can move, as a share of the lens opening. Past what the camera recorded, depth fills in">Reach <output data-for="view-reach" for="view-reach">100%</output>
+            <input id="view-reach" type="range" min="100" max="300" step="10" value="100" data-default="100">
+          </label>
+          <label class="check" id="view-fill-row" title="Paints what no view saw using the fill model (Settings), for prints and 3D images"><input id="view-fill" type="checkbox" disabled> Fill with AI</label>
+          <label class="check" title="The depth that stays still when the viewpoint moves; otherwise the focus plane"><input id="pivot-on" type="checkbox"> Custom pivot</label>
+          <label title="The depth that stays still when the viewpoint moves">Pivot depth <output data-for="pivot" for="pivot">0</output>
+            <input id="pivot" type="range" min="-100" max="100" step="1" value="0" data-default="0" disabled>
+          </label>
+        </details>
+        <details class="subpanel">
+          <summary><h3>Bokeh</h3></summary>
+          <label>Shape
+            <select id="bokeh">
+              <option value="natural">Natural</option>
+              <option value="optical">Optical (softer)</option>
+              <option value="circle">Circle</option>
+              <option value="blades">Blades</option>
+            </select>
+          </label>
+          <label id="bokeh-blades-row" title="Number of aperture blades: the bokeh's number of sides" hidden>Blades <output data-for="bokeh-blades" for="bokeh-blades">6</output>
+            <input id="bokeh-blades" type="range" min="3" max="32" step="1" value="6" data-default="6">
+          </label>
+          <label id="bokeh-oval-row" title="Stretches the circle into an oval, like the cat's-eye bokeh near a lens's edges" hidden>Oval <output data-for="bokeh-oval" for="bokeh-oval">0</output>
+            <input id="bokeh-oval" type="range" min="0" max="100" step="1" value="0" data-default="0">
+          </label>
+          <label id="bokeh-rotation-row" title="Turns the blades or the oval" hidden>Rotation <output data-for="bokeh-rotation" for="bokeh-rotation">0°</output>
+            <input id="bokeh-rotation" type="range" min="-90" max="90" step="1" value="0" data-default="0">
+          </label>
+          <label id="bokeh-onion-row" title="Onion rings: concentric rings inside each bokeh ball, like those from aspherical lens elements" hidden>Onion <output data-for="bokeh-onion" for="bokeh-onion">0</output>
+            <input id="bokeh-onion" type="range" min="0" max="100" step="1" value="0" data-default="0">
+          </label>
+          <label title="How brightly highlights glow into bokeh">Highlights <input id="highlights" type="range" min="0" max="1" step="0.05" value="0.3"></label>
+        </details>
+      </details>
       <details class="panel color-panel" data-panel="camera">
         <summary><h2>Process</h2></summary>
         <details class="subpanel" id="looks-panel">
@@ -454,6 +583,15 @@
           </label>
           <label title="Where the darkest tones end (the black point)">Blacks <output for="tone-blacks" data-for="tone-blacks">0</output>
             <input id="tone-blacks" type="range" min="-100" max="100" step="1" value="0" data-default="0">
+          </label>
+          <label title="Brings out fine detail and surface texture; below 0 smooths it">Texture <output for="tone-texture" data-for="tone-texture">0</output>
+            <input id="tone-texture" type="range" min="-100" max="100" step="1" value="0" data-default="0">
+          </label>
+          <label title="Adds punch to mid-size detail, mostly in the midtones; below 0 softens it">Clarity <output for="tone-clarity" data-for="tone-clarity">0</output>
+            <input id="tone-clarity" type="range" min="-100" max="100" step="1" value="0" data-default="0">
+          </label>
+          <label title="Takes out haze and fog where it lies; below 0 adds haze">Dehaze <output for="tone-dehaze" data-for="tone-dehaze">0</output>
+            <input id="tone-dehaze" type="range" min="-100" max="100" step="1" value="0" data-default="0">
           </label>
         </details>
         <details class="subpanel">
@@ -739,135 +877,6 @@
         <input id="local-masks" type="hidden" value="[]" data-text>
       </details>
 
-      <details class="panel" data-panel="camera">
-        <summary><h2>Camera</h2></summary>
-        <details class="subpanel">
-          <summary><h3>Depth</h3></summary>
-          <label title="Lens opening: a wider aperture (lower f-number) blurs more away from the focus">Aperture <output id="fstop-label" for="fstop">f/22</output>
-            <input id="fstop" type="range" min="0" max="11" step="1" value="0">
-          </label>
-          <label title="How quickly things blur away from the focus">Depth <output data-for="dof-depth" for="dof-depth">0</output>
-            <input id="dof-depth" type="range" min="-100" max="100" step="1" value="0" data-default="0">
-          </label>
-          <input id="focus" type="hidden" value="0">
-          <div id="depth-ruler-row" class="depth-ruler" title="Depth: near on the left (blue), far on the right (orange). Click or drag to focus there" hidden>
-            <canvas id="depth-ruler"></canvas>
-            <div class="depth-ruler-labels" aria-hidden="true"><span class="near">Near</span><output id="depth-ruler-focus"></output><span class="far">Far</span></div>
-          </div>
-          <label class="check" title="Marks the sharp edges in the picture in green, so you can see what is in focus"><input id="focus-peaking" type="checkbox"> Focus peaking</label>
-          <label title="How strong an edge has to be to be marked: higher marks more">Peaking level <output data-for="peaking-level" for="peaking-level">60</output>
-            <input id="peaking-level" type="range" min="0" max="100" step="1" value="60">
-          </label>
-          <label title="Smooths the depth map, following the picture’s edges">Smoothing <output for="depth-smooth" data-for="depth-smooth">30</output>
-            <input id="depth-smooth" type="range" min="0" max="100" step="5" value="30" data-default="30">
-          </label>
-          <label id="lytro-depth-row" class="check" title="Uses the depth map edited in Lytro Desktop, imported with the photo, instead of measuring depth" hidden><input id="lytro-depth" type="checkbox" checked> Lytro Desktop depth map</label>
-          <label id="depth-style-row" title="How depth is measured. Blended mixes the other two; Illuminator and Classic Desktop are one style each">Depth method
-            <select id="depth-style">
-              <option value="classic">Illuminator</option>
-              <option value="match" selected>Classic Desktop</option>
-              <option value="combined">Blended</option>
-            </select>
-          </label>
-          <label id="depth-model-blend-row" title="How much of the depth model's result is used. 0: measured depth alone, 100: model alone" hidden>Model blend <output for="depth-model-blend" data-for="depth-model-blend">70</output>
-            <input id="depth-model-blend" type="range" min="0" max="100" step="5" value="70" data-default="70">
-          </label>
-          <label id="depth-model-smooth-row" title="Blurs the model's depth before it is fitted: gentler where it is noisy or blocky. 0: none" hidden>Model smoothing <output data-for="depth-model-smooth" for="depth-model-smooth">0</output>
-            <input id="depth-model-smooth" type="range" min="0" max="100" step="5" value="0" data-default="0">
-          </label>
-          <label id="depth-model-curve-row" title="Bends the model's depth. Below 50 pulls middle distances far, above 50 near" hidden>Model curve <output data-for="depth-model-curve" for="depth-model-curve">50</output>
-            <input id="depth-model-curve" type="range" min="0" max="100" step="5" value="50" data-default="50">
-          </label>
-          <input id="depth-model-params" type="hidden" value="{}" data-text>
-          <label id="depth-blend-row" title="Mix of the two depth measurements. 0: Illuminator alone, 100: Classic Desktop alone" hidden>Blend <output for="depth-blend" data-for="depth-blend">50</output>
-            <input id="depth-blend" type="range" min="0" max="100" step="5" value="50" data-default="50">
-          </label>
-          <label id="depth-objects-row" class="check" title="Finds objects and puts depth edges on their outlines. Downloads a 45 MB model the first time"><input id="depth-objects" type="checkbox"> Object edges</label>
-          <label id="depth-objects-soft-row" title="Softens depth where objects meet, so outlines look less cut out. 0: hard outlines" hidden>Smooth edges <output data-for="depth-objects-soft" for="depth-objects-soft">30</output>
-            <input id="depth-objects-soft" type="range" min="0" max="100" step="1" value="30" data-default="30">
-          </label>
-          <label id="depth-hq-row" class="check" title="Sharper depth edges for photos and videos; about twice as slow. Off: faster, rougher"><input id="depth-hq" type="checkbox" checked> High quality depth map</label>
-          <div class="row check-row">
-            <label class="check"><input id="depth-btn" type="checkbox"> Show depth map</label>
-            <label class="check" title="Shows the depth map in gray, light for near and dark for far, instead of in color"><input id="depth-grey" type="checkbox"> Grayscale</label>
-          </div>
-          <label title="Stretches depth map colors over a narrower range, as Lytro Desktop's do. Changes the depth itself">Depth map contrast <output for="depth-contrast" data-for="depth-contrast">0</output>
-            <input id="depth-contrast" type="range" min="0" max="100" step="5" value="0" data-default="0">
-          </label>
-          <label class="check" title="Uses the reshaped depth when the viewpoint moves too. A Full sensor render does not"><input id="depth-contrast-persp" type="checkbox"> Apply to perspective shift</label>
-        </details>
-        <details class="subpanel">
-          <summary><h3>Focus Spread</h3></summary>
-          <label>Focus Point <output id="focus-point">Center</output></label>
-          <label title="Range of depth kept sharp on each side of the focus">Spread <output data-for="spread" for="spread">0</output>
-            <input id="spread" type="range" min="0" max="100" step="1" value="0" data-default="0">
-          </label>
-          <label title="Softens the edges of the sharp range: blur builds up gradually instead of starting at once">Smoothing <output data-for="spread-smooth" for="spread-smooth">0</output>
-            <input id="spread-smooth" type="range" min="0" max="100" step="1" value="0" data-default="0">
-          </label>
-          <label title="Smooths the blur map so the sharp range fades into blur gradually">Blur <output data-for="spread-blur" for="spread-blur">0</output>
-            <input id="spread-blur" type="range" min="0" max="100" step="1" value="0" data-default="0">
-          </label>
-          <label class="check"><input id="spread-show" type="checkbox"> Show spread</label>
-        </details>
-        <details class="subpanel">
-          <summary><h3>Tilt</h3></summary>
-          <label title="One-click tilt starting points, such as a miniature look. They set tilt, aperture and blur">Preset
-            <select id="tilt-preset">
-              <option value="" selected>Choose…</option>
-              <option value="miniature">Miniature (horizontal band)</option>
-              <option value="miniatureVertical">Miniature (vertical band)</option>
-              <option value="landscape">Landscape tilt</option>
-              <option value="diagonal">Diagonal tilt</option>
-              <option value="off">Tilt off</option>
-            </select>
-          </label>
-          <label class="check"><input id="tilt-on" type="checkbox"> Enabled</label>
-          <label title="How far the plane of focus tilts">Tilt <output data-for="tilt" for="tilt">0</output>
-            <input id="tilt" type="range" min="-100" max="100" step="1" value="0" data-default="0">
-          </label>
-          <label title="Direction the plane of focus tilts">Rotation <output data-for="tilt-rotation" for="tilt-rotation">0°</output>
-            <input id="tilt-rotation" type="range" min="-90" max="90" step="1" value="0" data-default="0">
-          </label>
-          <label class="check" title="Tints by distance from the plane of focus: blue nearer, orange farther"><input id="tilt-show" type="checkbox" disabled> Show tilt</label>
-        </details>
-        <details class="subpanel">
-          <summary><h3>Perspective</h3></summary>
-          <label title="Drag on the picture to move the viewpoint">Viewpoint <output id="viewpoint">Center</output></label>
-          <label title="How far the viewpoint can move, as a share of the lens opening. Past what the camera recorded, depth fills in">Reach <output data-for="view-reach" for="view-reach">100%</output>
-            <input id="view-reach" type="range" min="100" max="300" step="10" value="100" data-default="100">
-          </label>
-          <label class="check" id="view-fill-row" title="Paints what no view saw using the fill model (Settings), for prints and 3D images"><input id="view-fill" type="checkbox" disabled> Fill with AI</label>
-          <label class="check" title="The depth that stays still when the viewpoint moves; otherwise the focus plane"><input id="pivot-on" type="checkbox"> Custom pivot</label>
-          <label title="The depth that stays still when the viewpoint moves">Pivot depth <output data-for="pivot" for="pivot">0</output>
-            <input id="pivot" type="range" min="-100" max="100" step="1" value="0" data-default="0" disabled>
-          </label>
-        </details>
-        <details class="subpanel">
-          <summary><h3>Bokeh</h3></summary>
-          <label>Shape
-            <select id="bokeh">
-              <option value="natural">Natural</option>
-              <option value="optical">Optical (softer)</option>
-              <option value="circle">Circle</option>
-              <option value="blades">Blades</option>
-            </select>
-          </label>
-          <label id="bokeh-blades-row" title="Number of aperture blades: the bokeh's number of sides" hidden>Blades <output data-for="bokeh-blades" for="bokeh-blades">6</output>
-            <input id="bokeh-blades" type="range" min="3" max="32" step="1" value="6" data-default="6">
-          </label>
-          <label id="bokeh-oval-row" title="Stretches the circle into an oval, like the cat's-eye bokeh near a lens's edges" hidden>Oval <output data-for="bokeh-oval" for="bokeh-oval">0</output>
-            <input id="bokeh-oval" type="range" min="0" max="100" step="1" value="0" data-default="0">
-          </label>
-          <label id="bokeh-rotation-row" title="Turns the blades or the oval" hidden>Rotation <output data-for="bokeh-rotation" for="bokeh-rotation">0°</output>
-            <input id="bokeh-rotation" type="range" min="-90" max="90" step="1" value="0" data-default="0">
-          </label>
-          <label id="bokeh-onion-row" title="Onion rings: concentric rings inside each bokeh ball, like those from aspherical lens elements" hidden>Onion <output data-for="bokeh-onion" for="bokeh-onion">0</output>
-            <input id="bokeh-onion" type="range" min="0" max="100" step="1" value="0" data-default="0">
-          </label>
-          <label title="How brightly highlights glow into bokeh">Highlights <input id="highlights" type="range" min="0" max="1" step="0.05" value="0.3"></label>
-        </details>
-      </details>
 
       <details class="panel details-panel" data-panel="camera">
         <summary><h2>Details</h2></summary>

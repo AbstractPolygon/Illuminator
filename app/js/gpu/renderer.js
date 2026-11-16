@@ -18,6 +18,7 @@ import { gradeUniforms } from '../core/grade.js';
 import { searchPlanner, DEPTH_FAST_SEARCH } from '../core/depth.js';
 
 import { ENGINE_USM, engineUsmMap, rangeSigma, chromaSigma, sharpenWindow, HALO_LIMIT, speckleThreshold, dustRadius, DUST_LOW, DUST_HIGH } from '../core/detail.js';
+import { LOCAL_TONE, textureGain } from '../core/localtone.js';
 import { MAX_MASKS } from '../core/local.js';
 import { MAX_DABS, RING_RADIUS, RING_TAPS } from '../core/retouch.js';
 import { bokehKernel } from '../core/dof.js';
@@ -894,6 +895,102 @@ void main() {
 
 // Details, dust: lifts each pixel by its spot's darkening (dustGain in
 // core/detail.js) from the blurred (uBlur) and closed (uClosed) brightness.
+// Texture, Clarity and Dehaze (core/localtone.js applyLocalTone, which documents them). 1: the brightness (r: sqrt of luminance), or with uDark the
+// darkest color relative to the airlight's (r), in linear light.
+const LT_PREP = `#version 300 es
+precision highp float;
+precision highp int;
+uniform sampler2D uSrc;
+uniform int uDark;
+uniform vec3 uAir;
+out vec4 outColor;
+void main() {
+  vec3 c = max(texelFetch(uSrc, ivec2(gl_FragCoord.xy), 0).rgb, vec3(0.0));
+  if (uDark == 1) {
+    vec3 r = c / uAir;
+    outColor = vec4(min(1.0, min(r.r, min(r.g, r.b))), 0.0, 0.0, 1.0);
+  } else {
+    outColor = vec4(sqrt(dot(c, vec3(0.2126, 0.7152, 0.0722))), 0.0, 0.0, 1.0);
+  }
+}`;
+// 2: one direction of a Gaussian (uMode 0, sigma uSigma) or of a minimum (uMode 1) within uRadius pixels, on the red channel.
+const LT_FILTER = `#version 300 es
+precision highp float;
+precision highp int;
+uniform sampler2D uSrc;
+uniform ivec2 uDir;
+uniform int uRadius;
+uniform int uMode;
+uniform float uSigma;
+out vec4 outColor;
+void main() {
+  ivec2 size = textureSize(uSrc, 0);
+  ivec2 p = ivec2(gl_FragCoord.xy);
+  float sum = 0.0;
+  float wsum = 0.0;
+  float m = 1e9;
+  for (int k = -48; k <= 48; k++) {
+    if (k < -uRadius || k > uRadius) continue;
+    float v = texelFetch(uSrc, clamp(p + uDir * k, ivec2(0), size - 1), 0).r;
+    if (uMode == 1) m = min(m, v);
+    else {
+      float w = exp(-float(k * k) / (2.0 * uSigma * uSigma));
+      sum += v * w;
+      wsum += w;
+    }
+  }
+  outColor = vec4(uMode == 1 ? m : sum / wsum, 0.0, 0.0, 1.0);
+}`;
+// 3: texture and clarity: the brightness made from the fine (uTex) and wide (uClar) blurs, the color kept (textureGain, clarityTerm).
+const LT_TONE = `#version 300 es
+precision highp float;
+precision highp int;
+uniform sampler2D uSrc;
+uniform sampler2D uFine;
+uniform sampler2D uWide;
+uniform float uTexture;
+uniform float uClarity;
+out vec4 outColor;
+void main() {
+  ivec2 p = ivec2(gl_FragCoord.xy);
+  vec4 c = texelFetch(uSrc, p, 0);
+  float s = sqrt(max(dot(c.rgb, vec3(0.2126, 0.7152, 0.0722)), 0.0));
+  float s2 = s;
+  if (uTexture != 0.0) s2 += uTexture * (s - texelFetch(uFine, p, 0).r);
+  if (uClarity != 0.0) {
+    float d = s - texelFetch(uWide, p, 0).r;
+    float limited = d / (1.0 + 4.0 * abs(d));
+    float m = 2.0 * min(1.0, s) - 1.0;
+    float mid = max(0.0, 1.0 - m * m);
+    s2 += (uClarity >= 0.0 ? 0.9 : 0.6) * uClarity * limited * (0.35 + 0.65 * mid);
+  }
+  s2 = max(s2, 0.0);
+  float g = s > 1e-6 ? (s2 * s2) / (s * s) : 1.0;
+  outColor = vec4(c.rgb * g, c.a);
+}`;
+// 4: dehaze: the haze taken out where the haze map (uHaze) says it lies, or (uDehaze < 0) haze of the airlight's color added evenly.
+const LT_DEHAZE = `#version 300 es
+precision highp float;
+precision highp int;
+uniform sampler2D uSrc;
+uniform sampler2D uHaze;
+uniform float uDehaze;
+uniform vec3 uAir;
+uniform float uMinT;
+out vec4 outColor;
+void main() {
+  ivec2 p = ivec2(gl_FragCoord.xy);
+  vec4 c = texelFetch(uSrc, p, 0);
+  vec3 j;
+  if (uDehaze > 0.0) {
+    float t = max(uMinT, 1.0 - 0.95 * uDehaze * texelFetch(uHaze, p, 0).r);
+    j = max((c.rgb - uAir * (1.0 - t)) / t, vec3(0.0));
+  } else {
+    j = c.rgb + (uAir - c.rgb) * (-0.12 * uDehaze);
+  }
+  outColor = vec4(j, c.a);
+}`;
+
 const DETAIL_DUST = `#version 300 es
 precision highp float;
 precision highp int;
@@ -2820,6 +2917,10 @@ export class GpuRenderer {
       detailNr: program(gl, DETAIL_NR),
       detailSpeckle: program(gl, DETAIL_SPECKLE),
       detailMorph: program(gl, DETAIL_MORPH),
+      ltPrep: program(gl, LT_PREP),
+      ltFilter: program(gl, LT_FILTER),
+      ltTone: program(gl, LT_TONE),
+      ltDehaze: program(gl, LT_DEHAZE),
       detailDust: program(gl, DETAIL_DUST),
       detailSharpen: program(gl, DETAIL_SHARPEN),
       usmBlur: program(gl, USM_BLUR),
@@ -4076,6 +4177,94 @@ export class GpuRenderer {
     gl.uniform1f(P.u.uMasking, p.masking || 0);
     this.draw();
     return out;
+  }
+
+  // Texture, Clarity and Dehaze (core/localtone.js applyLocalTone): returns a new texture, or `src` when `p` is null.
+  localTone(src, w, h, p) {
+    if (!p) return src;
+    const gl = this.gl;
+    const F = gl.RGBA32F;
+    const f = p.scale || 1;
+    // one pass of the filter, from `from` into `to`
+    const filter = (from, to, dir, mode, sigma, radius) => {
+      const P = this.programs.ltFilter;
+      this.target(to, w, h);
+      gl.useProgram(P.p);
+      gl.uniform1i(P.u.uSrc, 1);
+      this.bindTex(1, from);
+      gl.uniform2i(P.u.uDir, dir[0], dir[1]);
+      gl.uniform1i(P.u.uMode, mode);
+      gl.uniform1f(P.u.uSigma, sigma);
+      gl.uniform1i(P.u.uRadius, radius);
+      this.draw();
+    };
+    const blur = (from, tmp, to, sigma) => {
+      const r = Math.min(48, Math.ceil(3 * sigma));
+      filter(from, tmp, [1, 0], 0, sigma, r);
+      filter(tmp, to, [0, 1], 0, sigma, r);
+    };
+    const prep = (from, to, dark) => {
+      const P = this.programs.ltPrep;
+      this.target(to, w, h);
+      gl.useProgram(P.p);
+      gl.uniform1i(P.u.uSrc, 1);
+      this.bindTex(1, from);
+      gl.uniform1i(P.u.uDark, dark ? 1 : 0);
+      const a = p.air || [1, 1, 1];
+      gl.uniform3f(P.u.uAir, a[0], a[1], a[2]);
+      this.draw();
+    };
+    let cur = src;
+    if (p.texture || p.clarity) {
+      const S = this.scratch(w, h, 'ltS', F);
+      const tmp = this.scratch(w, h, 'ltTmp', F);
+      const fine = this.scratch(w, h, 'ltFine', F);
+      const wide = this.scratch(w, h, 'ltWide', F);
+      prep(src, S, false);
+      if (p.texture) blur(S, tmp, fine, LOCAL_TONE.textureSigma * f);
+      if (p.clarity) blur(S, tmp, wide, LOCAL_TONE.claritySigma * f);
+      const P = this.programs.ltTone;
+      const out = this.scratch(w, h, 'ltToned', F);
+      this.target(out, w, h);
+      gl.useProgram(P.p);
+      gl.uniform1i(P.u.uSrc, 1);
+      gl.uniform1i(P.u.uFine, 2);
+      gl.uniform1i(P.u.uWide, 3);
+      this.bindTex(1, src);
+      this.bindTex(2, fine);
+      this.bindTex(3, wide);
+      gl.uniform1f(P.u.uTexture, p.texture ? textureGain(p.texture) : 0);
+      gl.uniform1f(P.u.uClarity, p.clarity || 0);
+      this.draw();
+      cur = out;
+    }
+    if (p.dehaze && p.air) {
+      const haze = this.scratch(w, h, 'ltHaze', F);
+      const tmp = this.scratch(w, h, 'ltTmp', F);
+      const tmp2 = this.scratch(w, h, 'ltTmp2', F);
+      if (p.dehaze > 0) {
+        prep(cur, haze, true);
+        const r = Math.max(1, Math.min(48, Math.round(LOCAL_TONE.hazeRadius * f)));
+        filter(haze, tmp, [1, 0], 1, 1, r);
+        filter(tmp, tmp2, [0, 1], 1, 1, r);
+        blur(tmp2, tmp, haze, LOCAL_TONE.hazeSigma * f);
+      }
+      const P = this.programs.ltDehaze;
+      const out = this.scratch(w, h, cur === src ? 'ltDehazed' : 'ltDehazed2', F);
+      this.target(out, w, h);
+      gl.useProgram(P.p);
+      gl.uniform1i(P.u.uSrc, 1);
+      gl.uniform1i(P.u.uHaze, 2);
+      this.bindTex(1, cur);
+      this.bindTex(2, haze);
+      gl.uniform1f(P.u.uDehaze, p.dehaze);
+      const a = p.air;
+      gl.uniform3f(P.u.uAir, a[0], a[1], a[2]);
+      gl.uniform1f(P.u.uMinT, LOCAL_TONE.minTransmission);
+      this.draw();
+      cur = out;
+    }
+    return cur;
   }
 
   // Spot removal (core/detail.js removeSpeckles, removeDust): returns a

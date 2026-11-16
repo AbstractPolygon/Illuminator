@@ -22,7 +22,7 @@ const GRADE = ['shadows', 'mids', 'highlights'].flatMap((z) => [`grade-${z}-hue`
 // (Full sensor, Auto render and 3D included); view toggles (show depth map,
 // show spread) are not edits and are left out.
 export const EDIT_GROUPS = {
-  process: ['lut-data', 'lut-amount', 'awb', 'wb-temperature', 'wb-tint', 'base-look', 'ev', 'tone-contrast', 'tone-highlights', 'tone-shadows', 'tone-whites',
+  process: ['lut-data', 'lut-amount', 'awb', 'wb-temperature', 'wb-tint', 'base-look', 'ev', 'tone-contrast', 'tone-highlights', 'tone-shadows', 'tone-whites', 'tone-texture', 'tone-clarity', 'tone-dehaze',
     'tone-blacks', 'saturation', 'vibrance', ...HUES.map((h) => `hue-${h}`),
     'ccm-mode', ...Array.from({ length: 9 }, (_, i) => `ccm-${i}`),
     'curve-points', 'curve-highlights', 'curve-lights', 'curve-darks', 'curve-shadows',

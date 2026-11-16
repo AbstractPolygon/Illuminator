@@ -10,6 +10,8 @@
 import { parsePoints } from './core/curve.js';
 
 export const TONES = ['contrast', 'highlights', 'shadows', 'whites', 'blacks'];
+// Texture, Clarity and Dehaze (core/localtone.js): in the Tone section too, applied after the Details pass.
+export const LOCAL_TONES = ['texture', 'clarity', 'dehaze'];
 export const HUE_SLIDERS = ['red', 'yellow', 'green', 'cyan', 'blue', 'magenta'];
 export const FRINGES = ['purple', 'green', 'red', 'blue'];
 export const CURVE_REGIONS = ['shadows', 'darks', 'lights', 'highlights'];
@@ -34,6 +36,7 @@ export const COLOR_SETTINGS = [
   ['wb.kelvin', 'wb-temperature', 'num'],
   ['wb.tint', 'wb-tint', 'num'],
   ...TONES.map((k) => [`tone.${k}`, `tone-${k}`, 'pct']),
+  ...LOCAL_TONES.map((k) => [`tone.${k}`, `tone-${k}`, 'pct']),
   ['useCcm', 'ccm-mode', (el) => el.value !== 'none'],
   ['color.vibrance', 'vibrance', 'pct'],
   ...HUE_SLIDERS.map((k) => [`color.${k}`, `hue-${k}`, 'pct']),
