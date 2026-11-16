@@ -906,6 +906,7 @@ function releasePhoto({ all = false } = {}) {
   state.focusOffset = undefined;
   state.depthFast = false;
   state.depthMethods = new Map();
+  state.modelMaps = new Map();
   for (const k of Object.keys(state.jobs)) state.jobs[k] = null;
   dropKeptStills();
   if (state.gpu) {
@@ -959,6 +960,8 @@ async function open({ id, bytes, synthetic, userDepth = null, depthCache = null,
   // (a damaged entry counts as absent; the page is asked to write the cache again once the photo is open)
   const kept0 = cacheKeys.keptMethods(depthCache);
   state.depthMethods = kept0.methods;
+  // (and what each depth model made for the photo: it does not run again on every open)
+  state.modelMaps = cacheKeys.keptModels(depthCache);
   const cacheDamaged = kept0.damaged;
   // A Lytro Desktop depth map kept with the photo replaces the measured one.
   state.userDepth = userDepth;
@@ -2199,8 +2202,16 @@ async function ensureModelDepth(id) {
   if (!(state.modelDepth && state.modelDepth.id === model.id && state.modelDepth.sampler === sampler)) {
     const { outW, outH } = sampler;
     try {
-      const rel = await runDepthModel(model, readDepthModel, centerView(), outW, outH, (stage, p) => post({ id, type: 'progress', stage, progress: p }));
+      // The model's map kept with the photo (or made earlier in this session) is used as it is; the model runs only when there is none.
+      const mapKey = cacheKeys.modelDepthKey(state, model, outW, outH);
+      let rel = state.modelMaps && state.modelMaps.get(mapKey) ? state.modelMaps.get(mapKey).rel : null;
+      const fresh = !rel;
+      if (!rel) rel = await runDepthModel(model, readDepthModel, centerView(), outW, outH, (stage, p) => post({ id, type: 'progress', stage, progress: p }));
       if (state.sampler !== sampler || !state.depthRaw) return;
+      if (fresh && state.modelMaps) {
+        state.modelMaps.set(mapKey, { rel, w: outW, h: outH });
+        postDepthCache();
+      }
       state.modelDepth = { id: model.id, sampler, rel, shaped: null };
     } catch (e) {
       state.modelDepth = null;
@@ -2286,6 +2297,7 @@ async function setGrid({ id, grid, mode }) {
   lf.gridQuality = measureGrid(lf.raw, lf.cam, lf.grid);
   // What was measured with the old grid (depth of each method, the copy kept with the photo) does not describe the new one.
   state.depthMethods = new Map();
+  state.modelMaps = new Map();
   state.depthCacheIn = null;
   state.depthCacheOut = null;
   state.depthParts = null;
@@ -2972,11 +2984,13 @@ function postDepthCache() {
     extra.push({ key, w: e.w, h: e.h, range: e.raw.range, flat: !!e.raw.flat, alpha: Float32Array.from(e.raw.alpha), confidence: Float32Array.from(e.raw.confidence) });
   }
   const lens = state.lensOut || (state.lensCacheIn && state.lensCacheIn.key === lensKey() ? state.lensCacheIn : null);
-  if (!c && !open && !extra.length && !lens) return;
+  // what the depth models made for the photo (core/cachekeys.js modelDepthKey)
+  const models = [...(state.modelMaps || [])].map(([key, m]) => ({ key, w: m.w, h: m.h, rel: Float32Array.from(m.rel) }));
+  if (!c && !open && !extra.length && !lens && !models.length) return;
   const alpha = c ? Float32Array.from(c.alpha) : new Float32Array(0);
   const focusOffset = Number.isFinite(state.focusOffset) ? state.focusOffset : c && c.focusOffset;
   const lensCopy = lens ? { ...lens, dx: Float32Array.from(lens.dx), dy: Float32Array.from(lens.dy) } : undefined;
-  post({ type: 'cache', photoId: state.lf.photoId, openSeq: state.openSeq, cache: { key: c ? c.key : depthCacheKey(), w: c ? c.w : 0, h: c ? c.h : 0, alpha, focusOffset, open, extra, lens: lensCopy } }, [alpha.buffer, ...extra.flatMap((e) => [e.alpha.buffer, e.confidence.buffer]), ...(lensCopy ? [lensCopy.dx.buffer, lensCopy.dy.buffer] : [])]);
+  post({ type: 'cache', photoId: state.lf.photoId, openSeq: state.openSeq, cache: { key: c ? c.key : depthCacheKey(), w: c ? c.w : 0, h: c ? c.h : 0, alpha, focusOffset, open, extra, lens: lensCopy, models } }, [alpha.buffer, ...models.map((m) => m.rel.buffer), ...extra.flatMap((e) => [e.alpha.buffer, e.confidence.buffer]), ...(lensCopy ? [lensCopy.dx.buffer, lensCopy.dy.buffer] : [])]);
 }
 
 async function measureLytro(progress) {

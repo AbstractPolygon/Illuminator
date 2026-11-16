@@ -25,6 +25,27 @@ export function depthMethodKey(state, style) {
   return JSON.stringify({ rev: CACHE_REV, photo: state.lf && state.lf.photoId, detail: s.detail, hot: s.hotPixels !== false, style, quality: s.depthQuality ?? 'normal', objects: !!s.depthObjects, lytro: !!(state.userDepth && s.lytroDepth !== false), guided: s.depthStyle === 'guided', grid: gridTag(state) });
 }
 
+// What a depth model's map for a photo depends on: the photo, the center view it looks at (detail, hot pixels, lens grid), the model and the size it was made at.
+export function modelDepthKey(state, model, w, h) {
+  const s = state.settings;
+  return JSON.stringify({ rev: CACHE_REV, photo: state.lf && state.lf.photoId, detail: s.detail, hot: s.hotPixels !== false, grid: gridTag(state), model: model.id, w, h });
+}
+
+// The depth models' maps kept with the photo, by their key (an entry from another cache revision is skipped). Returns Map(key -> { rel, w, h }).
+export function keptModels(depthCache) {
+  const out = new Map();
+  for (const e of (depthCache && depthCache.models) || []) {
+    let k = null;
+    try {
+      k = JSON.parse(e.key);
+    } catch {
+      k = null;
+    }
+    if (k && typeof k === 'object' && k.rev === CACHE_REV && e.rel && e.rel.length === e.w * e.h) out.set(e.key, { rel: e.rel, w: e.w, h: e.h });
+  }
+  return out;
+}
+
 export function openCacheKey(state) {
   const s = state.settings;
   return JSON.stringify({ rev: CACHE_REV, format: OPEN_CACHE_FORMAT, photo: state.lf && state.lf.photoId, hot: s.hotPixels !== false, wb: s.engineWb !== false, mod: s.engineModulation !== false });
