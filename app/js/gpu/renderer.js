@@ -666,6 +666,10 @@ const MAX_TAPS = 512;
 const DOF_TILE = 8;
 const DOF_GATHER = `#version 300 es
 precision highp float;
+// The half size pass (coarse): each output pixel covers 2 x 2, so a quarter of the taps (each weighted by the area it stands for) covers the same ground.
+#define COARSE_TAPS 0.3
+#define COARSE_TAPS_SHAPED 0.8
+#define COARSE_LOD 0.0
 precision highp int;
 uniform sampler2D uPrep;
 uniform sampler2D uTiles;
@@ -757,7 +761,7 @@ float weightAt(vec2 o, float dist, float r) {
 // falls in, not a bilinear mix of the four around it. With small blur radii a
 // bilinear read at a fraction of a pixel is itself a blur, which softened the
 // whole picture (also what is exactly in focus) as soon as any blur was on.
-vec3 gather(vec2 pf, vec4 c, ivec2 size, bool snap) {
+vec3 gather(vec2 pf, vec4 c, ivec2 size, bool snap, bool coarse) {
   float rc = abs(c.a);
   // (a custom shape can be dark at its center: the pixel still counts a little, so a ball of nothing but dark taps keeps its color)
   float w0 = max(weightAt(vec2(0.0), 0.0, rc), 1e-4 / max(rc * rc, 0.25));
@@ -766,16 +770,21 @@ vec3 gather(vec2 pf, vec4 c, ivec2 size, bool snap) {
   ivec2 t = clamp(ivec2(pf) / ${DOF_TILE}, ivec2(0), textureSize(uTiles, 0) - 1);
   float maxR = min(uMaxR, texelFetch(uTiles, t, 0).r * uReach + 1.0);
   if (maxR < 0.75) return c.rgb;
-  int taps = clamp(int(maxR * maxR * 1.2 + 0.5), 16, uTaps);
+  // (hard edged shapes keep more: with fewer taps a single bright point lights its ball unevenly, and the notches of blades, stars and hearts fill in; the Gaussian
+  // of Natural does not show it)
+  int taps = clamp(int(maxR * maxR * (coarse ? (uShape >= 1 ? COARSE_TAPS_SHAPED : COARSE_TAPS) : 1.2) + 0.5), 16, uTaps);
   // Each tap stands for the area between taps: read the pre-averaged
   // (mipmapped) image at that scale, so large blurs are smooth, not grainy.
-  float lod = max(0.0, log2(maxR * sqrt(3.14159265 / float(taps))) + 0.5);
+  float lod = max(0.0, log2(maxR * sqrt(3.14159265 / float(taps))) + 0.5 + (coarse ? COARSE_LOD : 0.0));
   // A small disc is visited pixel by pixel (the exact blur): a handful of taps at whole pixel positions leaves some of its pixels out and counts others twice,
   // which showed as grain in slightly blurred texture. Larger discs keep the spiral of taps.
   bool grid = snap && maxR <= 4.0;
   int side = 2 * int(ceil(maxR)) + 1;
   int count = grid ? side * side : taps;
   if (grid) lod = 0.0;
+  // Each tap of the spiral stands for the area between taps (pi maxR^2 / taps pixels, read pre-averaged at that scale): weighted by it, so the pixel's own value
+  // counts as the one pixel it is (counted as a whole tap's area, a bright pixel outweighed what was around it and stayed a speck in the blur).
+  float tapArea = grid ? 1.0 : 3.14159265 * maxR * maxR / float(taps);
   for (int i = 0; i < ${MAX_TAPS}; i++) {
     if (i >= count) break;
     vec2 o;
@@ -797,7 +806,7 @@ vec3 gather(vec2 pf, vec4 c, ivec2 size, bool snap) {
     float dist = shapeDist(qf - pf);
     // Behind this pixel: only within this pixel's own blur.
     if (s.a > c.a + 0.5 && dist > rc + 0.5) continue;
-    float w = weightAt(qf - pf, dist, rq);
+    float w = weightAt(qf - pf, dist, rq) * tapArea;
     sum += s.rgb * w;
     wsum += w;
   }
@@ -817,7 +826,7 @@ void main() {
       outColor = vec4(c.rgb, c.a);
       return;
     }
-    outColor = vec4(gather(vec2(p * 2) + 0.5, c, size, false), c.a);
+    outColor = vec4(gather(vec2(p * 2) + 0.5, c, size, false, true), c.a);
     return;
   }
   vec4 c = texelFetch(uPrep, p, 0);
@@ -845,7 +854,7 @@ void main() {
       return;
     }
   }
-  outColor = vec4(gather(vec2(p), c, size, true), 1.0);
+  outColor = vec4(gather(vec2(p), c, size, true, false), 1.0);
 }`;
 
 // Largest blur radius in each 8 x 8 tile (uPass 0), then the largest within
