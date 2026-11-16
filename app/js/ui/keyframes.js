@@ -28,7 +28,7 @@ export function initKeyframes({ $, getMasks, maskLabel, state, canRender, F_STOP
   // picture is drawn, like the pivot.
   const TRACK_NAMES = {
     aperture: 'Aperture', depth: 'Depth of field', focus: 'Focus', view: 'Viewpoint', zoom: 'Zoom', panX: 'Pan X', panY: 'Pan Y', pivot: 'Pivot depth',
-    pointX: 'Focus point X', pointY: 'Focus point Y', spread: 'Spread', spreadSmooth: 'Smoothing', spreadBlur: 'Blur', tilt: 'Tilt', tiltRotation: 'Rotation', highlights: 'Highlights', bokehBlades: 'Blades', bokehOval: 'Oval', bokehRotation: 'Bokeh rotation', bokehOnion: 'Onion', bokehPoints: 'Points', bokehInner: 'Inner radius', bokehWidth: 'Heart width', bokehIrregular: 'Irregularity', bokehRingBlur: 'Ring blur', bokehSpots: 'Spots',
+    pointX: 'Focus point X', pointY: 'Focus point Y', spread: 'Spread', spreadSmooth: 'Smoothing', spreadBlur: 'Blur', tilt: 'Tilt', tiltRotation: 'Rotation', highlights: 'Highlights', bokehBlades: 'Blades', bokehOval: 'Oval', bokehRotation: 'Bokeh rotation', bokehOnion: 'Onion', bokehPoints: 'Points', bokehInner: 'Inner radius', bokehWidth: 'Heart width', bokehIrregular: 'Irregularity', bokehRingBlur: 'Ring blur', bokehSpots: 'Spots', bokehCat: "Cat's-eye", bokehSwirl: 'Swirl', bokehEdge: 'Edge', bokehEdgeFB: 'Front / back', bokehBubble: 'Bubble', bokehHole: 'Hole', bokehFringe: 'Color fringe', bokehHot: 'Hot spot', bokehGrain: 'Grain', bokehDiffraction: 'Diffraction',
     amount: 'Amount', near: 'Near', far: 'Far',
   };
 
@@ -41,13 +41,13 @@ export function initKeyframes({ $, getMasks, maskLabel, state, canRender, F_STOP
     { id: 'cam-tilt', name: 'Tilt', tracks: ['tilt', 'tiltRotation'], when: () => $('tilt-on').checked },
     { id: 'cam-perspective', name: 'Perspective', tracks: ['view', 'pivot'] },
     // The shape's settings show (and count) while their sliders do (the bokeh shape decides which).
-    { id: 'cam-bokeh', name: 'Bokeh', tracks: ['bokehBlades', 'bokehPoints', 'bokehInner', 'bokehWidth', 'bokehOval', 'bokehRotation', 'bokehOnion', 'bokehIrregular', 'bokehRingBlur', 'bokehSpots', 'highlights'] },
+    { id: 'cam-bokeh', name: 'Bokeh', tracks: ['bokehBlades', 'bokehPoints', 'bokehInner', 'bokehWidth', 'bokehOval', 'bokehRotation', 'bokehOnion', 'bokehIrregular', 'bokehRingBlur', 'bokehSpots', 'bokehCat', 'bokehSwirl', 'bokehEdge', 'bokehEdgeFB', 'bokehBubble', 'bokehHole', 'bokehFringe', 'bokehHot', 'bokehGrain', 'bokehDiffraction', 'highlights'] },
   ];
 
   // The Animation panel's tracks, by what is animated: Framing with
   // keyframes, Amount with the viewpoint path, Near and Far with the focus
   // sweep.
-  const BOKEH_TRACK_ROWS = { bokehBlades: 'bokeh-blades-row', bokehOval: 'bokeh-oval-row', bokehRotation: 'bokeh-rotation-row', bokehOnion: 'bokeh-onion-row', bokehPoints: 'bokeh-points-row', bokehInner: 'bokeh-inner-row', bokehWidth: 'bokeh-width-row', bokehIrregular: 'bokeh-irregular-row', bokehRingBlur: 'bokeh-ring-blur-row', bokehSpots: 'bokeh-spots-row' };
+  const BOKEH_TRACK_ROWS = { bokehBlades: 'bokeh-blades-row', bokehOval: 'bokeh-oval-row', bokehRotation: 'bokeh-rotation-row', bokehOnion: 'bokeh-onion-row', bokehPoints: 'bokeh-points-row', bokehInner: 'bokeh-inner-row', bokehWidth: 'bokeh-width-row', bokehIrregular: 'bokeh-irregular-row', bokehRingBlur: 'bokeh-ring-blur-row', bokehSpots: 'bokeh-spots-row', bokehCat: 'bokeh-cat-row', bokehSwirl: 'bokeh-swirl-row', bokehEdge: 'bokeh-edge-row', bokehEdgeFB: 'bokeh-edge-fb-row', bokehBubble: 'bokeh-bubble-row', bokehHole: 'bokeh-hole-row', bokehFringe: 'bokeh-fringe-row', bokehHot: 'bokeh-hot-row', bokehGrain: 'bokeh-grain-row', bokehDiffraction: 'bokeh-diffraction-row' };
 
   const ANIMATION_SECTIONS = [
     { id: 'anim-framing', name: 'Framing', tracks: ['zoom', 'panX', 'panY'], mode: 'keyframes' },
@@ -110,7 +110,7 @@ export function initKeyframes({ $, getMasks, maskLabel, state, canRender, F_STOP
     if (mode === 'keyframes') {
       section('camera', 'Camera', CAMERA_SECTIONS
         .filter((sec) => !sec.when || sec.when())
-        .map((sec) => ({ id: sec.id, name: sec.name, tracks: sec.tracks.filter((k) => (k !== 'pivot' || $('pivot-on').checked) && !(BOKEH_TRACK_ROWS[k] && $(BOKEH_TRACK_ROWS[k]).hidden)) })));
+        .map((sec) => ({ id: sec.id, name: sec.name, tracks: sec.tracks.filter((k) => (k !== 'pivot' || $('pivot-on').checked) && !(BOKEH_TRACK_ROWS[k] && $(BOKEH_TRACK_ROWS[k]).closest('[hidden]'))) })));
       settingSection(processPanel);
       // `off`: a disabled adjustment, whose keyframes the editor hides.
       section('local', 'Local Adjustments', getMasks().map((m, i) => ({ id: m.id, name: m.name || maskLabel(m, i), off: !m.on, tracks: maskAttrs(m).map((a) => `mask:${m.id}:${a}`) })));
@@ -133,7 +133,7 @@ export function initKeyframes({ $, getMasks, maskLabel, state, canRender, F_STOP
     fstop: ['aperture'], 'dof-depth': ['depth'], 'focus-point': ['focus', 'pointX', 'pointY'],
     spread: ['spread'], 'spread-smooth': ['spreadSmooth'], 'spread-blur': ['spreadBlur'], tilt: ['tilt'], 'tilt-rotation': ['tiltRotation'],
     viewpoint: ['view'], pivot: ['pivot'], highlights: ['highlights'],
-    'bokeh-blades': ['bokehBlades'], 'bokeh-oval': ['bokehOval'], 'bokeh-rotation': ['bokehRotation'], 'bokeh-onion': ['bokehOnion'], 'bokeh-points': ['bokehPoints'], 'bokeh-inner': ['bokehInner'], 'bokeh-width': ['bokehWidth'], 'bokeh-irregular': ['bokehIrregular'], 'bokeh-ring-blur': ['bokehRingBlur'], 'bokeh-spots': ['bokehSpots'],
+    'bokeh-blades': ['bokehBlades'], 'bokeh-oval': ['bokehOval'], 'bokeh-rotation': ['bokehRotation'], 'bokeh-onion': ['bokehOnion'], 'bokeh-points': ['bokehPoints'], 'bokeh-inner': ['bokehInner'], 'bokeh-width': ['bokehWidth'], 'bokeh-irregular': ['bokehIrregular'], 'bokeh-ring-blur': ['bokehRingBlur'], 'bokeh-spots': ['bokehSpots'], 'bokeh-cat': ['bokehCat'], 'bokeh-swirl': ['bokehSwirl'], 'bokeh-edge': ['bokehEdge'], 'bokeh-edge-fb': ['bokehEdgeFB'], 'bokeh-bubble': ['bokehBubble'], 'bokeh-hole': ['bokehHole'], 'bokeh-fringe': ['bokehFringe'], 'bokeh-hot': ['bokehHot'], 'bokeh-grain': ['bokehGrain'], 'bokeh-diffraction': ['bokehDiffraction'],
     'frame-zoom': ['zoom'], 'frame-pan-x': ['panX'], 'frame-pan-y': ['panY'],
     amount: ['amount'], near: ['near'], far: ['far'],
   };
@@ -471,6 +471,16 @@ export function initKeyframes({ $, getMasks, maskLabel, state, canRender, F_STOP
       case 'bokehIrregular': return +$('bokeh-irregular').value;
       case 'bokehRingBlur': return +$('bokeh-ring-blur').value;
       case 'bokehSpots': return +$('bokeh-spots').value;
+      case 'bokehCat': return +$('bokeh-cat').value;
+      case 'bokehSwirl': return +$('bokeh-swirl').value;
+      case 'bokehEdge': return +$('bokeh-edge').value;
+      case 'bokehEdgeFB': return +$('bokeh-edge-fb').value;
+      case 'bokehBubble': return +$('bokeh-bubble').value;
+      case 'bokehHole': return +$('bokeh-hole').value;
+      case 'bokehFringe': return +$('bokeh-fringe').value;
+      case 'bokehHot': return +$('bokeh-hot').value;
+      case 'bokehGrain': return +$('bokeh-grain').value;
+      case 'bokehDiffraction': return +$('bokeh-diffraction').value;
       case 'amount': return +$('amount').value;
       case 'near': return +$('near').value;
       case 'far': return +$('far').value;
@@ -479,7 +489,7 @@ export function initKeyframes({ $, getMasks, maskLabel, state, canRender, F_STOP
   }
 
   // Camera tracks set straight from a slider.
-  const TRACK_SLIDERS = { spread: 'spread', spreadSmooth: 'spread-smooth', spreadBlur: 'spread-blur', tilt: 'tilt', tiltRotation: 'tilt-rotation', highlights: 'highlights', bokehBlades: 'bokeh-blades', bokehOval: 'bokeh-oval', bokehRotation: 'bokeh-rotation', bokehOnion: 'bokeh-onion', bokehPoints: 'bokeh-points', bokehInner: 'bokeh-inner', bokehWidth: 'bokeh-width', bokehIrregular: 'bokeh-irregular', bokehRingBlur: 'bokeh-ring-blur', bokehSpots: 'bokeh-spots', amount: 'amount', near: 'near', far: 'far' };
+  const TRACK_SLIDERS = { spread: 'spread', spreadSmooth: 'spread-smooth', spreadBlur: 'spread-blur', tilt: 'tilt', tiltRotation: 'tilt-rotation', highlights: 'highlights', bokehBlades: 'bokeh-blades', bokehOval: 'bokeh-oval', bokehRotation: 'bokeh-rotation', bokehOnion: 'bokeh-onion', bokehPoints: 'bokeh-points', bokehInner: 'bokeh-inner', bokehWidth: 'bokeh-width', bokehIrregular: 'bokeh-irregular', bokehRingBlur: 'bokeh-ring-blur', bokehSpots: 'bokeh-spots', bokehCat: 'bokeh-cat', bokehSwirl: 'bokeh-swirl', bokehEdge: 'bokeh-edge', bokehEdgeFB: 'bokeh-edge-fb', bokehBubble: 'bokeh-bubble', bokehHole: 'bokeh-hole', bokehFringe: 'bokeh-fringe', bokehHot: 'bokeh-hot', bokehGrain: 'bokeh-grain', bokehDiffraction: 'bokeh-diffraction', amount: 'amount', near: 'near', far: 'far' };
 
   // Shows a keyframe's value in the controls (and the picture).
   // Sets the control behind track k to v.

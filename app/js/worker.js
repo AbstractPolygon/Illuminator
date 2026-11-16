@@ -26,7 +26,7 @@ import { snapDepthEdges, snapToObjects, softenObjectEdges, EDGE_SNAP_DEPTH } fro
 import { methodDepthModel, readDepthModel } from './core/depthmodels.js';
 import { releaseDepthSession, runDepthModel, fitModelDepth, shapeModelDepth, fuseModelDepth } from './core/depthmodel.js';
 import { depthStats, fillNonFinite, shapeDepthContrast, setDepthStyle, estimateDepth, estimateDepthPooled, poolable, DEPTH_FAST_SEARCH, focusAtPoint, smoothDepth, finishDepth, depthGuide, depthColorGuide, luminance, brightnessFloor, DEPTH_SEARCH, DEPTH_LCOST, DEPTH_CBCA, DEPTH_TRWS, DEPTH_COARSE, DEPTH_STEP, DEPTH_REGIONS, combineCoarse } from './core/depth.js';
-import { applyDepthOfField, smoothMap } from './core/dof.js';
+import { applyDepthOfField, smoothMap, shapeOptions } from './core/dof.js';
 import { makeLocalTone, localToneForSize, applyLocalTone, airlight } from './core/localtone.js';
 import { defringe, autoDefringe } from './core/defringe.js';
 import { makeLook, whiteBalanceGains, DEFAULT_KELVIN, solveWhiteBalance, autoWhiteBalance } from './core/color.js';
@@ -617,18 +617,7 @@ async function presentGpu(id, tex, w, h, { alpha = 0, dof = 0, bokeh = {}, pxPer
       sharp,
       focus: alpha,
       strength: dof * pxPerUnit,
-      shape: bokeh.shape,
-      blades: bokeh.blades,
-      oval: bokeh.oval,
-      rotation: bokeh.rotation,
-      onion: bokeh.onion,
-      image: bokeh.image,
-      points: bokeh.points,
-      inner: bokeh.inner,
-      width: bokeh.width,
-      irregular: bokeh.irregular,
-      ringBlur: bokeh.ringBlur,
-      spots: bokeh.spots,
+      ...shapeOptions(bokeh),
       highlights: bokeh.highlights,
       tilt: bokeh.tilt,
       point: bokeh.point,
@@ -1332,7 +1321,7 @@ async function withDepthOfField(id, rgb, w, h, alpha, dof, scale = 1, bokeh = {}
   if (!(await ensureViewDepth(id))) return rgb;
   const { outW, outH } = state.sampler;
   return applyDepthOfField(rgb, w, h, state.depth.alpha, outW, outH, alpha, dof, 14 * scale * state.settings.detail, {
-    shape: bokeh.shape, blades: bokeh.blades, oval: bokeh.oval, rotation: bokeh.rotation, onion: bokeh.onion, image: bokeh.image, points: bokeh.points, inner: bokeh.inner, width: bokeh.width, irregular: bokeh.irregular, ringBlur: bokeh.ringBlur, spots: bokeh.spots, highlights: bokeh.highlights, clip: state.dev.clip, tilt: bokeh.tilt, point: bokeh.point, spread: bokeh.spread,
+    ...shapeOptions(bokeh), highlights: bokeh.highlights, clip: state.dev.clip, tilt: bokeh.tilt, point: bokeh.point, spread: bokeh.spread,
     smooth: bokeh.smooth, feather: (bokeh.blur || 0) * 14 * scale * state.settings.detail,
   });
 }

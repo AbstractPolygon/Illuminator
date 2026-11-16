@@ -545,6 +545,39 @@
           <label id="bokeh-spots-row" title="Dust specks and faint bubble rings inside each bokeh ball, as from dust on the lens's glass" hidden>Spots <output data-for="bokeh-spots" for="bokeh-spots">0</output>
             <input id="bokeh-spots" type="range" min="0" max="100" step="1" value="0" data-default="0">
           </label>
+          <details id="bokeh-ball-group" class="bokeh-group" hidden>
+            <summary>Ball character</summary>
+            <label id="bokeh-cat-row" title="Balls near the frame's edge are clipped into lens shapes, like a fast lens's cat's-eye bokeh">Cat's-eye <output data-for="bokeh-cat" for="bokeh-cat">0</output>
+              <input id="bokeh-cat" type="range" min="0" max="100" step="1" value="0" data-default="0">
+            </label>
+            <label id="bokeh-swirl-row" title="Turns the cat's-eye lenses around the frame's center, for swirly bokeh">Swirl <output data-for="bokeh-swirl" for="bokeh-swirl">0</output>
+              <input id="bokeh-swirl" type="range" min="0" max="100" step="1" value="0" data-default="0">
+            </label>
+            <label id="bokeh-edge-row" title="A brighter rim (above 0) or a darker edge (below 0) on each ball">Edge <output data-for="bokeh-edge" for="bokeh-edge">0</output>
+              <input id="bokeh-edge" type="range" min="-100" max="100" step="1" value="0" data-default="0">
+            </label>
+            <label id="bokeh-edge-fb-row" title="More rim behind the focus and less in front (above 0), or the reverse (below 0)">Front / back <output data-for="bokeh-edge-fb" for="bokeh-edge-fb">0</output>
+              <input id="bokeh-edge-fb" type="range" min="-100" max="100" step="1" value="0" data-default="0">
+            </label>
+            <label id="bokeh-bubble-row" title="Soap bubble bokeh: a clear center and a bright, rainbow-colored rim">Bubble <output data-for="bokeh-bubble" for="bokeh-bubble">0</output>
+              <input id="bokeh-bubble" type="range" min="0" max="100" step="1" value="0" data-default="0">
+            </label>
+            <label id="bokeh-hole-row" title="A dark hole in the middle of each ball, as from a mirror lens (donut bokeh)">Hole <output data-for="bokeh-hole" for="bokeh-hole">0</output>
+              <input id="bokeh-hole" type="range" min="0" max="90" step="1" value="0" data-default="0">
+            </label>
+            <label id="bokeh-fringe-row" title="Magenta rims in front of the focus and green behind, from color error in the glass">Color fringe <output data-for="bokeh-fringe" for="bokeh-fringe">0</output>
+              <input id="bokeh-fringe" type="range" min="0" max="100" step="1" value="0" data-default="0">
+            </label>
+            <label id="bokeh-hot-row" title="A bright glow in the middle of each ball">Hot spot <output data-for="bokeh-hot" for="bokeh-hot">0</output>
+              <input id="bokeh-hot" type="range" min="0" max="100" step="1" value="0" data-default="0">
+            </label>
+            <label id="bokeh-grain-row" title="A fixed texture inside each ball, as from pores in the glass">Grain <output data-for="bokeh-grain" for="bokeh-grain">0</output>
+              <input id="bokeh-grain" type="range" min="0" max="100" step="1" value="0" data-default="0">
+            </label>
+            <label id="bokeh-diffraction-row" title="Fine rings at the rim of each ball, as the opening cuts the light">Diffraction <output data-for="bokeh-diffraction" for="bokeh-diffraction">0</output>
+              <input id="bokeh-diffraction" type="range" min="0" max="100" step="1" value="0" data-default="0">
+            </label>
+          </details>
           <label title="How brightly highlights glow into bokeh">Highlights <input id="highlights" type="range" min="0" max="1" step="0.05" value="0.3"></label>
         </details>
       </details>

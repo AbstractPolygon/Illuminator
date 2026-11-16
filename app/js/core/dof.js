@@ -115,7 +115,72 @@ export function drawnShape(shape, { points = 5, inner = 0.45, width = 1 } = {}) 
   return out;
 }
 
-export function bokehKernel({ shape = 'smooth', blades = 6, oval = 0, rotation = 0, onion = 0, image = '', points = 5, inner = 0.45, width = 1, irregular = 0.5, ringBlur = 0.3, spots = 0 } = {}) {
+// What the shape settings of the bokeh are (every one that decides how a ball looks), picked out of a bokeh options object: for the places that hand them on.
+export const SHAPE_KEYS = ['shape', 'blades', 'oval', 'rotation', 'onion', 'image', 'points', 'inner', 'width', 'irregular', 'ringBlur', 'spots', 'grain', 'diffraction',
+  'catEye', 'swirl', 'edge', 'edgeFB', 'bubble', 'hole', 'fringe', 'hot'];
+export function shapeOptions(bokeh = {}) {
+  const out = {};
+  for (const k of SHAPE_KEYS) if (bokeh[k] !== undefined) out[k] = bokeh[k];
+  return out;
+}
+
+// The ball's character: its brightness over the ball (t, 0 center to 1 edge), in the same way on the processor (here), in the preview and on the graphics card
+// (DOF_GATHER). Each part keeps the ball's total light: it is divided by its own mean over the disc (the integrals below).
+//   edge:   a bright rim (above 0) or a dark one (below 0); the front/back setting (edgeFB) adds to it for what is behind the focus and takes from it in front
+//   bubble: a clear center and a bright rim (soap bubble bokeh); its rainbow colors are bubbleTint
+//   hot:    a bright glow in the middle
+//   hole:   a dark hole in the middle (a mirror lens's donut)
+const integral = (f) => {
+  let sum = 0;
+  const n = 2000;
+  for (let i = 0; i < n; i++) {
+    const t = (i + 0.5) / n;
+    sum += 2 * t * f(t) / n;
+  }
+  return sum;
+};
+export const PROFILE_CONST = {
+  edgeA: integral((t) => Math.exp(-(((1 - t) / 0.12) ** 2))),
+  bubbleA: integral((t) => Math.exp(-(((1 - t) / 0.1) ** 2))),
+  hotA: integral((t) => Math.exp(-((t / 0.25) ** 2))),
+};
+const smoothstep = (a, b, x) => {
+  const t = Math.max(0, Math.min(1, (x - a) / (b - a)));
+  return t * t * (3 - 2 * t);
+};
+// `side`: 1 for light from behind the focus, -1 from in front, 0 where that is not known (the processor's blur).
+export function profileGain(k, t, side = 0) {
+  t = Math.max(0, Math.min(1, t));
+  let g = 1;
+  const e = k.edge + k.edgeFB * side;
+  if (e !== 0) g *= Math.max(0, 1 + e * (1.2 * Math.exp(-(((1 - t) / 0.12) ** 2)) - 0.25)) / (1 + e * (1.2 * PROFILE_CONST.edgeA - 0.25));
+  if (k.bubble > 0) g *= 1 + k.bubble * ((0.1 + 2.2 * Math.exp(-(((1 - t) / 0.1) ** 2))) / (0.1 + 2.2 * PROFILE_CONST.bubbleA) - 1);
+  if (k.hot > 0) g *= (1 + 3 * k.hot * Math.exp(-((t / 0.25) ** 2))) / (1 + 3 * k.hot * PROFILE_CONST.hotA);
+  if (k.hole > 0) g *= smoothstep(k.hole - 0.03, k.hole + 0.03, t) / (1 - k.hole * k.hole);
+  return g;
+}
+
+// The soap bubble's rainbow rim: a color for each channel (mean 1) at the point dq of the ball (units of its radius, shrunk onto a round ball), t from its center.
+export function bubbleTint(k, dq, t) {
+  if (!(k.bubble > 0)) return [1, 1, 1];
+  const rim = Math.exp(-(((1 - Math.min(1, t)) / 0.18) ** 2));
+  const hue = Math.atan2(dq[1], dq[0]) / (2 * Math.PI) + t * 2;
+  const c = [0, 1 / 3, 2 / 3].map((o) => 0.5 + 0.5 * Math.cos(2 * Math.PI * (hue + o)));
+  const m = (c[0] + c[1] + c[2]) / 3;
+  return c.map((v) => 1 + (v / m - 1) * k.bubble * rim);
+}
+
+// Cat's-eye: near the frame's edge the lens's barrel clips each ball into a lens shape (the overlap of two circles) that is narrow toward the center, and Swirl turns
+// that narrow direction around the center, for swirly bokeh. For the ball centered at distance d (0 center to 1 corner of the half diagonal) and direction `ang` from the
+// frame's center: the direction u of the narrow side, and the half of the distance c between the circles' centers (in radii; 0 at the center of the frame).
+export function catEyeAt(k, d, ang) {
+  const c = 0.6 * k.catEye * Math.min(1, 1.1 * d);
+  const phi = k.swirl * d * 1.4;
+  return { c, ux: Math.cos(ang + phi), uy: Math.sin(ang + phi), ratio: c > 0 ? (2 / Math.PI) * (Math.acos(c) - c * Math.sqrt(1 - c * c)) : 1 };
+}
+
+export function bokehKernel({ shape = 'smooth', blades = 6, oval = 0, rotation = 0, onion = 0, image = '', points = 5, inner = 0.45, width = 1, irregular = 0.5, ringBlur = 0.3, spots = 0, grain = 0, diffraction = 0,
+  catEye = 0, swirl = 0, edge = 0, edgeFB = 0, bubble = 0, hole = 0, fringe = 0, hot = 0 } = {}) {
   const custom = shape === 'custom' ? decodeBokehImage(image) : shape === 'star' || shape === 'heart' ? drawnShape(shape, { points, inner, width }) : null;
   const optical = shape === 'optical';
   const kind = custom ? 3 : shape === 'blades' || shape === 'hexagon' ? 2 : shape === 'circle' || shape === 'custom' || optical ? 1 : 0;
@@ -131,7 +196,12 @@ export function bokehKernel({ shape = 'smooth', blades = 6, oval = 0, rotation =
     sin: Math.sin(a),
     onion: kind === 0 || optical ? 0 : Math.max(0, Math.min(1, onion)),
     // the onion skin as a picture (onionMap), with its irregularity, ring blur and dust spots
-    onionMap: kind === 0 || optical ? null : onionMap({ onion: Math.max(0, Math.min(1, onion)), irregular: Math.max(0, Math.min(1, irregular)), blur: Math.max(0, Math.min(1, ringBlur)), spots: Math.max(0, Math.min(1, spots)) }),
+    onionMap: kind === 0 || optical ? null : onionMap({ onion: Math.max(0, Math.min(1, onion)), irregular: Math.max(0, Math.min(1, irregular)), blur: Math.max(0, Math.min(1, ringBlur)), spots: Math.max(0, Math.min(1, spots)), grain: Math.max(0, Math.min(1, grain)), diffraction: Math.max(0, Math.min(1, diffraction)) }),
+    // the ball's character (profileGain) and the graphics card's ball effects: all off for the smooth shape and Optical
+    ...(kind === 0 || optical ? { catEye: 0, swirl: 0, edge: 0, edgeFB: 0, bubble: 0, hole: 0, fringe: 0, hot: 0 } : {
+      catEye: Math.max(0, Math.min(1, catEye)), swirl: Math.max(0, Math.min(1, swirl)), edge: Math.max(-1, Math.min(1, edge)), edgeFB: Math.max(-1, Math.min(1, edgeFB)),
+      bubble: Math.max(0, Math.min(1, bubble)), hole: Math.max(0, Math.min(0.9, hole)), fringe: Math.max(0, Math.min(1, fringe)), hot: Math.max(0, Math.min(1, hot)),
+    }),
     mask: custom ? custom.mask : null,
     // (how far the outline reaches in each direction, for onion rings that follow it)
     outline: custom ? outlineOf(custom) : null,
@@ -225,9 +295,9 @@ export function onionGain(onion, t) {
 // every time from its settings (a fixed seed), so the picture does not change between renders. null when there is nothing to draw.
 export const ONION_SIZE = 128;
 const onionMaps = new Map();
-export function onionMap({ onion = 0, irregular = 0.5, blur = 0.3, spots = 0 } = {}) {
-  if (!(onion > 0) && !(spots > 0)) return null;
-  const key = [onion, irregular, blur, spots].map((v) => v.toFixed(3)).join(':');
+export function onionMap({ onion = 0, irregular = 0.5, blur = 0.3, spots = 0, grain = 0, diffraction = 0 } = {}) {
+  if (!(onion > 0) && !(spots > 0) && !(grain > 0) && !(diffraction > 0)) return null;
+  const key = [onion, irregular, blur, spots, grain, diffraction].map((v) => v.toFixed(3)).join(':');
   if (onionMaps.has(key)) return onionMaps.get(key);
   const N = ONION_SIZE;
   let seed = 12345;
@@ -260,7 +330,26 @@ export function onionMap({ onion = 0, irregular = 0.5, blur = 0.3, spots = 0 } =
     for (let x = 0; x < N; x++) {
       const t = Math.min(1, Math.hypot(((x + 0.5) / N) * 2 - 1, ((y + 0.5) / N) * 2 - 1));
       const rim = 0.7 * Math.exp(-(((1 - t) / 0.07) ** 2));
-      map[y * N + x] = 1 + onion * (sm[y * N + x] + rim);
+      // (diffraction: fine rings at the rim, as the light is cut by the opening's edge)
+      const ripple = Math.cos(2 * Math.PI * 12 * t) * Math.exp(-(((1 - t) / 0.2) ** 2));
+      map[y * N + x] = 1 + onion * (sm[y * N + x] + rim) + 0.5 * diffraction * ripple;
+    }
+  }
+  // Grain: a fixed texture over the ball (coarse patches and fine grain), as from pores in the glass or noise in the light.
+  if (grain > 0) {
+    const G = 16;
+    const coarse = Float32Array.from({ length: (G + 1) * (G + 1) }, () => rnd() * 2 - 1);
+    for (let y = 0; y < N; y++) {
+      for (let x = 0; x < N; x++) {
+        const fx = (x / N) * G;
+        const fy = (y / N) * G;
+        const x0 = Math.floor(fx);
+        const y0 = Math.floor(fy);
+        const tx = fx - x0;
+        const ty = fy - y0;
+        const cv = (coarse[y0 * (G + 1) + x0] * (1 - tx) + coarse[y0 * (G + 1) + x0 + 1] * tx) * (1 - ty) + (coarse[(y0 + 1) * (G + 1) + x0] * (1 - tx) + coarse[(y0 + 1) * (G + 1) + x0 + 1] * tx) * ty;
+        map[y * N + x] *= 1 + grain * 0.6 * (0.7 * cv + 0.3 * (rnd() * 2 - 1));
+      }
     }
   }
   // Spots: dark specks of dust (soft discs, 0.5 to 2.5% of the ball's width) and a few faint bubble rings, inside the ball.
@@ -396,10 +485,11 @@ function shapedBlur(src, w, h, r, k, need = null) {
   // Nested shapes [rows, weight]: weight is the ring brightness inside its
   // edge minus the brightness just outside it.
   // (the onion skin's rings, averaged round the ball: the processor's blur draws nested shapes, so it cannot show their wobble or the spots)
-  const bands = k.onionMap ? Math.max(1, Math.min(4 * ONION_RINGS, Math.floor(r / 1.5))) : 1;
+  const profiled = k.onionMap || k.edge !== 0 || k.bubble > 0 || k.hot > 0 || k.hole > 0;
+  const bands = profiled ? Math.max(1, Math.min(4 * ONION_RINGS, Math.floor(r / 1.5))) : 1;
   const shapes = [];
   for (let b = bands; b >= 1; b--) {
-    const gain = (t) => (bands > 1 ? onionRadial(k.onionMap, t) : 1);
+    const gain = (t) => (bands > 1 ? (k.onionMap ? onionRadial(k.onionMap, t) : 1) * profileGain(k, t, 0) : 1);
     const inside = gain((b - 0.5) / bands);
     const outside = b === bands ? 0 : gain((b + 0.5) / bands);
     shapes.push([kernelRows(k, (r * b) / bands), inside - outside]);
@@ -609,36 +699,67 @@ export function applyDepthOfField(rgb, w, h, depth, dw, dh, focus, strength, pxP
   return out;
 }
 
-// One bokeh ball as the blur draws it (the GPU's weight, DOF_GATHER weightFor): a size x size picture of a ball of radius r pixels at its center, 0..1 (its
-// brightest pixel 1). For the preview above the Shape list.
-export function bokehBall(k, size, r) {
-  const out = new Float32Array(size * size);
+// One bokeh ball as the blur draws it (the GPU's weight, DOF_GATHER): a size x size picture of a ball of radius r pixels at its center, as three channels (R, G, B
+// of every pixel one after the other), the brightest channel value 1. `at`: where the ball is in the frame ({ d, ang }: distance from the center, 0 to 1, and its
+// direction), for the cat's-eye and swirl, which depend on it. `side`: 1 behind the focus, -1 in front (the edge's front/back setting and the color fringe).
+export function ballRGB(k, size, r, at = null, side = 1) {
+  const out = new Float32Array(size * size * 3);
   const c = (size - 1) / 2;
+  const cat = k.catEye > 0 && at ? catEyeAt(k, at.d, at.ang) : null;
+  const kk = k.fringe > 0 && r > 4 ? 0.07 * k.fringe * (side > 0 ? -1 : 1) : 0;
+  const scales = [1 + kk, 1, 1 + kk];
+  // the shape's coverage at an offset from its center
+  const cover = (dx, dy) => {
+    if (k.kind === 0) return Math.exp(-2 * ((Math.hypot(dx, dy) / r) ** 2));
+    if (k.kind === 3) return maskValue(k, dx / r, dy / r);
+    return Math.max(0, Math.min(1, (r + (k.soft * r) / 2 + 0.5 - kernelDistance(k, dx, dy)) / (k.soft * r + 1)));
+  };
   let top = 0;
   for (let y = 0; y < size; y++) {
     for (let x = 0; x < size; x++) {
       const dx = x - c;
       const dy = y - c;
-      let v;
-      if (k.kind === 0) {
-        const t = Math.hypot(dx, dy) / r;
-        v = Math.exp(-2 * t * t);
-      } else {
-        if (k.kind === 3) {
-          v = maskValue(k, dx / r, dy / r);
+      const v = [0, 0, 0];
+      for (let ch = 0; ch < 3; ch++) {
+        const sc = scales[ch];
+        let cv;
+        if (cat) {
+          const shx = cat.ux * cat.c * r;
+          const shy = cat.uy * cat.c * r;
+          cv = (cover(dx / sc - shx, dy / sc - shy) * cover(dx / sc + shx, dy / sc + shy)) / cat.ratio;
         } else {
-          const t = kernelDistance(k, dx, dy) / r;
-          v = Math.max(0, Math.min(1, (r + (k.soft * r) / 2 + 0.5 - t * r) / (k.soft * r + 1)));
+          cv = cover(dx / sc, dy / sc);
         }
-        if (k.onionMap && r > 4) {
-          // (turned with the shape, and shrunk with it onto a round ball: the rings follow the shape)
-          const [qx, qy] = toDisc(k, (k.cos * dx + k.sin * dy) / r, (-k.sin * dx + k.cos * dy) / r);
-          v *= onionAt(k.onionMap, qx, qy);
-        }
+        v[ch] = cv / (sc * sc);
       }
-      out[y * size + x] = v;
-      if (v > top) top = v;
+      let g = 1;
+      let tint = [1, 1, 1];
+      if (k.kind !== 0 && r > 4) {
+        // (turned with the shape, and shrunk with it onto a round ball: the rings and the ball's character follow the shape)
+        const dq = toDisc(k, (k.cos * dx + k.sin * dy) / r, (-k.sin * dx + k.cos * dy) / r);
+        const t = Math.min(1, Math.hypot(dq[0], dq[1]));
+        if (k.onionMap) g *= onionAt(k.onionMap, dq[0], dq[1]);
+        g *= profileGain(k, t, side);
+        tint = bubbleTint(k, dq, t);
+      }
+      for (let ch = 0; ch < 3; ch++) {
+        out[3 * (y * size + x) + ch] = v[ch] * g * tint[ch];
+        if (out[3 * (y * size + x) + ch] > top) top = out[3 * (y * size + x) + ch];
+      }
     }
+  }
+  if (top > 0) for (let i = 0; i < out.length; i++) out[i] /= top;
+  return out;
+}
+
+// The same as one brightness for each pixel (the mean of the three channels, the brightest 1), for the tests and for anything that has no use for the color.
+export function bokehBall(k, size, r, at = null, side = 1) {
+  const rgb = ballRGB(k, size, r, at, side);
+  const out = new Float32Array(size * size);
+  let top = 0;
+  for (let i = 0; i < out.length; i++) {
+    out[i] = (rgb[3 * i] + rgb[3 * i + 1] + rgb[3 * i + 2]) / 3;
+    if (out[i] > top) top = out[i];
   }
   if (top > 0) for (let i = 0; i < out.length; i++) out[i] /= top;
   return out;
