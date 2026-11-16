@@ -27,6 +27,7 @@ import { methodDepthModel, readDepthModel } from './core/depthmodels.js';
 import { releaseDepthSession, runDepthModel, fitModelDepth, shapeModelDepth, fuseModelDepth } from './core/depthmodel.js';
 import { depthStats, fillNonFinite, shapeDepthContrast, setDepthStyle, estimateDepth, estimateDepthPooled, poolable, DEPTH_FAST_SEARCH, focusAtPoint, smoothDepth, finishDepth, depthGuide, depthColorGuide, luminance, brightnessFloor, DEPTH_SEARCH, DEPTH_LCOST, DEPTH_CBCA, DEPTH_TRWS, DEPTH_COARSE, DEPTH_STEP, DEPTH_REGIONS, combineCoarse } from './core/depth.js';
 import { applyDepthOfField, smoothMap, shapeOptions } from './core/dof.js';
+import { fxOptions, applyBokehFx } from './core/bokehfx.js';
 import { makeLocalTone, localToneForSize, applyLocalTone, airlight } from './core/localtone.js';
 import { defringe, autoDefringe } from './core/defringe.js';
 import { makeLook, whiteBalanceGains, DEFAULT_KELVIN, solveWhiteBalance, autoWhiteBalance } from './core/color.js';
@@ -628,6 +629,9 @@ async function presentGpu(id, tex, w, h, { alpha = 0, dof = 0, bokeh = {}, pxPer
       draft,
     });
   }
+  // Lens effects round bright points (streaks, spikes, ghosts, fog, dirt): with or without the blur.
+  const lensFx = fxOptions(bokeh);
+  if (lensFx) tex = gpu.bokehFx(tex, w, h, lensFx, state.dev.clip);
   if (state.detail) tex = gpu.details(tex, w, h, detailForSize(state.detail, w, lensColumns()));
   if (state.localTone) tex = gpu.localTone(tex, w, h, localToneForSize(state.localTone, w, lensColumns()));
   const spots = spotsFor(masks);
@@ -1317,13 +1321,14 @@ async function applyParallax(id, rgb, w, h, u, v) {
 }
 
 async function withDepthOfField(id, rgb, w, h, alpha, dof, scale = 1, bokeh = {}) {
-  if (!(dof > 0)) return rgb;
-  if (!(await ensureViewDepth(id))) return rgb;
+  // (the lens effects round bright points come after the blur, which needs the depth; they need none)
+  const fx = fxOptions(bokeh);
+  if (!(dof > 0) || !(await ensureViewDepth(id))) return applyBokehFx(rgb, w, h, fx, state.dev.clip);
   const { outW, outH } = state.sampler;
-  return applyDepthOfField(rgb, w, h, state.depth.alpha, outW, outH, alpha, dof, 14 * scale * state.settings.detail, {
+  return applyBokehFx(applyDepthOfField(rgb, w, h, state.depth.alpha, outW, outH, alpha, dof, 14 * scale * state.settings.detail, {
     ...shapeOptions(bokeh), highlights: bokeh.highlights, clip: state.dev.clip, tilt: bokeh.tilt, point: bokeh.point, spread: bokeh.spread,
     smooth: bokeh.smooth, feather: (bokeh.blur || 0) * 14 * scale * state.settings.detail,
-  });
+  }), w, h, fx, state.dev.clip);
 }
 
 async function refocusFrames({ id, job, alphas, u, v, aperture, dof = 0, bokeh }) {

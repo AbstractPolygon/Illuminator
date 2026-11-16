@@ -532,7 +532,7 @@ function shapedBlur(src, w, h, r, k, need = null) {
 }
 
 // Separable box blur of radius r, RGB.
-function boxBlur(src, w, h, r) {
+export function boxBlur(src, w, h, r) {
   const tmp = new Float32Array(src.length);
   const out = new Float32Array(src.length);
   const n = 2 * r + 1;

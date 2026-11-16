@@ -63,6 +63,13 @@ export function initCurvesView({ trackGroups, shownTracks, trackName, $, state, 
     { k: 'bokehHot', c: 0, name: 'Hot spot', color: '#ffe082' },
     { k: 'bokehGrain', c: 0, name: 'Grain', color: '#b0bec5' },
     { k: 'bokehDiffraction', c: 0, name: 'Diffraction', color: '#90caf9' },
+    { k: 'bokehStreak', c: 0, name: 'Streaks', color: '#90caf9' },
+    { k: 'bokehStreakLen', c: 0, name: 'Streak length', color: '#ffcc80' },
+    { k: 'bokehStar', c: 0, name: 'Starburst', color: '#ffe082' },
+    { k: 'bokehSpikes', c: 0, name: 'Spikes', color: '#b39ddb' },
+    { k: 'bokehGhosts', c: 0, name: 'Ghosts', color: '#ce93d8' },
+    { k: 'bokehFog', c: 0, name: 'Fog', color: '#b0bec5' },
+    { k: 'bokehDirt', c: 0, name: 'Dirty lens', color: '#bcaaa4' },
     { k: 'amount', c: 0, name: 'Amount', color: '#4fc3f7' },
     { k: 'near', c: 0, name: 'Near', color: '#ba68c8' },
     { k: 'far', c: 0, name: 'Far', color: '#81c784' },
@@ -158,6 +165,13 @@ export function initCurvesView({ trackGroups, shownTracks, trackName, $, state, 
       case 'bokehHot': return [0, 100];
       case 'bokehGrain': return [0, 100];
       case 'bokehDiffraction': return [0, 100];
+      case 'bokehStreak': return [0, 100];
+      case 'bokehStreakLen': return [0, 100];
+      case 'bokehStar': return [0, 100];
+      case 'bokehSpikes': return [3, 16];
+      case 'bokehGhosts': return [0, 100];
+      case 'bokehFog': return [0, 100];
+      case 'bokehDirt': return [0, 100];
       case 'amount': return [0.1, 1];
       case 'near': return [-1.6, 0];
       case 'far': return [0, 1.6];
