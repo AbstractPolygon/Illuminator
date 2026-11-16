@@ -14,11 +14,11 @@ The editing panels are in the right sidebar; click a title to open or close it. 
 
 - [[Histogram and Info]]
 - [[Crop]]: rotate, flip, straighten and crop
+- [[Details]]: sharpening and noise reduction
+- [[Optics]]: chromatic aberration, lens correction and flare
 - [[Process]]: white balance, tone, tone curve, color and color matrix
 - [[Local Adjustments]]: masks and filters
 - [[Camera]]: aperture, depth, focus spread, tilt, perspective and bokeh
-- [[Details]]: sharpening and noise reduction
-- [[Optics]]: chromatic aberration, lens correction and flare
 - [[Animation]]: animations, the play bar and the keyframe editor
 - [[Render]]: quality, full sensor, 3D and export
 - [[Microlens Grid]]
