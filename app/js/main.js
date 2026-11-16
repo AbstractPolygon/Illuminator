@@ -2833,7 +2833,15 @@ function setFullRes(on, { restore = true } = {}) {
 async function renderDepth() {
   const gen = openSeq.current();
   try {
-    const msg = await engine.request('depthMap', { grey: $('depth-grey').checked, contrast: $('depth-contrast').value / 100 }, { onProgress: progressFor(gen) });
+    const msg = await engine.request('depthMap', { grey: $('depth-grey').checked, contrast: $('depth-contrast').value / 100 }, {
+      onProgress: progressFor(gen),
+      // The quick depth the live view uses, shown at once while the full one is measured.
+      onFrame: (f) => {
+        if (openSeq.superseded(gen) || !state.depthShown || !f.pixels) return;
+        draw(toImageData(f), gen);
+        showProgress('Measuring the full depth…', null);
+      },
+    });
     if (openSeq.superseded(gen)) return;
     hideProgress();
     if (msg && msg.pixels && state.depthShown) draw(toImageData(msg), gen);

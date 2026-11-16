@@ -3321,15 +3321,29 @@ async function depthSource(id) {
   return { alpha: state.depth.alpha, w: state.sampler.outW, h: state.sampler.outH };
 }
 
+// The depth map shown: the quick measurement the live view uses comes first (a frame, at once), then the full one (the result) when it is measured.
 async function depthMap({ id, grey = false, contrast = 0 }) {
+  if (!state.pp && !(state.depth && !state.depthFast)) {
+    const samplerJob = makeJobGuard(() => state.sampler);
+    if ((await ensureViewDepth(id)) && !samplerJob.stale() && state.depth && state.depthFast) {
+      const { outW, outH } = state.sampler;
+      const quick = depthPixels(state.depth.alpha, grey, 0);
+      post({ id, type: 'frame', preview: true, width: outW, height: outH, pixels: quick.pixels.buffer }, [quick.pixels.buffer]);
+    }
+  }
   const src = await depthSource(id);
   if (!src) return { cancelled: true };
   const { alpha } = src;
   if (hook('depthDump')) hook('depthDump')(alpha, src.w, src.h); // debugging aid: the depth values behind the picture
-  // Contrast pulls the ends of the range in (2% and 98% of the picture, up to
-  // 30% and 70%) and adds an S curve, so a narrow span of depth fills the colors.
   // Raw photos: the contrast is already in the depth (shapeDepth); a processed file's depth map is shaped here.
-  if (!state.pp) contrast = 0;
+  const { pixels, lo, hi } = depthPixels(alpha, grey, state.pp ? contrast : 0);
+  post({ id, type: 'result', width: src.w, height: src.h, pixels: pixels.buffer, near: lo, far: hi }, [pixels.buffer]);
+  return undefined;
+}
+
+// A depth map as colors (warm near, cool far) or gray. Contrast pulls the ends of the range in (2% and 98% of the picture, up to 30% and 70%) and adds an S curve,
+// so a narrow span of depth fills the colors.
+function depthPixels(alpha, grey, contrast) {
   const cut = 0.02 + 0.28 * Math.max(0, Math.min(1, contrast));
   const [lo, hi] = nthSmallestPair(alpha, Math.floor((alpha.length - 1) * cut), Math.floor((alpha.length - 1) * (1 - cut)));
   const pixels = new Uint8ClampedArray(alpha.length * 4);
@@ -3352,8 +3366,7 @@ async function depthMap({ id, grey = false, contrast = 0 }) {
     }
     pixels[4 * i + 3] = 255;
   }
-  post({ id, type: 'result', width: src.w, height: src.h, pixels: pixels.buffer, near: lo, far: hi }, [pixels.buffer]);
-  return undefined;
+  return { pixels, lo, hi };
 }
 
 // Eyedropper: temperature and tint that make the area around view pixel
