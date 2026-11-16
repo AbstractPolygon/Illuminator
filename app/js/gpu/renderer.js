@@ -21,7 +21,7 @@ import { ENGINE_USM, engineUsmMap, rangeSigma, chromaSigma, sharpenWindow, HALO_
 import { LOCAL_TONE, textureGain } from '../core/localtone.js';
 import { MAX_MASKS } from '../core/local.js';
 import { MAX_DABS, RING_RADIUS, RING_TAPS } from '../core/retouch.js';
-import { bokehKernel } from '../core/dof.js';
+import { bokehKernel, BOKEH_IMAGE_SIZE } from '../core/dof.js';
 import { CHROMA_EDGE } from '../core/render.js';
 import { LYTRO_CURVE, LYTRO_HUE, CURVE_START, CURVE_STEP, ENGINE_SPLINE, FIRST_SPLINE, PROPHOTO, PROPHOTO_INV } from '../core/base.js';
 import { PHASE_BINS, latticeTiles, latticeTables, RAY_DEPTH_TOLERANCE, SR_SHARPEN, LENS_CAL, lensCandidates, lensTable, chooseLensOffsets, EDGE_SNAP, SNAP_CANDIDATES, snapCandidates, DEPTH_STEP_TOLERANCE, DITHER_FIX, BACK_PROJECTION_EDGE, depthEdgeMask, RAY_MATCH, depthFilter } from '../core/superres.js';
@@ -673,7 +673,9 @@ uniform sampler2D uHalf;
 uniform int uTaps;
 uniform float uMaxR;
 uniform float uReach;  // how far past its radius a blur still counts
-uniform int uShape;    // 0 smooth, 1 circle, 2 blades (see core/dof.js bokehKernel)
+uniform int uShape;    // 0 smooth, 1 circle, 2 blades, 3 custom image (see core/dof.js bokehKernel)
+uniform sampler2D uKernel;    // the custom shape (R32F, BOKEH_IMAGE_SIZE square, 0..1)
+uniform float uKernelArea;    // its area over the circle's
 uniform int uBlades;
 uniform float uAspect; // the circle's width to height
 uniform vec2 uRot;     // rotation: cos, sin
@@ -694,6 +696,24 @@ float shapeDist(vec2 o) {
   return length(vec2(q.x / uAspect, q.y));
 }
 
+// The custom shape's light at q (units of its radius, already turned), bilinear between its pixels (read by hand: float textures need not filter).
+float maskAt(vec2 q) {
+  ivec2 n = textureSize(uKernel, 0);
+  vec2 f = (q * 0.5 + 0.5) * vec2(n) - 0.5;
+  if (f.x <= -1.0 || f.y <= -1.0 || f.x >= float(n.x) || f.y >= float(n.y)) return 0.0;
+  ivec2 i0 = ivec2(floor(f));
+  vec2 t = f - vec2(i0);
+  float v = 0.0;
+  for (int j = 0; j < 2; j++) {
+    for (int i = 0; i < 2; i++) {
+      ivec2 c = i0 + ivec2(i, j);
+      float s = (c.x < 0 || c.y < 0 || c.x >= n.x || c.y >= n.y) ? 0.0 : texelFetch(uKernel, c, 0).r;
+      v += s * (i == 0 ? 1.0 - t.x : t.x) * (j == 0 ? 1.0 - t.y : t.y);
+    }
+  }
+  return v;
+}
+
 float weightFor(float dist, float r) {
   r = max(r, 0.5);
   float inside = uShape == 0
@@ -705,6 +725,20 @@ float weightFor(float dist, float r) {
   return inside / (r * r * uAspect);
 }
 
+// The weight of a pixel at offset o for a ball of radius r: the custom shape reads its image (below a radius of 2 pixels it cannot show: a small disc);
+// the others go by the distance.
+float weightAt(vec2 o, float dist, float r) {
+  if (uShape != 3) return weightFor(dist, r);
+  r = max(r, 0.5);
+  float d = length(o);
+  if (r < 2.0) return clamp(r + 0.5 - d, 0.0, 1.0) / (r * r);
+  // (o runs from this pixel to the tap; the light goes from the tap to this pixel, so the shape is read at -o)
+  vec2 q = -vec2(uRot.x * o.x + uRot.y * o.y, -uRot.y * o.x + uRot.x * o.y) / r;
+  float inside = maskAt(q);
+  if (uOnion > 0.0 && r > 4.0) inside *= 1.0 + uOnion * 0.6 * cos(6.2831853 * 3.0 * d / r);
+  return inside / (r * r * uKernelArea);
+}
+
 // The gathered color at full size pixel position pf (pixel centers at
 // integers), whose own prepared value is c. snap: each tap reads the pixel it
 // falls in, not a bilinear mix of the four around it. With small blur radii a
@@ -712,8 +746,10 @@ float weightFor(float dist, float r) {
 // whole picture (also what is exactly in focus) as soon as any blur was on.
 vec3 gather(vec2 pf, vec4 c, ivec2 size, bool snap) {
   float rc = abs(c.a);
-  vec3 sum = c.rgb * weightFor(0.0, rc);
-  float wsum = weightFor(0.0, rc);
+  // (a custom shape can be dark at its center: the pixel still counts a little, so a ball of nothing but dark taps keeps its color)
+  float w0 = max(weightAt(vec2(0.0), 0.0, rc), 1e-4 / max(rc * rc, 0.25));
+  vec3 sum = c.rgb * w0;
+  float wsum = w0;
   ivec2 t = clamp(ivec2(pf) / ${DOF_TILE}, ivec2(0), textureSize(uTiles, 0) - 1);
   float maxR = min(uMaxR, texelFetch(uTiles, t, 0).r * uReach + 1.0);
   if (maxR < 0.75) return c.rgb;
@@ -748,7 +784,7 @@ vec3 gather(vec2 pf, vec4 c, ivec2 size, bool snap) {
     float dist = shapeDist(qf - pf);
     // Behind this pixel: only within this pixel's own blur.
     if (s.a > c.a + 0.5 && dist > rc + 0.5) continue;
-    float w = weightFor(dist, rq);
+    float w = weightAt(qf - pf, dist, rq);
     sum += s.rgb * w;
     wsum += w;
   }
@@ -4036,7 +4072,7 @@ export class GpuRenderer {
     return mask;
   }
 
-  depthOfField(src, w, h, { focus, strength, shape = 'smooth', blades = 6, oval = 0, rotation = 0, onion = 0, highlights = 0, clip = 1, tilt = [0, 0], point = [0.5, 0.5], spread = 0, smooth = 0, feather = 0, draft = false, sharp = null }) {
+  depthOfField(src, w, h, { focus, strength, shape = 'smooth', blades = 6, oval = 0, rotation = 0, onion = 0, image = '', highlights = 0, clip = 1, tilt = [0, 0], point = [0.5, 0.5], spread = 0, smooth = 0, feather = 0, draft = false, sharp = null }) {
     const gl = this.gl;
     const prep = this.mipmapped(w, h, 'dofPrep');
     const out = this.scratch(w, h, 'dofOut');
@@ -4086,7 +4122,7 @@ export class GpuRenderer {
     const reach = Math.abs(tilt[0]) + Math.abs(tilt[1]);
     const maxR = Math.min(64, strength * Math.max(0, Math.max(Math.abs(hi - focus), Math.abs(lo - focus)) + reach - spread));
     const taps = Math.max(32, Math.min(draft ? 160 : MAX_TAPS, Math.round(maxR * maxR * 1.2)));
-    const kernel = bokehKernel({ shape, blades, oval, rotation, onion });
+    const kernel = bokehKernel({ shape, blades, oval, rotation, onion, image });
     const shapeId = kernel.kind;
     // How far past its own radius a blur still adds light (the smooth shape
     // fades out gradually).
@@ -4129,6 +4165,16 @@ export class GpuRenderer {
     gl.uniform1f(P.u.uAspect, kernel.aspect);
     gl.uniform2f(P.u.uRot, kernel.cos, kernel.sin);
     gl.uniform1f(P.u.uOnion, kernel.onion);
+    // The custom shape's image (kept while it stays the same; a 1 x 1 stand-in otherwise, so the sampler always has a float texture).
+    if (this.bokehImage !== kernel.image) {
+      const N = kernel.mask ? BOKEH_IMAGE_SIZE : 1;
+      this.bokehTex = this.uploadR32F(this.bokehTex, this.bokehTexSize, kernel.mask || new Float32Array(1), N, N);
+      this.bokehTexSize = [N, N];
+      this.bokehImage = kernel.image;
+    }
+    gl.uniform1i(P.u.uKernel, 4);
+    this.bindTex(4, this.bokehTex);
+    gl.uniform1f(P.u.uKernelArea, kernel.area);
     // Strong blur: render the strongly blurred pixels at half size.
     const halfFrom = draft ? 1.5 : 6;
     const half = maxR > 2 * halfFrom ? this.scratch(Math.ceil(w / 2), Math.ceil(h / 2), 'dofHalf') : null;

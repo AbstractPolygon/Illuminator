@@ -270,6 +270,7 @@ export class ProcessedPicture {
         oval: bokeh.oval,
         rotation: bokeh.rotation,
         onion: bokeh.onion,
+        image: bokeh.image,
         highlights: bokeh.highlights,
         clip: 1,
         spread: (bokeh.spread || 0) * scale,
