@@ -13,6 +13,7 @@
 // picture's lambda range.
 
 import { applyDepthOfField, shapeOptions } from './dof.js';
+import { fxOptions, applyBokehFx } from './bokehfx.js';
 import { smoothDepth } from './depth.js';
 import { nthSmallest } from './typed.js';
 
@@ -260,10 +261,12 @@ export class ProcessedPicture {
   render({ u = 0, v = 0, alpha = 0, blur = 0, bokeh = {} }) {
     const lambda = this.toLambda(alpha);
     const rgb = this.base(u, v, lambda);
-    if (!(blur > 0 || bokeh.blur > 0) || !this.depth || this.kind === 'focus') return rgb;
+    // (the lens effects round bright points need no depth)
+    const fx = fxOptions(bokeh);
+    if (!(blur > 0 || bokeh.blur > 0) || !this.depth || this.kind === 'focus') return applyBokehFx(rgb, this.width, this.height, fx, 1);
     const scale = (this.lambdaRange[1] - this.lambdaRange[0]) / 2 / FOCUS_RANGE;
     const lambdaGrid = this.depthGrid();
-    return applyDepthOfField(rgb, this.width, this.height, lambdaGrid.lambda, lambdaGrid.width, lambdaGrid.height, lambda,
+    return applyBokehFx(applyDepthOfField(rgb, this.width, this.height, lambdaGrid.lambda, lambdaGrid.width, lambdaGrid.height, lambda,
       blur, APERTURE_RADIUS * this.pxPerLambda, {
         ...shapeOptions(bokeh),
         highlights: bokeh.highlights,
@@ -273,7 +276,7 @@ export class ProcessedPicture {
         blur: (bokeh.blur || 0) * scale * APERTURE_RADIUS * this.pxPerLambda,
         tilt: (bokeh.tilt || [0, 0]).map((t) => t * scale),
         point: bokeh.point,
-      });
+      }), this.width, this.height, fx, 1);
   }
 
   depthGrid() {

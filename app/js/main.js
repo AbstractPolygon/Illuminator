@@ -1603,7 +1603,7 @@ function focusField(v = {}) {
 }
 
 // Bokeh options for the worker: shape and highlights, and the focus field.
-const BOKEH_SHAPE = ['bokeh-blades', 'bokeh-oval', 'bokeh-rotation', 'bokeh-onion', 'bokeh-points', 'bokeh-inner', 'bokeh-width', 'bokeh-irregular', 'bokeh-ring-blur', 'bokeh-spots', 'bokeh-cat', 'bokeh-swirl', 'bokeh-edge', 'bokeh-edge-fb', 'bokeh-bubble', 'bokeh-hole', 'bokeh-fringe', 'bokeh-hot', 'bokeh-grain', 'bokeh-diffraction'];
+const BOKEH_SHAPE = ['bokeh-blades', 'bokeh-oval', 'bokeh-rotation', 'bokeh-onion', 'bokeh-points', 'bokeh-inner', 'bokeh-width', 'bokeh-irregular', 'bokeh-ring-blur', 'bokeh-spots', 'bokeh-cat', 'bokeh-swirl', 'bokeh-edge', 'bokeh-edge-fb', 'bokeh-bubble', 'bokeh-hole', 'bokeh-fringe', 'bokeh-hot', 'bokeh-grain', 'bokeh-diffraction', 'bokeh-streak', 'bokeh-streak-len', 'bokeh-star', 'bokeh-spikes', 'bokeh-ghosts', 'bokeh-fog', 'bokeh-dirt'];
 function bokehParams(v = {}) {
   const shape = $('bokeh').value === 'natural' ? 'smooth' : $('bokeh').value;
   return {
@@ -1636,6 +1636,14 @@ function bokehParams(v = {}) {
     hot: shape === 'smooth' || shape === 'optical' ? 0 : (v.bokehHot ?? +$('bokeh-hot').value) / 100,
     grain: shape === 'smooth' || shape === 'optical' ? 0 : (v.bokehGrain ?? +$('bokeh-grain').value) / 100,
     diffraction: shape === 'smooth' || shape === 'optical' ? 0 : (v.bokehDiffraction ?? +$('bokeh-diffraction').value) / 100,
+    // Lens effects round bright points (core/bokehfx.js): independent of the ball's shape
+    fxStreak: (v.bokehStreak ?? +$('bokeh-streak').value) / 100,
+    fxStreakLen: (v.bokehStreakLen ?? +$('bokeh-streak-len').value) / 100,
+    fxStar: (v.bokehStar ?? +$('bokeh-star').value) / 100,
+    fxSpikes: Math.round((v.bokehSpikes ?? +$('bokeh-spikes').value)),
+    fxGhosts: (v.bokehGhosts ?? +$('bokeh-ghosts').value) / 100,
+    fxFog: (v.bokehFog ?? +$('bokeh-fog').value) / 100,
+    fxDirt: (v.bokehDirt ?? +$('bokeh-dirt').value) / 100,
     ...focusField(v),
   };
 }
@@ -3780,6 +3788,9 @@ function showBokehShape() {
   // the ball's character, in a group of its own, and Swirl with some Cat's-eye
   $('bokeh-ball-group').hidden = !shaped;
   $('bokeh-swirl-row').hidden = !(+$('bokeh-cat').value > 0);
+  // (the streak's length and the starburst's spikes with some of each)
+  $('bokeh-streak-len-row').hidden = !(+$('bokeh-streak').value > 0);
+  $('bokeh-spikes-row').hidden = !(+$('bokeh-star').value > 0);
   $('bokeh-image-row').hidden = shape !== 'custom';
   $('bokeh-image-btn').textContent = $('bokeh-image').value ? 'Replace shape image…' : 'Load shape image…';
   drawBokehPreview();
@@ -3882,7 +3893,7 @@ $('bokeh-image-file').onchange = async () => {
 for (const id of ['fstop', 'bokeh', 'dof-depth', 'highlights', 'spread', 'spread-smooth', 'spread-blur', 'tilt', 'tilt-rotation', ...BOKEH_SHAPE]) {
   $(id).oninput = () => {
     // (these two decide which other settings show)
-    if (id === 'bokeh' || id === 'bokeh-onion' || id === 'bokeh-cat') showBokehShape();
+    if (id === 'bokeh' || id === 'bokeh-onion' || id === 'bokeh-cat' || id === 'bokeh-streak' || id === 'bokeh-star') showBokehShape();
     // (the f-stop, Depth, Focus Spread and Tilt change Optical's ball too)
     else drawBokehPreview();
     showFNumber();

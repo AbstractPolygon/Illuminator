@@ -22,6 +22,7 @@ import { LOCAL_TONE, textureGain } from '../core/localtone.js';
 import { MAX_MASKS } from '../core/local.js';
 import { MAX_DABS, RING_RADIUS, RING_TAPS } from '../core/retouch.js';
 import { bokehKernel, BOKEH_IMAGE_SIZE, ONION_SIZE, PROFILE_CONST } from '../core/dof.js';
+import { FX_GAIN, FX_LIMIT, POINT_LOD, STREAK_TAPS, STAR_TAPS, GHOSTS, STREAK_TINT, DIRT_SIZE, fxGeometry, dirtMap } from '../core/bokehfx.js';
 import { CHROMA_EDGE } from '../core/render.js';
 import { LYTRO_CURVE, LYTRO_HUE, CURVE_START, CURVE_STEP, ENGINE_SPLINE, FIRST_SPLINE, PROPHOTO, PROPHOTO_INV } from '../core/base.js';
 import { PHASE_BINS, latticeTiles, latticeTables, RAY_DEPTH_TOLERANCE, SR_SHARPEN, LENS_CAL, lensCandidates, lensTable, chooseLensOffsets, EDGE_SNAP, SNAP_CANDIDATES, snapCandidates, DEPTH_STEP_TOLERANCE, DITHER_FIX, BACK_PROJECTION_EDGE, depthEdgeMask, RAY_MATCH, depthFilter } from '../core/superres.js';
@@ -955,6 +956,119 @@ void main() {
     }
   }
   outColor = vec4(gather(vec2(p), c, size, true, false), 1.0);
+}`;
+
+// Lens effects around bright points (core/bokehfx.js has the formulas, and the processor's version): uPass 0 takes the bright parts of the picture as a half size picture
+// (mipmapped), uPass 1 makes the effects' light from it at half size (streaks, spikes, ghosts, fog, dirt), uPass 2 adds it to the picture.
+const BOKEH_FX = `#version 300 es
+precision highp float;
+precision highp int;
+uniform sampler2D uSrc;    // pass 0: the picture; pass 2: the picture
+uniform sampler2D uHl;     // pass 1: the bright parts, mipmapped; pass 2: the effects' light (half size)
+uniform sampler2D uPt;     // the small peaks of the bright parts, mipmapped (pass 1: streaks and spikes read it)
+uniform sampler2D uDirt;   // the dirty lens (R32F)
+uniform int uPass;
+uniform float uClip;
+uniform float uStreak;
+uniform float uStreakL;
+uniform float uStreakStep;
+uniform float uStar;
+uniform int uSpikes;
+uniform float uStarL0;
+uniform float uStarStep;
+uniform float uGhosts;
+uniform float uFog;
+uniform float uFogLod;
+uniform float uDirtAmount;
+out vec4 outColor;
+
+vec3 bright(ivec2 q, ivec2 size) {
+  vec3 c = texelFetch(uSrc, min(q, size - 1), 0).rgb;
+  float t = clamp((dot(c, vec3(0.2126, 0.7152, 0.0722)) - 0.7 * uClip) / (0.3 * uClip), 0.0, 1.0);
+  return c * t * t * 0.25;
+}
+
+// Each effect's light is held below a limit (core/bokehfx.js softLimit).
+vec3 softLimit(vec3 x) { return x / (1.0 + x / ${FX_LIMIT.toFixed(3)}); }
+
+// The bright parts at uv (0 outside the picture), read at mip level lod.
+vec3 hl(vec2 uv, float lod) {
+  if (uv.x < 0.0 || uv.y < 0.0 || uv.x > 1.0 || uv.y > 1.0) return vec3(0.0);
+  return textureLod(uHl, uv, lod).rgb;
+}
+vec3 pt(vec2 uv, float lod) {
+  if (uv.x < 0.0 || uv.y < 0.0 || uv.x > 1.0 || uv.y > 1.0) return vec3(0.0);
+  return textureLod(uPt, uv, lod).rgb;
+}
+
+void main() {
+  ivec2 p = ivec2(gl_FragCoord.xy);
+  if (uPass == 0) {
+    ivec2 size = textureSize(uSrc, 0);
+    outColor = vec4(bright(2 * p, size) + bright(2 * p + ivec2(1, 0), size) + bright(2 * p + ivec2(0, 1), size) + bright(2 * p + ivec2(1, 1), size), 1.0);
+    return;
+  }
+  if (uPass == 3) {
+    // the small peaks: the bright parts less 90% of their average round (core/bokehfx.js pointsOf)
+    outColor = vec4(max(vec3(0.0), texelFetch(uHl, p, 0).rgb - 0.9 * textureLod(uHl, (vec2(p) + 0.5) / vec2(textureSize(uHl, 0)), ${POINT_LOD}.0).rgb), 1.0);
+    return;
+  }
+  if (uPass == 2) {
+    ivec2 size = textureSize(uSrc, 0);
+    ivec2 hs = textureSize(uHl, 0);
+    vec2 f = max(vec2(0.0), (vec2(p) + 0.5) * 0.5 - 0.5);
+    ivec2 i0 = min(ivec2(floor(f)), hs - 1);
+    ivec2 i1 = min(i0 + 1, hs - 1);
+    vec2 t = f - vec2(floor(f));
+    vec3 v = mix(mix(texelFetch(uHl, i0, 0).rgb, texelFetch(uHl, ivec2(i1.x, i0.y), 0).rgb, t.x), mix(texelFetch(uHl, ivec2(i0.x, i1.y), 0).rgb, texelFetch(uHl, i1, 0).rgb, t.x), t.y);
+    outColor = vec4(texelFetch(uSrc, p, 0).rgb + v, 1.0);
+    return;
+  }
+  ivec2 hs = textureSize(uHl, 0);
+  vec2 hsf = vec2(hs);
+  vec2 uv = (vec2(p) + 0.5) / hsf;
+  vec3 fx = vec3(0.0);
+  if (uStreak > 0.0) {
+    float lod = log2(uStreakStep);
+    vec3 s = vec3(0.0);
+    for (int j = -${STREAK_TAPS}; j <= ${STREAK_TAPS}; j++) {
+      float d = float(j) * uStreakStep;
+      s += exp(-abs(d) / uStreakL) * pt(uv + vec2(d / hsf.x, 0.0), lod);
+    }
+    fx += softLimit(uStreak * ${FX_GAIN.streak.toFixed(3)} * (uStreakStep * uStreakStep / (2.0 * uStreakL)) * s * vec3(${STREAK_TINT.map((v) => v.toFixed(2)).join(', ')}));
+  }
+  if (uStar > 0.0) {
+    float lod = log2(uStarStep);
+    vec3 s = vec3(0.0);
+    for (int m = 0; m < 16; m++) {
+      if (m >= uSpikes) break;
+      float a = 6.2831853 * float(m) / float(uSpikes);
+      vec2 dir = vec2(cos(a), sin(a));
+      for (int j = 1; j <= ${STAR_TAPS}; j++) {
+        float d = float(j) * uStarStep;
+        s += exp(-d / uStarL0) * pt(uv + dir * d / hsf, lod);
+      }
+    }
+    fx += softLimit(uStar * ${FX_GAIN.star.toFixed(3)} * (6.0 / float(uSpikes)) * (uStarStep * uStarStep / uStarL0) * s);
+  }
+  if (uGhosts > 0.0) {
+    vec3 s = vec3(0.0);
+${GHOSTS.map(([scale, tint]) => `    s += vec3(${tint.map((v) => v.toFixed(2)).join(', ')}) * hl(0.5 + (uv - 0.5) * ${scale.toFixed(2)}, 1.5);`).join('\n')}
+    fx += softLimit(uGhosts * ${FX_GAIN.ghosts.toFixed(3)} * s);
+  }
+  if (uFog > 0.0) {
+    // (a few reads round the point, as the mip level's own blocks show at this size)
+    vec3 s = hl(uv, uFogLod) * 0.4;
+    float o = exp2(uFogLod) * 0.5;
+    s += 0.15 * (hl(uv + vec2(o, 0.0) / hsf, uFogLod) + hl(uv - vec2(o, 0.0) / hsf, uFogLod) + hl(uv + vec2(0.0, o) / hsf, uFogLod) + hl(uv - vec2(0.0, o) / hsf, uFogLod));
+    fx += softLimit(uFog * ${FX_GAIN.fog.toFixed(3)} * s);
+  }
+  if (uDirtAmount > 0.0) {
+    ivec2 dsz = textureSize(uDirt, 0);
+    float dm = texelFetch(uDirt, min(ivec2(uv * vec2(dsz)), dsz - 1), 0).r;
+    fx += softLimit(uDirtAmount * ${FX_GAIN.dirt.toFixed(3)} * hl(uv, 4.0) * dm);
+  }
+  outColor = vec4(fx, 1.0);
 }`;
 
 // Largest blur radius in each 8 x 8 tile (uPass 0), then the largest within
@@ -3077,6 +3191,7 @@ export class GpuRenderer {
       focusSpread: program(gl, FOCUS_SPREAD),
       dofGather: program(gl, DOF_GATHER),
       dofTiles: program(gl, DOF_TILES),
+      bokehFx: program(gl, BOKEH_FX),
       merge: program(gl, MERGE_PASS),
       detailNr: program(gl, DETAIL_NR),
       detailSpeckle: program(gl, DETAIL_SPECKLE),
@@ -4352,6 +4467,74 @@ export class GpuRenderer {
     gl.uniform1i(P.u.uPass, half ? 2 : 0);
     gl.uniform1f(P.u.uHalfFrom, halfFrom);
     this.target(out, w, h);
+    this.draw();
+    return out;
+  }
+
+  // Lens effects around bright points (core/bokehfx.js fxOptions gives `fx`): a new texture, the picture with their light added.
+  bokehFx(src, w, h, fx, clip = 1) {
+    const gl = this.gl;
+    const hw = Math.ceil(w / 2);
+    const hh = Math.ceil(h / 2);
+    const G = fxGeometry(fx, hw);
+    const hlTex = this.mipmapped(hw, hh, 'fxHl');
+    const ptTex = this.mipmapped(hw, hh, 'fxPt');
+    const half = this.scratch(hw, hh, 'fxHalf');
+    const out = this.scratch(w, h, 'fxFull');
+    const P = this.programs.bokehFx;
+    gl.useProgram(P.p);
+    gl.uniform1i(P.u.uSrc, 1);
+    gl.uniform1i(P.u.uHl, 2);
+    gl.uniform1i(P.u.uDirt, 3);
+    gl.uniform1i(P.u.uPt, 4);
+    gl.uniform1f(P.u.uClip, clip);
+    // pass 0: the bright parts, half size, with their mip levels
+    gl.uniform1i(P.u.uPass, 0);
+    // (the bright parts' texture was an input of the last call: it is drawn into now, so it must not be bound as one)
+    this.bindTex(2, src);
+    this.bindTex(3, src);
+    this.bindTex(4, src);
+    this.target(hlTex, hw, hh);
+    this.bindTex(1, src);
+    this.draw();
+    gl.bindTexture(gl.TEXTURE_2D, hlTex);
+    gl.generateMipmap(gl.TEXTURE_2D);
+    // pass 3: the small peaks, with their mip levels, for the streaks and spikes
+    if (fx.streak > 0 || fx.star > 0) {
+      gl.uniform1i(P.u.uPass, 3);
+      this.bindTex(4, src);
+      this.target(ptTex, hw, hh);
+      this.bindTex(2, hlTex);
+      this.draw();
+      gl.bindTexture(gl.TEXTURE_2D, ptTex);
+      gl.generateMipmap(gl.TEXTURE_2D);
+    }
+    // pass 1: the effects' light
+    if (fx.dirt > 0) {
+      if (!this.fxDirtTex) this.fxDirtTex = this.uploadR32F(null, null, dirtMap(), DIRT_SIZE, DIRT_SIZE);
+    }
+    gl.uniform1i(P.u.uPass, 1);
+    gl.uniform1f(P.u.uStreak, fx.streak);
+    gl.uniform1f(P.u.uStreakL, G.L);
+    gl.uniform1f(P.u.uStreakStep, G.step);
+    gl.uniform1f(P.u.uStar, fx.star);
+    gl.uniform1i(P.u.uSpikes, fx.spikes);
+    gl.uniform1f(P.u.uStarL0, G.L0);
+    gl.uniform1f(P.u.uStarStep, G.starStep);
+    gl.uniform1f(P.u.uGhosts, fx.ghosts);
+    gl.uniform1f(P.u.uFog, fx.fog);
+    gl.uniform1f(P.u.uFogLod, G.fogLod);
+    gl.uniform1f(P.u.uDirtAmount, fx.dirt);
+    this.target(half, hw, hh);
+    this.bindTex(2, hlTex);
+    this.bindTex(3, this.fxDirtTex || hlTex);
+    this.bindTex(4, ptTex);
+    this.draw();
+    // pass 2: added to the picture
+    gl.uniform1i(P.u.uPass, 2);
+    this.target(out, w, h);
+    this.bindTex(1, src);
+    this.bindTex(2, half);
     this.draw();
     return out;
   }
