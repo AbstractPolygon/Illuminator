@@ -27,6 +27,7 @@ import { methodDepthModel, readDepthModel } from './core/depthmodels.js';
 import { releaseDepthSession, runDepthModel, fitModelDepth, shapeModelDepth, fuseModelDepth } from './core/depthmodel.js';
 import { depthStats, fillNonFinite, shapeDepthContrast, setDepthStyle, estimateDepth, estimateDepthPooled, poolable, DEPTH_FAST_SEARCH, focusAtPoint, smoothDepth, finishDepth, depthGuide, depthColorGuide, luminance, brightnessFloor, DEPTH_SEARCH, DEPTH_LCOST, DEPTH_CBCA, DEPTH_TRWS, DEPTH_COARSE, DEPTH_STEP, DEPTH_REGIONS, combineCoarse } from './core/depth.js';
 import { applyDepthOfField, smoothMap } from './core/dof.js';
+import { makeLocalTone, localToneForSize, applyLocalTone, airlight } from './core/localtone.js';
 import { defringe, autoDefringe } from './core/defringe.js';
 import { makeLook, whiteBalanceGains, DEFAULT_KELVIN, solveWhiteBalance, autoWhiteBalance } from './core/color.js';
 import { makeDetail, applyDetail, detailForSize, engineUnsharp, engineUsmMap, totalGain } from './core/detail.js';
@@ -293,6 +294,7 @@ function updateColor() {
   state.wbGains = customWbGains(s) || engineAutoGains(s) || state.wbGains;
   state.look = makeLook(s);
   state.detail = makeDetail({ ...s, engineSharpen: s.engineSharpen ?? !!(state.lf && state.lf.raw && !state.pp) });
+  state.localTone = withAirlight(makeLocalTone(s), center);
   state.lens = lensParams(s.lens, state.lf && state.lf.cam);
   // Local adjustments: the masks that change something (or the one shown).
   const masks = parseMasks(s.local && s.local.masks);
@@ -468,6 +470,8 @@ function engineNrOn(cs, w) {
 function toPixels(rgb, w, h, ctx, cs = state, distortionCorrected = false, onGpu = false, skipNr = false) {
   // (from the GPU path the detail pass, the spatial effects and the depth of field are already in the picture)
   if (!onGpu) rgb = applyDetail(rgb, w, h, detailForSize(state.detail, w, lensColumns()));
+  // Texture, Clarity and Dehaze (core/localtone.js); from the GPU path already in the picture
+  if (!onGpu) rgb = applyLocalTone(rgb, w, h, localToneForSize(state.localTone, w, lensColumns()));
   // (retouching: the spots, before the rest; from the GPU path they are already in the picture)
   if (!onGpu) rgb = applySpots(rgb, w, h, spotsFor(ctx));
   rgb = subtractVeil(rgb, w, h, cs.veil, cs.veilAmount);
@@ -629,6 +633,7 @@ async function presentGpu(id, tex, w, h, { alpha = 0, dof = 0, bokeh = {}, pxPer
     });
   }
   if (state.detail) tex = gpu.details(tex, w, h, detailForSize(state.detail, w, lensColumns()));
+  if (state.localTone) tex = gpu.localTone(tex, w, h, localToneForSize(state.localTone, w, lensColumns()));
   const spots = spotsFor(masks);
   if (spots && spots.length) tex = gpu.retouch(tex, w, h, packSpots(spots));
   const packed = packedMasks(masks);
@@ -1367,7 +1372,7 @@ async function refocusFrames({ id, job, alphas, u, v, aperture, dof = 0, bokeh }
 // What the all in focus full sensor picture (before its blur and color pass) depends on: kept by superRes, and looked up by the quick look to see whether the picture can be made again from it.
 function superResBaseKey(scale, passes, u, v, cs) {
   const lensKey = cs.lens ? [cs.lens.k || 0, cs.lens.k2 || 0, cs.lens.edge || 0, cs.lens.zoom || 1] : null;
-  return stillKey(['srbase', scale, passes, u, v, state.detail, lensKey]);
+  return stillKey(['srbase', scale, passes, u, v, state.detail, state.localTone, lensKey]);
 }
 
 async function superResPreview({ id, job, alpha = 0, u = 0, v = 0, aperture = 0, dof = 0, bokeh, color = null, masks = null, scale, passes = 0 }) {
@@ -1489,7 +1494,7 @@ async function superRes({ id, job, alpha = 0, scale, u = 0, v = 0, aperture = 0,
     const lensKey = csKept.lens ? [csKept.lens.k || 0, csKept.lens.k2 || 0, csKept.lens.edge || 0, csKept.lens.zoom || 1] : null;
     const packedKept = packedMasks(stillCtx);
     const { W: keptW, H: keptH } = superResParams(sampler, { scale });
-    const keyParts = ['sr', scale, passes, alpha, u, v, aperture, dof, bokeh || null, state.detail, packedKept && packedKept.spatial ? packedKept : null, state.spotsKey, lensKey];
+    const keyParts = ['sr', scale, passes, alpha, u, v, aperture, dof, bokeh || null, state.detail, state.localTone, packedKept && packedKept.spatial ? packedKept : null, state.spotsKey, lensKey];
     keepStill = stillKey(keyParts);
     // What the all in focus picture depends on: not the focus, the blur or the effects (only for the depth-based blur, aperture 0).
     if (allInFocus) {
@@ -1946,7 +1951,7 @@ async function view({ id, u, v, alpha = 0, aperture = 0, dof = 0, bokeh, draft =
     // picture instead of rendering it again.
     if (dof > 0 && !(await ensureViewDepth(id))) return { cancelled: true };
     const packed = packedMasks(masks);
-    const key = JSON.stringify([state.gen, asked, alpha, aperture, dof, dof > 0 && draft, bokeh || null, state.settings.mvDenoise, state.detail, packed && packed.spatial ? packed : null, state.spotsKey]);
+    const key = JSON.stringify([state.gen, asked, alpha, aperture, dof, dof > 0 && draft, bokeh || null, state.settings.mvDenoise, state.detail, state.localTone, packed && packed.spatial ? packed : null, state.spotsKey]);
     // The GPU time of each view, for the photo info (where available).
     const message = { id, type: 'result', gpuMs: state.gpu.gpuMs() };
     if (holes) {
@@ -3609,6 +3614,14 @@ async function buildProcessed(lf) {
   return new ProcessedPicture({ kind: stack.kind, source: stack.source, images, depth, pitchRatio: stack.pitchRatio });
 }
 
+// Dehaze needs the haze's color (core/localtone.js airlight): measured on the middle view, once per picture (kept with the array it came from).
+let airlightOf = { src: null, air: null };
+function withAirlight(p, center) {
+  if (!p || !p.dehaze || !center) return p;
+  if (airlightOf.src !== center) airlightOf = { src: center, air: airlight(center) };
+  return { ...p, air: airlightOf.air };
+}
+
 // Processed images are already developed (sRGB): only the color sliders
 // apply, with white balance relative to how the picture was rendered.
 function updateProcessedColor() {
@@ -3627,6 +3640,7 @@ function updateProcessedColor() {
   state.lytro = null;
   state.look = makeLook(s);
   state.detail = makeDetail({ ...s, engineSharpen: s.engineSharpen ?? !!(state.lf && state.lf.raw && !state.pp) });
+  state.localTone = withAirlight(makeLocalTone(s), center);
   applyAutoDefringe(center, pp.width, pp.height);
 }
 

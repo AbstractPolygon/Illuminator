@@ -27,6 +27,12 @@ Exported pictures that Lytro Desktop finished already (`.LFP` files without a li
 
 *Exposure* (EV), *Contrast*, *Highlights*, *Shadows*, *Whites* and *Blacks*.
 
+*Texture*, *Clarity* and *Dehaze* work on neighborhoods of the picture, not single pixels, and keep each pixel's color:
+
+- *Texture* brings out fine detail and surface texture (skin, fabric, foliage); below 0 it smooths it.
+- *Clarity* adds punch to mid-size detail, mostly in the midtones, so shadows and highlights are not crushed; below 0 it softens it.
+- *Dehaze* takes out haze and fog where they lie: the haze's color is measured from the photo (its haziest, brightest part), and the parts with the most haze gain the most contrast and color back. Below 0 it adds haze of that color.
+
 Blown-out highlights keep more detail than the sensor's middle pixels hold: the edge of each microlens image is darker (vignetting), so it often still holds a bright area the middle lost, and raw photos take those areas from there. Lower *Exposure* or *Highlights* to bring that detail into view.
 
 ## Tone Curve
