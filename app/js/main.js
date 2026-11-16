@@ -2672,7 +2672,7 @@ async function renderAtPhotoSize() {
   if (renderingAtSize || !state.lastImage || state.lastImage.pair || state.mode !== 'camera') return;
   const k = +$('photo-size').value || 1;
   if (!(k > 1)) {
-    showNotice('Photo Size is Native', 'Choose a larger Photo Size (Render Settings > Photo) to enlarge the picture.');
+    showNotice('Photo Size is Native', 'Choose a larger Photo size (Render Settings > Upscaling) to enlarge the picture.');
     return;
   }
   const model = methodModel($('upscale-method').value);

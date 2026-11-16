@@ -1208,6 +1208,15 @@
         </details>
         <details class="subpanel">
           <summary><h3>Upscaling</h3></summary>
+          <label title="How much saved photos are enlarged, with or without Full sensor; Native saves the picture as rendered">Photo size
+            <select id="photo-size">
+              <option value="1" selected>Native</option>
+              <option value="1.5">1.5×</option>
+              <option value="2">2×</option>
+              <option value="3">3×</option>
+              <option value="4">4×</option>
+            </select>
+          </label>
           <label title="How saved pictures are enlarged: Lanczos is crisp, Smooth is soft, FSR 1 follows edges and sharpens">Method
             <select id="upscale-method" title="Downloaded upscaling models (Settings) appear here; they enlarge saved photos only">
               <option value="lanczos" selected>Lanczos (sharp)</option>
@@ -1231,19 +1240,9 @@
             <input id="upscale-grain" type="range" min="0" max="100" step="1" value="0" data-default="0">
           </label>
           <input id="upscale-params" type="hidden" value="{}" data-text>
-          <p class="hint">Used for photos and video. Enlarging adds pixels, not detail. For the most detail, turn on Full sensor under Quality.</p>
         </details>
         <details class="subpanel">
           <summary><h3>Photo</h3></summary>
-          <label title="Saved photos are enlarged by this much with the chosen Upscaling; Native saves the picture as rendered">Size
-            <select id="photo-size">
-              <option value="1" selected>Native</option>
-              <option value="1.5">1.5×</option>
-              <option value="2">2×</option>
-              <option value="3">3×</option>
-              <option value="4">4×</option>
-            </select>
-          </label>
           <label title="PNG is lossless; JPEG is smaller; the HDR formats keep the full range of light (sRGB)">File format
             <select id="photo-format">
               <option value="png" selected>PNG</option>

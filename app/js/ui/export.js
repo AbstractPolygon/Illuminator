@@ -18,8 +18,8 @@ export function initExport({ state, $, canvas, ctx, layoutCanvas, showsCamera, s
     return state.current ? state.current.name.replace(/\.[^.]+$/, '') : 'lytro';
   }
 
-  // Saved photos and 3D images are enlarged by Render Settings > Photo >
-  // Size, and video frames to Video > Size, both with Upscaling.
+  // Saved photos and 3D images are enlarged by Render Settings > Upscaling >
+  // Photo size, and video frames to Video > Size, both with Upscaling.
   function upscaleSettings() {
     // (an upscaling model works when a photo is saved; the picture on show, videos and 3D images use Lanczos)
     const method = $('upscale-method').value;
