@@ -17,7 +17,7 @@ The shape of out-of-focus highlights: *Natural*, *Optical (softer)*, *Circle*, *
 - *Size* (all shapes): scales the bokeh balls in the picture, 25 to 400 percent of the lens's blur (100 by default). It can be keyframed.
 - *Spots* (the same shapes): dust specks and a few faint bubble rings inside each bokeh ball, as from dust on the lens's glass (0, none, by default).
 - *Bokeh character* (a group under the shapes, for Circle, Blades, Star, Heart and Custom image; all 0 by default):
-  - *Cat's-eye*: near the frame's edge the lens's barrel clips each ball into a lens shape that is narrow toward the center of the frame, as with fast lenses (the effect of vignetting on bokeh balls). The preview shows the ball as it looks near a corner. *Swirl* (with some Cat's-eye) turns those lenses around the center, for swirly bokeh.
+  - *Cat's-eye*: near the frame's edge the lens's barrel clips each ball into a lens shape that is narrow toward the center of the frame, as with fast lenses (the effect of vignetting on bokeh balls). The preview shows the ball as it looks near a corner. *Swirl* turns those lenses around the center, for swirly bokeh (moving it with no Cat's-eye brings some in).
   - *Edge*: a brighter rim on each ball (above 0) or a darker, softer edge (below 0). *Front / back* adds to the rim for what is behind the focus and takes from it in front (above 0), or the reverse (below 0): many lenses give a bright-rimmed background and a soft-edged foreground.
   - *Bubble*: soap bubble bokeh: a clear center and a bright rim with rainbow colors.
   - *Hole*: a dark hole in the middle of each ball, as from a mirror lens (donut bokeh).

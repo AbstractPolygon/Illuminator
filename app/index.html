@@ -422,8 +422,8 @@
               <option value="combined">Blended</option>
             </select>
           </label>
-          <label id="depth-model-blend-row" title="How much of the depth model's result is used. 0: measured depth alone, 100: model alone" hidden>Model blend <output for="depth-model-blend" data-for="depth-model-blend">70</output>
-            <input id="depth-model-blend" type="range" min="0" max="100" step="5" value="70" data-default="70">
+          <label id="depth-model-blend-row" title="How much of the depth model's result is used. 0: measured depth alone, 100: model alone" hidden>Model blend <output for="depth-model-blend" data-for="depth-model-blend">100</output>
+            <input id="depth-model-blend" type="range" min="0" max="100" step="5" value="100" data-default="100">
           </label>
           <label id="depth-model-smooth-row" title="Blurs the model's depth before it is fitted: gentler where it is noisy or blocky. 0: none" hidden>Model smoothing <output data-for="depth-model-smooth" for="depth-model-smooth">0</output>
             <input id="depth-model-smooth" type="range" min="0" max="100" step="5" value="0" data-default="0">
@@ -606,7 +606,7 @@
             <label id="bokeh-cat-row" title="Balls near the frame's edge are clipped into lens shapes, like a fast lens's cat's-eye bokeh">Cat's-eye <output data-for="bokeh-cat" for="bokeh-cat">0</output>
               <input id="bokeh-cat" type="range" min="0" max="100" step="1" value="0" data-default="0">
             </label>
-            <label id="bokeh-swirl-row" title="Turns the cat's-eye lenses around the frame's center, for swirly bokeh">Swirl <output data-for="bokeh-swirl" for="bokeh-swirl">0</output>
+            <label id="bokeh-swirl-row" title="Swirly bokeh: turns the cat's-eye lenses around the center (brings in some Cat's-eye)">Swirl <output data-for="bokeh-swirl" for="bokeh-swirl">0</output>
               <input id="bokeh-swirl" type="range" min="0" max="100" step="1" value="0" data-default="0">
             </label>
             <label id="bokeh-edge-row" title="A brighter rim (above 0) or a darker edge (below 0) on each ball">Edge <output data-for="bokeh-edge" for="bokeh-edge">0</output>
