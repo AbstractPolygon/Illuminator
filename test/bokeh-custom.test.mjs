@@ -145,3 +145,17 @@ test("the ball's character: edge, bubble, hot spot and hole keep the light, and 
   const edgeIdx = 3 * (60 * 121 + 60 + 48);
   assert.ok(rgbBall[edgeIdx + 1] > 1.5 * rgbBall[edgeIdx], 'green past the rim of red and blue, behind the focus');
 });
+
+test("the star's outer radius sets how far its tips reach", () => {
+  const full = bokehKernel({ shape: 'star', points: 5, inner: 0.45 });
+  const half = bokehKernel({ shape: 'star', points: 5, inner: 0.45, outer: 0.5 });
+  assert.equal(full.image, 'star:5:0.450');
+  assert.equal(half.image, 'star:5:0.450:0.500', 'its own picture');
+  // the tip (straight up) reaches nearly to the edge, or half way
+  assert.ok(maskValue(full, 0, -0.9) > 0.5 && maskValue(half, 0, -0.9) < 0.1);
+  assert.ok(maskValue(half, 0, -0.4) > 0.5);
+  assert.ok(half.area < 0.4 * full.area, `${half.area} ${full.area}`);
+  // out of range values are kept to 0.3 .. 1
+  assert.equal(bokehKernel({ shape: 'star', outer: 0.01 }).image, 'star:5:0.450:0.300');
+  assert.equal(bokehKernel({ shape: 'star', outer: 9 }).image, 'star:5:0.450');
+});

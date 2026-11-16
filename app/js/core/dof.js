@@ -65,10 +65,11 @@ export function decodeBokehImage(text) {
 // is a Gaussian glow).
 export const OPTICAL_SOFT = 0.25;
 // The built-in drawn shapes, made as a custom shape's image is (the star with a tip up, the heart with its point down): Star (points, inner: the notches' radius over
-// the tips', 0.1..0.9) and Heart (width: 0.6..1.4 of its usual width).
+// the tips', 0.1..0.9, and outer: how far the tips reach, as a share of the ball's radius, 0.3..1) and Heart (width: 0.6..1.4 of its usual width).
 const drawn = new Map();
-export function drawnShape(shape, { points = 5, inner = 0.45, width = 1 } = {}) {
-  const key = shape === 'star' ? `star:${Math.round(points)}:${inner.toFixed(3)}` : `heart:${width.toFixed(3)}`;
+export function drawnShape(shape, { points = 5, inner = 0.45, width = 1, outer = 1 } = {}) {
+  const ro = Math.max(0.3, Math.min(1, outer));
+  const key = shape === 'star' ? `star:${Math.round(points)}:${inner.toFixed(3)}${ro < 1 ? `:${ro.toFixed(3)}` : ''}` : `heart:${width.toFixed(3)}`;
   if (drawn.has(key)) return drawn.get(key);
   const N = BOKEH_IMAGE_SIZE;
   const mask = new Float32Array(N * N);
@@ -76,7 +77,7 @@ export function drawnShape(shape, { points = 5, inner = 0.45, width = 1 } = {}) 
   const ri = Math.max(0.1, Math.min(0.9, inner));
   const pts = [];
   for (let i = 0; i < 2 * n; i++) {
-    const r = i % 2 ? ri : 1;
+    const r = (i % 2 ? ri : 1) * ro;
     const a = (i * Math.PI) / n;
     pts.push([Math.sin(a) * r, -Math.cos(a) * r]);
   }
@@ -116,7 +117,7 @@ export function drawnShape(shape, { points = 5, inner = 0.45, width = 1 } = {}) 
 }
 
 // What the shape settings of the bokeh are (every one that decides how a ball looks), picked out of a bokeh options object: for the places that hand them on.
-export const SHAPE_KEYS = ['shape', 'blades', 'oval', 'rotation', 'onion', 'image', 'points', 'inner', 'width', 'irregular', 'ringBlur', 'spots', 'grain', 'diffraction',
+export const SHAPE_KEYS = ['shape', 'blades', 'oval', 'rotation', 'onion', 'image', 'points', 'inner', 'outer', 'width', 'irregular', 'ringBlur', 'spots', 'grain', 'diffraction',
   'catEye', 'swirl', 'edge', 'edgeFB', 'bubble', 'hole', 'fringe', 'hot'];
 export function shapeOptions(bokeh = {}) {
   const out = {};
@@ -179,9 +180,9 @@ export function catEyeAt(k, d, ang) {
   return { c, ux: Math.cos(ang + phi), uy: Math.sin(ang + phi), ratio: c > 0 ? (2 / Math.PI) * (Math.acos(c) - c * Math.sqrt(1 - c * c)) : 1 };
 }
 
-export function bokehKernel({ shape = 'smooth', blades = 6, oval = 0, rotation = 0, onion = 0, image = '', points = 5, inner = 0.45, width = 1, irregular = 0.5, ringBlur = 0.3, spots = 0, grain = 0, diffraction = 0,
+export function bokehKernel({ shape = 'smooth', blades = 6, oval = 0, rotation = 0, onion = 0, image = '', points = 5, inner = 0.45, outer = 1, width = 1, irregular = 0.5, ringBlur = 0.3, spots = 0, grain = 0, diffraction = 0,
   catEye = 0, swirl = 0, edge = 0, edgeFB = 0, bubble = 0, hole = 0, fringe = 0, hot = 0 } = {}) {
-  const custom = shape === 'custom' ? decodeBokehImage(image) : shape === 'star' || shape === 'heart' ? drawnShape(shape, { points, inner, width }) : null;
+  const custom = shape === 'custom' ? decodeBokehImage(image) : shape === 'star' || shape === 'heart' ? drawnShape(shape, { points, inner, width, outer }) : null;
   const optical = shape === 'optical';
   const kind = custom ? 3 : shape === 'blades' || shape === 'hexagon' ? 2 : shape === 'circle' || shape === 'custom' || optical ? 1 : 0;
   // (what names the shape's picture, so the graphics card uploads it again only when it changes)

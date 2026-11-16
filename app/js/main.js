@@ -1603,7 +1603,7 @@ function focusField(v = {}) {
 }
 
 // Bokeh options for the worker: shape and highlights, and the focus field.
-const BOKEH_SHAPE = ['bokeh-blades', 'bokeh-oval', 'bokeh-rotation', 'bokeh-onion', 'bokeh-points', 'bokeh-inner', 'bokeh-width', 'bokeh-irregular', 'bokeh-ring-blur', 'bokeh-spots', 'bokeh-cat', 'bokeh-swirl', 'bokeh-edge', 'bokeh-edge-fb', 'bokeh-bubble', 'bokeh-hole', 'bokeh-fringe', 'bokeh-hot', 'bokeh-grain', 'bokeh-diffraction', 'bokeh-streak', 'bokeh-streak-len', 'bokeh-star', 'bokeh-spikes', 'bokeh-ghosts', 'bokeh-fog', 'bokeh-dirt'];
+const BOKEH_SHAPE = ['bokeh-blades', 'bokeh-oval', 'bokeh-rotation', 'bokeh-onion', 'bokeh-points', 'bokeh-inner', 'bokeh-width', 'bokeh-irregular', 'bokeh-ring-blur', 'bokeh-spots', 'bokeh-cat', 'bokeh-swirl', 'bokeh-edge', 'bokeh-edge-fb', 'bokeh-bubble', 'bokeh-hole', 'bokeh-fringe', 'bokeh-hot', 'bokeh-grain', 'bokeh-diffraction', 'bokeh-streak', 'bokeh-streak-len', 'bokeh-streak-threshold', 'bokeh-outer', 'bokeh-star', 'bokeh-spikes', 'bokeh-ghosts', 'bokeh-fog', 'bokeh-dirt'];
 function bokehParams(v = {}) {
   const shape = $('bokeh').value === 'natural' ? 'smooth' : $('bokeh').value;
   return {
@@ -1621,6 +1621,7 @@ function bokehParams(v = {}) {
     points: Math.round(v.bokehPoints ?? +$('bokeh-points').value),
     inner: (v.bokehInner ?? +$('bokeh-inner').value) / 100,
     width: (v.bokehWidth ?? +$('bokeh-width').value) / 100,
+    outer: (v.bokehOuter ?? +$('bokeh-outer').value) / 100,
     // the onion skin's irregularity and ring blur, and dust spots (core/dof.js onionMap)
     irregular: (v.bokehIrregular ?? +$('bokeh-irregular').value) / 100,
     ringBlur: (v.bokehRingBlur ?? +$('bokeh-ring-blur').value) / 100,
@@ -1639,6 +1640,7 @@ function bokehParams(v = {}) {
     // Lens effects round bright points (core/bokehfx.js): independent of the ball's shape
     fxStreak: (v.bokehStreak ?? +$('bokeh-streak').value) / 100,
     fxStreakLen: (v.bokehStreakLen ?? +$('bokeh-streak-len').value) / 100,
+    fxStreakThreshold: (v.bokehStreakThreshold ?? +$('bokeh-streak-threshold').value) / 100,
     fxStar: (v.bokehStar ?? +$('bokeh-star').value) / 100,
     fxSpikes: Math.round((v.bokehSpikes ?? +$('bokeh-spikes').value)),
     fxGhosts: (v.bokehGhosts ?? +$('bokeh-ghosts').value) / 100,
@@ -3777,6 +3779,7 @@ function showBokehShape() {
   $('bokeh-blades-row').hidden = shape !== 'blades';
   $('bokeh-points-row').hidden = shape !== 'star';
   $('bokeh-inner-row').hidden = shape !== 'star';
+  $('bokeh-outer-row').hidden = shape !== 'star';
   $('bokeh-width-row').hidden = shape !== 'heart';
   $('bokeh-oval-row').hidden = shape !== 'circle';
   $('bokeh-rotation-row').hidden = !shaped;
@@ -3790,6 +3793,7 @@ function showBokehShape() {
   $('bokeh-swirl-row').hidden = !(+$('bokeh-cat').value > 0);
   // (the streak's length and the starburst's spikes with some of each)
   $('bokeh-streak-len-row').hidden = !(+$('bokeh-streak').value > 0);
+  $('bokeh-streak-threshold-row').hidden = !(+$('bokeh-streak').value > 0);
   $('bokeh-spikes-row').hidden = !(+$('bokeh-star').value > 0);
   $('bokeh-image-row').hidden = shape !== 'custom';
   $('bokeh-image-btn').textContent = $('bokeh-image').value ? 'Replace shape image…' : 'Load shape image…';
