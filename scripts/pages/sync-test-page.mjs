@@ -5,7 +5,7 @@
 // Copies app/js/**, app/luts/**, app/vendor/**, app/models/** and app/styles.css into MIRROR_DIR when they differ (a file over PART_BYTES, which an Artifact page cannot
 // keep whole, as parts: name.part0.wasm, name.part1.wasm, ... and name.parts.json, which the app puts back together, core/bigfile.js), rebuilds MIRROR_DIR/page.html from app/index.html (the page body, the style sheet link and
 // js/share.js, the Artifact page's own script), and prints the changed paths as JSON: pass them as `files` (with `root` = MIRROR_DIR and the same list as `overwrite_unread`)
-// when publishing page.html. Files that exist only in MIRROR_DIR (js/share.js) are left alone.
+// when publishing page.html. Files that exist only in MIRROR_DIR (js/share.js) are left alone. With --all it prints every file of the mirror instead.
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -55,4 +55,19 @@ if (!fs.existsSync(pagePath) || fs.readFileSync(pagePath, 'utf8') !== page) {
   fs.writeFileSync(pagePath, page);
   console.error('page.html rebuilt');
 }
-console.log(JSON.stringify(changed));
+// --all: every file of the mirror (but page.html), to check against the page's published files (Artifact list, scope files): a file that never changed since the
+// page was made is never in the changed list, so one the page lacks is only found this way.
+if (process.argv.includes('--all')) {
+  const all = [];
+  const walk = (dir) => {
+    for (const name of fs.readdirSync(path.join(mirror, dir))) {
+      const rel = dir ? `${dir}/${name}` : name;
+      if (fs.statSync(path.join(mirror, rel)).isDirectory()) walk(rel);
+      else if (rel !== 'page.html') all.push(rel);
+    }
+  };
+  walk('');
+  console.log(JSON.stringify(all.sort()));
+} else {
+  console.log(JSON.stringify(changed));
+}
