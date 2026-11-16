@@ -1603,7 +1603,7 @@ function focusField(v = {}) {
 }
 
 // Bokeh options for the worker: shape and highlights, and the focus field.
-const BOKEH_SHAPE = ['bokeh-blades', 'bokeh-oval', 'bokeh-rotation', 'bokeh-onion', 'bokeh-points', 'bokeh-inner', 'bokeh-width'];
+const BOKEH_SHAPE = ['bokeh-blades', 'bokeh-oval', 'bokeh-rotation', 'bokeh-onion', 'bokeh-points', 'bokeh-inner', 'bokeh-width', 'bokeh-irregular', 'bokeh-ring-blur', 'bokeh-spots'];
 function bokehParams(v = {}) {
   const shape = $('bokeh').value === 'natural' ? 'smooth' : $('bokeh').value;
   return {
@@ -1621,6 +1621,10 @@ function bokehParams(v = {}) {
     points: Math.round(v.bokehPoints ?? +$('bokeh-points').value),
     inner: (v.bokehInner ?? +$('bokeh-inner').value) / 100,
     width: (v.bokehWidth ?? +$('bokeh-width').value) / 100,
+    // the onion skin's irregularity and ring blur, and dust spots (core/dof.js onionMap)
+    irregular: (v.bokehIrregular ?? +$('bokeh-irregular').value) / 100,
+    ringBlur: (v.bokehRingBlur ?? +$('bokeh-ring-blur').value) / 100,
+    spots: shape === 'smooth' || shape === 'optical' ? 0 : (v.bokehSpots ?? +$('bokeh-spots').value) / 100,
     ...focusField(v),
   };
 }
@@ -3750,6 +3754,10 @@ function showBokehShape() {
   $('bokeh-oval-row').hidden = shape !== 'circle';
   $('bokeh-rotation-row').hidden = !shaped;
   $('bokeh-onion-row').hidden = !shaped;
+  // (irregularity and ring blur shape the rings, so they show with some Onion)
+  $('bokeh-irregular-row').hidden = !shaped || !(+$('bokeh-onion').value > 0);
+  $('bokeh-ring-blur-row').hidden = !shaped || !(+$('bokeh-onion').value > 0);
+  $('bokeh-spots-row').hidden = !shaped;
   $('bokeh-image-row').hidden = shape !== 'custom';
   $('bokeh-image-btn').textContent = $('bokeh-image').value ? 'Replace shape image…' : 'Load shape image…';
   drawBokehPreview();

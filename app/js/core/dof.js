@@ -115,7 +115,7 @@ export function drawnShape(shape, { points = 5, inner = 0.45, width = 1 } = {}) 
   return out;
 }
 
-export function bokehKernel({ shape = 'smooth', blades = 6, oval = 0, rotation = 0, onion = 0, image = '', points = 5, inner = 0.45, width = 1 } = {}) {
+export function bokehKernel({ shape = 'smooth', blades = 6, oval = 0, rotation = 0, onion = 0, image = '', points = 5, inner = 0.45, width = 1, irregular = 0.5, ringBlur = 0.3, spots = 0 } = {}) {
   const custom = shape === 'custom' ? decodeBokehImage(image) : shape === 'star' || shape === 'heart' ? drawnShape(shape, { points, inner, width }) : null;
   const optical = shape === 'optical';
   const kind = custom ? 3 : shape === 'blades' || shape === 'hexagon' ? 2 : shape === 'circle' || shape === 'custom' || optical ? 1 : 0;
@@ -130,10 +130,50 @@ export function bokehKernel({ shape = 'smooth', blades = 6, oval = 0, rotation =
     cos: Math.cos(a),
     sin: Math.sin(a),
     onion: kind === 0 || optical ? 0 : Math.max(0, Math.min(1, onion)),
+    // the onion skin as a picture (onionMap), with its irregularity, ring blur and dust spots
+    onionMap: kind === 0 || optical ? null : onionMap({ onion: Math.max(0, Math.min(1, onion)), irregular: Math.max(0, Math.min(1, irregular)), blur: Math.max(0, Math.min(1, ringBlur)), spots: Math.max(0, Math.min(1, spots)) }),
     mask: custom ? custom.mask : null,
+    // (how far the outline reaches in each direction, for onion rings that follow it)
+    outline: custom ? outlineOf(custom) : null,
     area: custom ? custom.area : 1,
     image: imageKey,
   };
+}
+
+// How far a drawn or custom shape reaches from its center in each of OUTLINE_STEPS directions (the angle of (x, y) in the shape's own picture, from +x toward +y),
+// in units of the radius: the outermost point still at least half lit. Onion rings are the outline scaled down, so they follow the shape.
+export const OUTLINE_STEPS = 256;
+function outlineOf(shape) {
+  if (shape.outline) return shape.outline;
+  const k = { mask: shape.mask, cos: 1, sin: 0 };
+  const out = new Float32Array(OUTLINE_STEPS);
+  for (let i = 0; i < OUTLINE_STEPS; i++) {
+    const a = (i / OUTLINE_STEPS) * 2 * Math.PI;
+    let last = 0;
+    for (let s = 0; s <= 1.42; s += 1 / 128) if (maskValue(k, Math.cos(a) * s, Math.sin(a) * s) >= 0.5) last = s;
+    out[i] = Math.max(0.05, last);
+  }
+  shape.outline = out;
+  return out;
+}
+
+// A point (x, y) of the ball (units of its radius, already turned with the shape) moved to where it falls on a round ball when the shape is shrunk to fit a
+// circle: rings drawn round on the onion skin then follow the shape (an oval's rings are ovals, a star's are stars).
+export function toDisc(k, x, y) {
+  if (k.kind === 1) return [x / k.aspect, y];
+  const d = Math.hypot(x, y);
+  if (!(d > 1e-9)) return [0, 0];
+  let t;
+  if (k.kind === 2) {
+    t = kernelDistance({ ...k, cos: 1, sin: 0 }, x, y);
+  } else {
+    const a = Math.atan2(y, x);
+    const f = ((a / (2 * Math.PI)) * OUTLINE_STEPS + OUTLINE_STEPS) % OUTLINE_STEPS;
+    const i = Math.floor(f);
+    const R = k.outline[i] * (1 - (f - i)) + k.outline[(i + 1) % OUTLINE_STEPS] * (f - i);
+    t = d / R;
+  }
+  return [(x / d) * t, (y / d) * t];
 }
 
 // A custom shape's light at (x, y) in units of its radius (the image spans -1..1, turned with the rotation): 0..1, bilinear between its pixels.
@@ -177,6 +217,124 @@ export function onionGain(onion, t) {
   const rings = (0.15 + 0.3 * tt) * (0.75 * Math.cos(ph) + 0.25 * Math.cos(2.3 * ph + 1));
   const rim = 0.7 * Math.exp(-(((1 - tt) / 0.07) ** 2));
   return Math.max(0, 1 + onion * (rings + rim));
+}
+
+// The onion skin as a picture (ONION_SIZE square over the ball, -1..1 each way, its center the ball's): the gain of the light at each point, so the rings can be
+// uneven and the ball can carry dust. Settings (each 0..1): onion (how strong the rings are), irregular (rings unevenly spaced, wobbling round the ball and
+// changing strength, with fine grain), blur (the rings softened), spots (dust on the glass: small dark specks, and a few faint bubble rings). Made the same way
+// every time from its settings (a fixed seed), so the picture does not change between renders. null when there is nothing to draw.
+export const ONION_SIZE = 128;
+const onionMaps = new Map();
+export function onionMap({ onion = 0, irregular = 0.5, blur = 0.3, spots = 0 } = {}) {
+  if (!(onion > 0) && !(spots > 0)) return null;
+  const key = [onion, irregular, blur, spots].map((v) => v.toFixed(3)).join(':');
+  if (onionMaps.has(key)) return onionMaps.get(key);
+  const N = ONION_SIZE;
+  let seed = 12345;
+  const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  // Smooth random functions: a few sines with random phases.
+  const waves = (count, top) => Array.from({ length: count }, (_, i) => [1 + Math.floor(rnd() * top) + i, rnd() * 2 * Math.PI, 0.5 + rnd()]);
+  const angular = waves(5, 6);
+  const radial = waves(4, 5);
+  const strength = waves(4, 4);
+  const sum = (ws, x) => ws.reduce((acc, [f, p, a]) => acc + a * Math.sin(f * x + p), 0) / ws.length;
+  const ring = new Float32Array(N * N);
+  for (let y = 0; y < N; y++) {
+    for (let x = 0; x < N; x++) {
+      const X = ((x + 0.5) / N) * 2 - 1;
+      const Y = ((y + 0.5) / N) * 2 - 1;
+      const t = Math.min(1, Math.hypot(X, Y));
+      const th = Math.atan2(Y, X);
+      // the rings' radius wobbles round the ball and their spacing drifts; their strength changes from ring to ring and round the ball
+      const tw = t + irregular * (0.03 * sum(angular, th) * t + 0.04 * sum(radial, 6 * t));
+      const ph = 2 * Math.PI * ONION_RINGS * Math.max(0, tw) ** 1.5;
+      const amp = (0.15 + 0.3 * t) * (1 + irregular * 0.8 * sum(strength, 3 * t + th));
+      const grain = irregular * 0.06 * (rnd() - 0.5);
+      ring[y * N + x] = amp * (0.75 * Math.cos(ph) + 0.25 * Math.cos(2.3 * ph + 1)) + grain;
+    }
+  }
+  // Ring blur: the ring pattern softened (a Gaussian of up to 3% of the ball's width).
+  const sm = blur > 0 ? gaussianMap(ring, N, N, Math.max(0.3, blur * 0.03 * N)) : ring;
+  const map = new Float32Array(N * N);
+  for (let y = 0; y < N; y++) {
+    for (let x = 0; x < N; x++) {
+      const t = Math.min(1, Math.hypot(((x + 0.5) / N) * 2 - 1, ((y + 0.5) / N) * 2 - 1));
+      const rim = 0.7 * Math.exp(-(((1 - t) / 0.07) ** 2));
+      map[y * N + x] = 1 + onion * (sm[y * N + x] + rim);
+    }
+  }
+  // Spots: dark specks of dust (soft discs, 0.5 to 2.5% of the ball's width) and a few faint bubble rings, inside the ball.
+  if (spots > 0) {
+    const count = Math.round(4 + 30 * spots);
+    for (let i = 0; i < count; i++) {
+      const a = rnd() * 2 * Math.PI;
+      const d = Math.sqrt(rnd()) * 0.88;
+      const cx = (Math.cos(a) * d * 0.5 + 0.5) * N;
+      const cy = (Math.sin(a) * d * 0.5 + 0.5) * N;
+      const bubble = rnd() < 0.2;
+      const rad = (bubble ? 0.02 + rnd() * 0.03 : 0.005 + rnd() * 0.02) * N;
+      const depth = (0.25 + 0.5 * rnd()) * Math.min(1, 0.4 + spots);
+      const R = Math.ceil(rad + 3);
+      for (let y = Math.max(0, Math.floor(cy - R)); y < Math.min(N, cy + R); y++) {
+        for (let x = Math.max(0, Math.floor(cx - R)); x < Math.min(N, cx + R); x++) {
+          const q = Math.hypot(x + 0.5 - cx, y + 0.5 - cy);
+          // a speck darkens its disc; a bubble only its outline, a little brighter just inside
+          const k = bubble ? Math.exp(-(((q - rad) / 0.9) ** 2)) - 0.4 * Math.exp(-(((q - rad + 1.5) / 0.9) ** 2)) : Math.max(0, Math.min(1, rad + 0.7 - q));
+          map[y * N + x] *= 1 - depth * k;
+        }
+      }
+    }
+  }
+  for (let i = 0; i < map.length; i++) if (map[i] < 0) map[i] = 0;
+  const out = { map, key };
+  if (onionMaps.size > 8) onionMaps.clear();
+  onionMaps.set(key, out);
+  return out;
+}
+
+// One channel blurred by a Gaussian (separable, edge pixels repeated).
+function gaussianMap(src, w, h, sigma) {
+  const reach = Math.ceil(2.5 * sigma);
+  const k = new Float32Array(2 * reach + 1);
+  let sum = 0;
+  for (let i = -reach; i <= reach; i++) sum += k[i + reach] = Math.exp(-0.5 * (i * i) / (sigma * sigma));
+  for (let i = 0; i < k.length; i++) k[i] /= sum;
+  const tmp = new Float32Array(w * h);
+  const out = new Float32Array(w * h);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    let a = 0;
+    for (let i = -reach; i <= reach; i++) a += k[i + reach] * src[y * w + Math.min(w - 1, Math.max(0, x + i))];
+    tmp[y * w + x] = a;
+  }
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    let a = 0;
+    for (let i = -reach; i <= reach; i++) a += k[i + reach] * tmp[Math.min(h - 1, Math.max(0, y + i)) * w + x];
+    out[y * w + x] = a;
+  }
+  return out;
+}
+
+// The onion skin's gain at (x, y) in units of the ball's radius (bilinear between its pixels; 1 outside it).
+export function onionAt(m, x, y) {
+  const N = ONION_SIZE;
+  const fx = (x * 0.5 + 0.5) * N - 0.5;
+  const fy = (y * 0.5 + 0.5) * N - 0.5;
+  const x0 = Math.max(0, Math.min(N - 2, Math.floor(fx)));
+  const y0 = Math.max(0, Math.min(N - 2, Math.floor(fy)));
+  const tx = Math.max(0, Math.min(1, fx - x0));
+  const ty = Math.max(0, Math.min(1, fy - y0));
+  const v = (xx, yy) => m.map[yy * N + xx];
+  return (v(x0, y0) * (1 - tx) + v(x0 + 1, y0) * tx) * (1 - ty) + (v(x0, y0 + 1) * (1 - tx) + v(x0 + 1, y0 + 1) * tx) * ty;
+}
+
+// Its average round the ball at distance t (for the processor's blur, which can only draw rings).
+export function onionRadial(m, t) {
+  let s = 0;
+  for (let i = 0; i < 32; i++) {
+    const a = (i / 32) * 2 * Math.PI;
+    s += onionAt(m, Math.cos(a) * t, Math.sin(a) * t);
+  }
+  return s / 32;
 }
 
 // Kernel rows at radius r: [dy, x0, x1] spans (inclusive) inside the shape.
@@ -237,10 +395,11 @@ function shapedBlur(src, w, h, r, k, need = null) {
   }
   // Nested shapes [rows, weight]: weight is the ring brightness inside its
   // edge minus the brightness just outside it.
-  const bands = k.onion > 0 ? Math.max(1, Math.min(4 * ONION_RINGS, Math.floor(r / 1.5))) : 1;
+  // (the onion skin's rings, averaged round the ball: the processor's blur draws nested shapes, so it cannot show their wobble or the spots)
+  const bands = k.onionMap ? Math.max(1, Math.min(4 * ONION_RINGS, Math.floor(r / 1.5))) : 1;
   const shapes = [];
   for (let b = bands; b >= 1; b--) {
-    const gain = (t) => (bands > 1 ? onionGain(k.onion, t) : 1);
+    const gain = (t) => (bands > 1 ? onionRadial(k.onionMap, t) : 1);
     const inside = gain((b - 0.5) / bands);
     const outside = b === bands ? 0 : gain((b + 0.5) / bands);
     shapes.push([kernelRows(k, (r * b) / bands), inside - outside]);
@@ -465,17 +624,17 @@ export function bokehBall(k, size, r) {
         const t = Math.hypot(dx, dy) / r;
         v = Math.exp(-2 * t * t);
       } else {
-        let t;
         if (k.kind === 3) {
           v = maskValue(k, dx / r, dy / r);
-          t = Math.hypot(dx, dy) / r;
         } else {
-          t = kernelDistance(k, dx, dy) / r;
+          const t = kernelDistance(k, dx, dy) / r;
           v = Math.max(0, Math.min(1, (r + (k.soft * r) / 2 + 0.5 - t * r) / (k.soft * r + 1)));
-          // (the rings come from the lens's glass, not the blades: round whatever the blades' shape)
-          if (k.kind === 2) t = Math.hypot(dx, dy) / r;
         }
-        if (k.onion > 0 && r > 4) v *= onionGain(k.onion, t);
+        if (k.onionMap && r > 4) {
+          // (turned with the shape, and shrunk with it onto a round ball: the rings follow the shape)
+          const [qx, qy] = toDisc(k, (k.cos * dx + k.sin * dy) / r, (-k.sin * dx + k.cos * dy) / r);
+          v *= onionAt(k.onionMap, qx, qy);
+        }
       }
       out[y * size + x] = v;
       if (v > top) top = v;

@@ -21,7 +21,7 @@ import { ENGINE_USM, engineUsmMap, rangeSigma, chromaSigma, sharpenWindow, HALO_
 import { LOCAL_TONE, textureGain } from '../core/localtone.js';
 import { MAX_MASKS } from '../core/local.js';
 import { MAX_DABS, RING_RADIUS, RING_TAPS } from '../core/retouch.js';
-import { bokehKernel, BOKEH_IMAGE_SIZE, ONION_RINGS } from '../core/dof.js';
+import { bokehKernel, BOKEH_IMAGE_SIZE, ONION_SIZE } from '../core/dof.js';
 import { CHROMA_EDGE } from '../core/render.js';
 import { LYTRO_CURVE, LYTRO_HUE, CURVE_START, CURVE_STEP, ENGINE_SPLINE, FIRST_SPLINE, PROPHOTO, PROPHOTO_INV } from '../core/base.js';
 import { PHASE_BINS, latticeTiles, latticeTables, RAY_DEPTH_TOLERANCE, SR_SHARPEN, LENS_CAL, lensCandidates, lensTable, chooseLensOffsets, EDGE_SNAP, SNAP_CANDIDATES, snapCandidates, DEPTH_STEP_TOLERANCE, DITHER_FIX, BACK_PROJECTION_EDGE, depthEdgeMask, RAY_MATCH, depthFilter } from '../core/superres.js';
@@ -684,6 +684,9 @@ uniform int uBlades;
 uniform float uAspect; // the circle's width to height
 uniform vec2 uRot;     // rotation: cos, sin
 uniform float uOnion;  // onion rings, 0..1
+uniform sampler2D uOnionTex;  // the onion skin (core/dof.js onionMap: its gain over the ball, R32F)
+uniform sampler2D uOutline;   // a drawn or custom shape's reach in each direction (core/dof.js OUTLINE_STEPS x 1, R32F)
+uniform int uOnionOn;
 uniform float uSoft;   // the edge's width, a share of the radius (Optical bokeh)
 uniform int uPass;     // 0 full size, 1 half size, 2 full size with half size
 uniform float uHalfFrom;
@@ -719,14 +722,37 @@ float maskAt(vec2 q) {
   return v;
 }
 
-// Onion rings at t (0 center, 1 edge): as onionGain in core/dof.js.
-float onionGain(float t) {
-  t = clamp(t, 0.0, 1.0);
-  float ph = 6.2831853 * ${ONION_RINGS}.0 * pow(t, 1.5);
-  float rings = (0.15 + 0.3 * t) * (0.75 * cos(ph) + 0.25 * cos(2.3 * ph + 1.0));
-  float e = (1.0 - t) / 0.07;
-  float rim = 0.7 * exp(-e * e);
-  return max(0.0, 1.0 + uOnion * (rings + rim));
+// The onion skin's gain at q (units of the ball's radius, already turned): its picture (core/dof.js onionMap) read bilinearly by hand; 1 outside the ball.
+float onionAt(vec2 q) {
+  ivec2 n = textureSize(uOnionTex, 0);
+  vec2 f = (q * 0.5 + 0.5) * vec2(n) - 0.5;
+  ivec2 i0 = clamp(ivec2(floor(f)), ivec2(0), n - 2);
+  vec2 t = clamp(f - vec2(i0), 0.0, 1.0);
+  float a = texelFetch(uOnionTex, i0, 0).r;
+  float b = texelFetch(uOnionTex, i0 + ivec2(1, 0), 0).r;
+  float c = texelFetch(uOnionTex, i0 + ivec2(0, 1), 0).r;
+  float d = texelFetch(uOnionTex, i0 + ivec2(1, 1), 0).r;
+  return mix(mix(a, b, t.x), mix(c, d, t.x), t.y);
+}
+
+// q (units of the radius, turned with the shape) moved onto a round ball as the shape shrinks to fit one (core/dof.js toDisc): round rings then follow the shape.
+vec2 toDisc(vec2 q) {
+  if (uShape == 1) return vec2(q.x / uAspect, q.y);
+  float d = length(q);
+  if (d < 1e-6) return vec2(0.0);
+  float t;
+  if (uShape == 2) {
+    float seg = 6.2831853 / float(uBlades);
+    float m = mod(atan(q.x, q.y), seg) - 0.5 * seg;
+    t = d * cos(m) / cos(0.5 * seg);
+  } else {
+    int n = textureSize(uOutline, 0).x;
+    float f = mod(atan(q.y, q.x) / 6.2831853 * float(n) + float(n), float(n));
+    int i = int(floor(f));
+    float R = mix(texelFetch(uOutline, ivec2(i, 0), 0).r, texelFetch(uOutline, ivec2((i + 1) % n, 0), 0).r, f - float(i));
+    t = d / R;
+  }
+  return q / d * t;
 }
 
 float weightFor(float dist, float r) {
@@ -742,8 +768,9 @@ float weightFor(float dist, float r) {
 float weightAt(vec2 o, float dist, float r) {
   if (uShape != 3) {
     float w = weightFor(dist, r);
-    // Onion rings, once the ball is big enough to show them (round whatever the blades' shape: they come from the lens's glass)
-    if (uOnion > 0.0 && uShape != 0 && r > 4.0) w *= onionGain((uShape == 2 ? length(o) : dist) / max(r, 0.5));
+    // The onion skin, once the ball is big enough to show it: turned with the shape and shrunk with it onto a round ball, so its rings follow the shape.
+    // (read at o, as the blades' polygon itself is in shapeDist, so the rings line up with it)
+    if (uOnionOn == 1 && uShape != 0 && r > 4.0) w *= onionAt(toDisc(vec2(uRot.x * o.x + uRot.y * o.y, -uRot.y * o.x + uRot.x * o.y) / max(r, 0.5)));
     return w;
   }
   r = max(r, 0.5);
@@ -752,7 +779,7 @@ float weightAt(vec2 o, float dist, float r) {
   // (o runs from this pixel to the tap; the light goes from the tap to this pixel, so the shape is read at -o)
   vec2 q = -vec2(uRot.x * o.x + uRot.y * o.y, -uRot.y * o.x + uRot.x * o.y) / r;
   float inside = maskAt(q);
-  if (uOnion > 0.0 && r > 4.0) inside *= onionGain(d / r);
+  if (uOnionOn == 1 && r > 4.0) inside *= onionAt(toDisc(q));
   return inside / (r * r * uKernelArea);
 }
 
@@ -4100,7 +4127,7 @@ export class GpuRenderer {
     return mask;
   }
 
-  depthOfField(src, w, h, { focus, strength, shape = 'smooth', blades = 6, oval = 0, rotation = 0, onion = 0, image = '', points = 5, inner = 0.45, width = 1, highlights = 0, clip = 1, tilt = [0, 0], point = [0.5, 0.5], spread = 0, smooth = 0, feather = 0, draft = false, sharp = null }) {
+  depthOfField(src, w, h, { focus, strength, shape = 'smooth', blades = 6, oval = 0, rotation = 0, onion = 0, image = '', points = 5, inner = 0.45, width = 1, irregular = 0.5, ringBlur = 0.3, spots = 0, highlights = 0, clip = 1, tilt = [0, 0], point = [0.5, 0.5], spread = 0, smooth = 0, feather = 0, draft = false, sharp = null }) {
     const gl = this.gl;
     const prep = this.mipmapped(w, h, 'dofPrep');
     const out = this.scratch(w, h, 'dofOut');
@@ -4150,7 +4177,7 @@ export class GpuRenderer {
     const reach = Math.abs(tilt[0]) + Math.abs(tilt[1]);
     const maxR = Math.min(64, strength * Math.max(0, Math.max(Math.abs(hi - focus), Math.abs(lo - focus)) + reach - spread));
     const taps = Math.max(32, Math.min(draft ? 160 : MAX_TAPS, Math.round(maxR * maxR * 1.2)));
-    const kernel = bokehKernel({ shape, blades, oval, rotation, onion, image, points, inner, width });
+    const kernel = bokehKernel({ shape, blades, oval, rotation, onion, image, points, inner, width, irregular, ringBlur, spots });
     const shapeId = kernel.kind;
     // How far past its own radius a blur still adds light (the smooth shape
     // fades out gradually).
@@ -4203,6 +4230,26 @@ export class GpuRenderer {
     }
     gl.uniform1i(P.u.uKernel, 4);
     this.bindTex(4, this.bokehTex);
+    // The onion skin's picture (kept while its settings stay the same; a 1 x 1 stand-in when there is none).
+    const onionKey = kernel.onionMap ? kernel.onionMap.key : '';
+    if (!this.onionTex || this.onionKey !== onionKey) {
+      const N = kernel.onionMap ? ONION_SIZE : 1;
+      this.onionTex = this.uploadR32F(this.onionTex, this.onionTexSize, kernel.onionMap ? kernel.onionMap.map : new Float32Array([1]), N, N);
+      this.onionTexSize = [N, N];
+      this.onionKey = onionKey;
+    }
+    gl.uniform1i(P.u.uOnionTex, 6);
+    this.bindTex(6, this.onionTex);
+    gl.uniform1i(P.u.uOnionOn, kernel.onionMap ? 1 : 0);
+    // The shape's outline (with its picture: the same key), for rings that follow it.
+    if (!this.outlineTex || this.outlineKey !== kernel.image) {
+      const n = kernel.outline ? kernel.outline.length : 1;
+      this.outlineTex = this.uploadR32F(this.outlineTex, this.outlineTexSize, kernel.outline || new Float32Array([1]), n, 1);
+      this.outlineTexSize = [n, 1];
+      this.outlineKey = kernel.image;
+    }
+    gl.uniform1i(P.u.uOutline, 7);
+    this.bindTex(7, this.outlineTex);
     gl.uniform1f(P.u.uKernelArea, kernel.area);
     // Strong blur: render the strongly blurred pixels at half size.
     const halfFrom = draft ? 1.5 : 6;
