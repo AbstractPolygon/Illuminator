@@ -4,7 +4,7 @@
 
 Every photo you open, drop or import is copied into the library, each in a separate folder with its edits next to it. Your original files are never changed.
 
-A photo that is being opened for the first time takes a while (the light field is decoded, then its depth is measured and its refocus views prepared). While that happens its row in the sidebar and its tile in the grid show a small spinner, the picture area says what is going on (*Opening…*, then *Rendering the first picture…*), and the bar under the picture shows the steps. The spinner goes when the first picture is drawn and the preparation is done.
+A photo that is being opened for the first time takes a while (the light field is decoded, then its depth is measured and its refocus views prepared). While that happens its row in the sidebar and its tile in the grid show a small spinner, the picture area says what is going on (*Opening…*, then *Processing…*), and the bar under the picture shows the steps. The spinner goes when the first picture is drawn and the preparation is done.
 
 - **Desktop app:** the library is a folder, `Pictures/Illuminator` by default (a library already in `Pictures/ILLUMinator` stays there). Change it in **Settings → Library location → Choose folder…**.
 - **Processed version:** next to each photo the desktop app keeps what it measured (the depth map and the focus offset, `processed.illuminator.bin`) the last few full sensor renders, and the last two full sensor pictures before their color pass (so changing Process or Optics settings on a reopened photo does not combine the sensor's rays again), so reopening a photo is quicker. They are made again when the photo's settings or the app version change.

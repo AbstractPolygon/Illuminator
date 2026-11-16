@@ -187,7 +187,7 @@ function updateProcessing(my, stage, p) {
 }
 
 // `what`: 'drawn' (the first picture is on screen) or 'prepared' (the background preparation is done). The mark goes when both are.
-const FIRST_PICTURE = 'Rendering the first picture';
+const FIRST_PICTURE = 'Processing';
 function processingStep(my, what) {
   if (!processing || processing.my !== my) return;
   processing[what] = true;
