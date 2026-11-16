@@ -618,6 +618,101 @@
           </details>
         </details>
       </details>
+      <details class="panel details-panel" data-panel="camera">
+        <summary><h2>Details</h2></summary>
+        <details class="subpanel">
+          <summary><h3>Sharpening</h3></summary>
+          <label title="Strength of sharpening">Amount <output for="sharp-amount" data-for="sharp-amount">85</output>
+            <input id="sharp-amount" type="range" min="0" max="150" step="1" value="85" data-default="85">
+          </label>
+          <label title="Size of the details sharpened">Radius <output for="sharp-radius" data-for="sharp-radius">1.2</output>
+            <input id="sharp-radius" type="range" min="0.5" max="3" step="0.1" value="1.2" data-default="1.2">
+          </label>
+          <label title="How much fine texture is sharpened">Detail <output for="sharp-detail" data-for="sharp-detail">50</output>
+            <input id="sharp-detail" type="range" min="0" max="100" step="1" value="50" data-default="50">
+          </label>
+          <label title="Sharpen only edges: 0 sharpens everything, 100 only the strongest edges">Masking <output for="sharp-masking" data-for="sharp-masking">0</output>
+            <input id="sharp-masking" type="range" min="0" max="100" step="1" value="0" data-default="0">
+          </label>
+        </details>
+        <details class="subpanel">
+          <summary><h3>Noise Reduction</h3></summary>
+          <label class="check"><input id="mv-on" type="checkbox" checked> Multi-view</label>
+          <label title="How much the other views are blended in to reduce noise">Blend <output for="mv-blend" data-for="mv-blend">100</output>
+            <input id="mv-blend" type="range" min="0" max="100" step="1" value="100" data-default="100">
+          </label>
+          <label class="check" title="Finds hot and dead pixels on the sensor and fills them from their neighbors before the picture is made"><input id="nr-hot" type="checkbox" checked> Remove hot pixels</label>
+          <label title="Smooths grain in brightness">Luminance <output for="nr-luminance" data-for="nr-luminance">30</output>
+            <input id="nr-luminance" type="range" min="0" max="100" step="1" value="30" data-default="30">
+          </label>
+          <label title="Removes color speckles">Color <output for="nr-color" data-for="nr-color">20</output>
+            <input id="nr-color" type="range" min="0" max="100" step="1" value="20" data-default="20">
+          </label>
+          <label title="Fills small, faint dark spots left by dust on the sensor or lens: higher removes larger spots">Dust <output for="nr-dust" data-for="nr-dust">0</output>
+            <input id="nr-dust" type="range" min="0" max="100" step="1" value="0" data-default="0">
+          </label>
+          <label title="Removes small bright or dark specks; edges are kept">Despeckle <output for="nr-speckle" data-for="nr-speckle">0</output>
+            <input id="nr-speckle" type="range" min="0" max="100" step="1" value="0" data-default="0">
+          </label>
+          <label title="The largest speck removed, in pixels across: specks up to this size go, larger spots and lines stay">Speck size <output for="nr-speckle-size" data-for="nr-speckle-size">2 px</output>
+            <input id="nr-speckle-size" type="range" min="1" max="5" step="1" value="2" data-default="2">
+          </label>
+        </details>
+      </details>
+
+      <details class="panel" data-panel="camera">
+        <summary><h2>Optics</h2></summary>
+        <details class="subpanel" open>
+          <summary><h3>Chromatic Aberration</h3></summary>
+          <div class="row check-row">
+            <label class="check"><input id="fringe-on" type="checkbox"> Enabled</label>
+            <label class="check"><input id="fringe-auto" type="checkbox" disabled> Auto</label>
+          </div>
+          <fieldset id="fringe-controls" class="plain" disabled>
+          <label title="How far from edges fringes are looked for">Radius <output id="fringe-radius-label" for="fringe-radius">2 px</output>
+            <input id="fringe-radius" type="range" min="1" max="6" step="1" value="2">
+          </label>
+          <label title="How strong an edge must be to be defringed">Threshold <input id="fringe-threshold" type="range" min="0.05" max="0.8" step="0.05" value="0.25"></label>
+          <label title="Removes purple fringes">Purple amount <input id="fringe-purple" type="range" min="0" max="1" step="0.05" value="0"></label>
+          <label title="Which purple to remove">Purple hue <output id="fringe-purple-hue-label" for="fringe-purple-hue">300°</output>
+            <input id="fringe-purple-hue" type="range" min="240" max="340" step="5" value="300">
+          </label>
+          <label title="Removes green fringes">Green amount <input id="fringe-green" type="range" min="0" max="1" step="0.05" value="0"></label>
+          <label title="Which green to remove">Green hue <output id="fringe-green-hue-label" for="fringe-green-hue">100°</output>
+            <input id="fringe-green-hue" type="range" min="50" max="160" step="5" value="100">
+          </label>
+          <label title="Removes red fringes">Red amount <input id="fringe-red" type="range" min="0" max="1" step="0.05" value="0"></label>
+          <label title="Which red to remove">Red hue <output id="fringe-red-hue-label" for="fringe-red-hue">0°</output>
+            <input id="fringe-red-hue" type="range" min="-30" max="60" step="5" value="0">
+          </label>
+          <label title="Removes blue fringes">Blue amount <input id="fringe-blue" type="range" min="0" max="1" step="0.05" value="0"></label>
+          <label title="Which blue to remove">Blue hue <output id="fringe-blue-hue-label" for="fringe-blue-hue">220°</output>
+            <input id="fringe-blue-hue" type="range" min="180" max="260" step="5" value="220">
+          </label>
+          </fieldset>
+        </details>
+        <details class="subpanel">
+          <summary><h3>Lens Correction</h3></summary>
+          <label class="check" title="Corrects the distortion of the camera's lens for the zoom the photo was taken at, as Lytro Desktop does"><input id="lens-auto" type="checkbox" checked data-default="1"> Correct lens distortion</label>
+          <label title="Straightens lines the lens bends: negative for barrel distortion (lines bow outward), positive for pincushion">Distortion <output data-for="lens-distortion" for="lens-distortion">0</output>
+            <input id="lens-distortion" type="range" min="-100" max="100" step="1" value="0" data-default="0">
+          </label>
+          <label title="Brightens (or darkens) the corners the lens darkens">Vignetting <output data-for="lens-vignetting" for="lens-vignetting">0</output>
+            <input id="lens-vignetting" type="range" min="-100" max="100" step="1" value="0" data-default="0">
+          </label>
+          <label title="How far from the middle the vignetting correction starts">Midpoint <output data-for="lens-midpoint" for="lens-midpoint">50</output>
+            <input id="lens-midpoint" type="range" min="0" max="100" step="1" value="50" data-default="50">
+          </label>
+        </details>
+        <details class="subpanel">
+          <summary><h3>Flare</h3></summary>
+          <label class="check" title="Removes the haze lens flare lays over the picture"><input id="flare-on" type="checkbox"> Reduce flare</label>
+          <label title="How much of the flare haze is removed">Amount <output data-for="flare-amount" for="flare-amount">70</output>
+            <input id="flare-amount" type="range" min="0" max="100" step="1" value="70" data-default="70" disabled>
+          </label>
+        </details>
+      </details>
+
       <details class="panel color-panel" data-panel="camera">
         <summary><h2>Process</h2></summary>
         <details class="subpanel" id="looks-panel">
@@ -979,101 +1074,6 @@
       </details>
 
 
-      <details class="panel details-panel" data-panel="camera">
-        <summary><h2>Details</h2></summary>
-        <details class="subpanel">
-          <summary><h3>Sharpening</h3></summary>
-          <label title="Strength of sharpening">Amount <output for="sharp-amount" data-for="sharp-amount">85</output>
-            <input id="sharp-amount" type="range" min="0" max="150" step="1" value="85" data-default="85">
-          </label>
-          <label title="Size of the details sharpened">Radius <output for="sharp-radius" data-for="sharp-radius">1.2</output>
-            <input id="sharp-radius" type="range" min="0.5" max="3" step="0.1" value="1.2" data-default="1.2">
-          </label>
-          <label title="How much fine texture is sharpened">Detail <output for="sharp-detail" data-for="sharp-detail">50</output>
-            <input id="sharp-detail" type="range" min="0" max="100" step="1" value="50" data-default="50">
-          </label>
-          <label title="Sharpen only edges: 0 sharpens everything, 100 only the strongest edges">Masking <output for="sharp-masking" data-for="sharp-masking">0</output>
-            <input id="sharp-masking" type="range" min="0" max="100" step="1" value="0" data-default="0">
-          </label>
-        </details>
-        <details class="subpanel">
-          <summary><h3>Noise Reduction</h3></summary>
-          <label class="check"><input id="mv-on" type="checkbox" checked> Multi-view</label>
-          <label title="How much the other views are blended in to reduce noise">Blend <output for="mv-blend" data-for="mv-blend">100</output>
-            <input id="mv-blend" type="range" min="0" max="100" step="1" value="100" data-default="100">
-          </label>
-          <label class="check" title="Finds hot and dead pixels on the sensor and fills them from their neighbors before the picture is made"><input id="nr-hot" type="checkbox" checked> Remove hot pixels</label>
-          <label title="Smooths grain in brightness">Luminance <output for="nr-luminance" data-for="nr-luminance">30</output>
-            <input id="nr-luminance" type="range" min="0" max="100" step="1" value="30" data-default="30">
-          </label>
-          <label title="Removes color speckles">Color <output for="nr-color" data-for="nr-color">20</output>
-            <input id="nr-color" type="range" min="0" max="100" step="1" value="20" data-default="20">
-          </label>
-          <label title="Fills small, faint dark spots left by dust on the sensor or lens: higher removes larger spots">Dust <output for="nr-dust" data-for="nr-dust">0</output>
-            <input id="nr-dust" type="range" min="0" max="100" step="1" value="0" data-default="0">
-          </label>
-          <label title="Removes small bright or dark specks; edges are kept">Despeckle <output for="nr-speckle" data-for="nr-speckle">0</output>
-            <input id="nr-speckle" type="range" min="0" max="100" step="1" value="0" data-default="0">
-          </label>
-          <label title="The largest speck removed, in pixels across: specks up to this size go, larger spots and lines stay">Speck size <output for="nr-speckle-size" data-for="nr-speckle-size">2 px</output>
-            <input id="nr-speckle-size" type="range" min="1" max="5" step="1" value="2" data-default="2">
-          </label>
-        </details>
-      </details>
-
-
-      <details class="panel" data-panel="camera">
-        <summary><h2>Optics</h2></summary>
-        <details class="subpanel" open>
-          <summary><h3>Chromatic Aberration</h3></summary>
-          <div class="row check-row">
-            <label class="check"><input id="fringe-on" type="checkbox"> Enabled</label>
-            <label class="check"><input id="fringe-auto" type="checkbox" disabled> Auto</label>
-          </div>
-          <fieldset id="fringe-controls" class="plain" disabled>
-          <label title="How far from edges fringes are looked for">Radius <output id="fringe-radius-label" for="fringe-radius">2 px</output>
-            <input id="fringe-radius" type="range" min="1" max="6" step="1" value="2">
-          </label>
-          <label title="How strong an edge must be to be defringed">Threshold <input id="fringe-threshold" type="range" min="0.05" max="0.8" step="0.05" value="0.25"></label>
-          <label title="Removes purple fringes">Purple amount <input id="fringe-purple" type="range" min="0" max="1" step="0.05" value="0"></label>
-          <label title="Which purple to remove">Purple hue <output id="fringe-purple-hue-label" for="fringe-purple-hue">300°</output>
-            <input id="fringe-purple-hue" type="range" min="240" max="340" step="5" value="300">
-          </label>
-          <label title="Removes green fringes">Green amount <input id="fringe-green" type="range" min="0" max="1" step="0.05" value="0"></label>
-          <label title="Which green to remove">Green hue <output id="fringe-green-hue-label" for="fringe-green-hue">100°</output>
-            <input id="fringe-green-hue" type="range" min="50" max="160" step="5" value="100">
-          </label>
-          <label title="Removes red fringes">Red amount <input id="fringe-red" type="range" min="0" max="1" step="0.05" value="0"></label>
-          <label title="Which red to remove">Red hue <output id="fringe-red-hue-label" for="fringe-red-hue">0°</output>
-            <input id="fringe-red-hue" type="range" min="-30" max="60" step="5" value="0">
-          </label>
-          <label title="Removes blue fringes">Blue amount <input id="fringe-blue" type="range" min="0" max="1" step="0.05" value="0"></label>
-          <label title="Which blue to remove">Blue hue <output id="fringe-blue-hue-label" for="fringe-blue-hue">220°</output>
-            <input id="fringe-blue-hue" type="range" min="180" max="260" step="5" value="220">
-          </label>
-          </fieldset>
-        </details>
-        <details class="subpanel">
-          <summary><h3>Lens Correction</h3></summary>
-          <label class="check" title="Corrects the distortion of the camera's lens for the zoom the photo was taken at, as Lytro Desktop does"><input id="lens-auto" type="checkbox" checked data-default="1"> Correct lens distortion</label>
-          <label title="Straightens lines the lens bends: negative for barrel distortion (lines bow outward), positive for pincushion">Distortion <output data-for="lens-distortion" for="lens-distortion">0</output>
-            <input id="lens-distortion" type="range" min="-100" max="100" step="1" value="0" data-default="0">
-          </label>
-          <label title="Brightens (or darkens) the corners the lens darkens">Vignetting <output data-for="lens-vignetting" for="lens-vignetting">0</output>
-            <input id="lens-vignetting" type="range" min="-100" max="100" step="1" value="0" data-default="0">
-          </label>
-          <label title="How far from the middle the vignetting correction starts">Midpoint <output data-for="lens-midpoint" for="lens-midpoint">50</output>
-            <input id="lens-midpoint" type="range" min="0" max="100" step="1" value="50" data-default="50">
-          </label>
-        </details>
-        <details class="subpanel">
-          <summary><h3>Flare</h3></summary>
-          <label class="check" title="Removes the haze lens flare lays over the picture"><input id="flare-on" type="checkbox"> Reduce flare</label>
-          <label title="How much of the flare haze is removed">Amount <output data-for="flare-amount" for="flare-amount">70</output>
-            <input id="flare-amount" type="range" min="0" max="100" step="1" value="70" data-default="70" disabled>
-          </label>
-        </details>
-      </details>
 
       <details class="panel" data-panel="lenslets" hidden open>
         <summary><h2>Microlens grid</h2></summary>
