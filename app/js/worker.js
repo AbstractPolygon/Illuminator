@@ -603,10 +603,12 @@ async function presentGpu(id, tex, w, h, { alpha = 0, dof = 0, bokeh = {}, pxPer
   if (moved && wantsParallax()) await ensureViewDepth(id);
   if (moved && state.depthParallax) tex = gpu.parallaxWarp(tex, w, h, masks.view.u, masks.view.v, state.settings.detail);
   if (dof > 0 && (await ensureViewDepth(id))) {
-    // Whatever really is at the focus depth stays sharp, also where the depth map has it wrong (thin near objects, such as the wires of a fence): see GpuRenderer.focusMask.
-    // (not with a tilted focus plane, whose depth differs across the picture)
+    // The focus mask (GpuRenderer.focusMask) is off unless settings.focusMask is true: it kept what the views agree on at the focus depth sharp, to keep thin
+    // objects the depth map misses (the wires of a fence), but it judges depth far more coarsely than a strong blur needs, and it keeps only edges: parts
+    // near the focus came out with their edges sharp and the flat parts beside them blurred, small sharp squares all over the picture (and it did not keep
+    // the wires on the fence photo either). The blur follows the depth map alone. (Not with a tilted focus plane, whose depth differs across the picture.)
     const tilted = bokeh.tilt && (bokeh.tilt[0] || bokeh.tilt[1]);
-    const sharp = state.settings.focusMask !== false && gpu.views && !tilted ? gpu.focusMask(alpha, { u0: masks.view ? masks.view.u : 0, v0: masks.view ? masks.view.v : 0, clip: state.dev.clip }) : null;
+    const sharp = state.settings.focusMask === true && gpu.views && !tilted ? gpu.focusMask(alpha, { u0: masks.view ? masks.view.u : 0, v0: masks.view ? masks.view.v : 0, clip: state.dev.clip }) : null;
     tex = gpu.depthOfField(tex, w, h, {
       sharp,
       focus: alpha,
