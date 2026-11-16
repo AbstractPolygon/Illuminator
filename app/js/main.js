@@ -2034,21 +2034,27 @@ async function renderCamera({ final = false } = {}) {
   }
 }
 
-// At f/22 (aperture closed, no depth-of-field blur) the live view is one view of the light field, at the lens grid's resolution: sharp in
-// depth but with a lens per pixel. Once changes stop, the all-in-focus picture from every sensor pixel (the engine's, as Render makes it, at
-// twice the view's size) is made in the background and shown instead; any change goes back to the live view and cancels it. Not on a
+// The live view is one view of the light field, at the lens grid's resolution: with a lens per pixel. Once changes stop, the all-in-focus picture from
+// every sensor pixel (at twice the view's size; at f/16 and f/22 the engine's, as Render makes it) is made in the background and shown instead, with the
+// depth of field's blur put on it at wider f-stops; any change goes back to the live view and cancels it. Not on a
 // software renderer (minutes), not while Full resolution mode is on (it has its own Render), and not when the card's memory limit says no.
 const SHARP_DELAY = 1500;
+// Once the all in focus picture for this photo and viewpoint has been made, the worker keeps it: a change of focus or blur only puts the blur and the color on it again
+// (moments on a graphics card), so the sharp picture comes back sooner.
+const SHARP_KEPT_DELAY = 300;
 const SHARP_SCALE = 2;
 let sharpTimer = 0;
-const sharp = { running: false, token: 0 };
+const sharp = { running: false, token: 0, kept: '' };
+const sharpBaseKey = () => `${state.current && state.current.photo}|${state.camera.u}|${state.camera.v}|${$('detail').value}`;
 
 function sharpWanted() {
   const info = state.info;
   if (!info || !info.hasRaw || state.mode !== 'camera' || !showsCamera() || state.fullResMode || state.playing || drag.on || stereoShown()) return false;
   if (!hook('sharpAnyGpu') && /swiftshader|llvmpipe|software|softpipe|^CPU/i.test(info.renderer || 'CPU')) return false;  // (the flag: tests on a software renderer)
+  // With the blur drawn from the depth map (aperture 0, the default bokeh) the sharp picture is made too, and the blur is put on it: what is in focus keeps
+  // every sensor pixel's detail at any f-stop (on the live view alone it was as soft as one view). Optical refocusing (aperture above 0) keeps its view.
   const lens = state.retouchTool ? { aperture: 0, dof: 0 } : apertureFor(fNumber());
-  if (lens.aperture !== 0 || lens.dof !== 0) return false;
+  if (lens.aperture !== 0) return false;
   const size = info.stillSizes && info.stillSizes[SHARP_SCALE];
   return !(size && !fitsMemory('vram', superResVram(size[0], size[1])));
 }
@@ -2064,7 +2070,7 @@ function scheduleSharp() {
   clearTimeout(sharpTimer);
   sharpTimer = 0;
   if (!sharpWanted()) return;
-  sharpTimer = setTimeout(runSharp, SHARP_DELAY);
+  sharpTimer = setTimeout(runSharp, sharp.kept === sharpBaseKey() ? SHARP_KEPT_DELAY : SHARP_DELAY);
 }
 
 async function runSharp() {
@@ -2084,6 +2090,7 @@ async function runSharp() {
     // A change since (or another photo) makes it stale.
     if (token === sharp.token && msg && (msg.pixels || msg.bitmap) && sharpWanted() && state.current && state.current.photo === photo) {
       const img = toImageData(msg);
+      sharp.kept = sharpBaseKey();
       draw(img);
       $('frame-label').textContent = `${canvas.width}×${canvas.height}`;
     }
