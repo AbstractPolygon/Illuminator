@@ -10,7 +10,7 @@ import { launchBrowser } from './helpers/playwright.mjs';
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'app');
 
-test('the ball character settings on the graphics card', async (t) => {
+test('the bokeh character settings on the graphics card', async (t) => {
   const browser = await launchBrowser(t);
   if (!browser) return;
   const server = http.createServer((q, r) => {
