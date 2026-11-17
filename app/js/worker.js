@@ -1379,6 +1379,14 @@ function superResBaseKey(scale, passes, u, v, cs) {
   return stillKey(['srbase', scale, passes, u, v, state.detail, state.localTone, lensKey]);
 }
 
+// Whether a full sensor picture is made from the engine's all in focus picture (lytroEdof): at aperture 0, with no blur, or with the depth based blur drawn on it (the graphics card does
+// that, and a moved viewpoint has no engine picture). Setting lytroEngine (on unless false) turns the engine picture off; engineBlur (on unless false) only its blur.
+function engineBase(aperture, dof, u, v) {
+  if (aperture > 0 || state.settings.lytroEngine === false || !state.lf.rayWarpBytes || !state.lf.readModulation) return null;
+  if (!(dof > 0)) return 'plain';
+  return state.gpu && !u && !v && state.settings.engineBlur !== false ? 'blur' : null;
+}
+
 async function superResPreview({ id, job, alpha = 0, u = 0, v = 0, aperture = 0, dof = 0, bokeh, color = null, masks = null, scale, passes = 0 }) {
   // (a full sensor render keeps to the views the sensor recorded: a viewpoint past the lens edge is taken at the edge)
   const split = splitView(u, v);
@@ -1386,7 +1394,7 @@ async function superResPreview({ id, job, alpha = 0, u = 0, v = 0, aperture = 0,
   requireRaw();
   const gpu = state.gpu;
   if (!gpu || !gpu.floatBlend || state.settings.fullSensorPreview === false) return { none: true };
-  if (aperture <= 0 && !(dof > 0) && state.settings.lytroEngine !== false && state.lf.rayWarpBytes && state.lf.readModulation) return { none: true };  // (the engine's picture is made instead: see superRes)
+  if (engineBase(aperture, dof, u, v)) return { none: true };  // (the engine's picture is made instead: see superRes)
   state.jobs.preview = job;
   const { lf, dev, sampler } = state;
   // The quick look is optional: where the card could not hold even it, there is none.
@@ -1444,8 +1452,20 @@ async function superRes({ id, job, alpha = 0, scale, u = 0, v = 0, aperture = 0,
   if (split) ({ u, v } = split);
   requireRaw();
   // Setting lytroEngine (on unless set to false): the all in focus picture the way Lytro's engine builds it (lytroEdof), for photos that carry its ray table and white image (raw camera files).
-  // (it has no depth of field: with a blur the all in focus picture below is made, and the blur put on it)
-  if (aperture <= 0 && !(dof > 0) && state.settings.lytroEngine !== false && state.lf.rayWarpBytes && state.lf.readModulation) return lytroEdof({ id, job, scale, color, masks, quiet });
+  // (it has no depth of field of its own: a blur is drawn on it below)
+  if (engineBase(aperture, dof, u, v) === 'plain') return lytroEdof({ id, job, scale, color, masks, quiet });
+  // With a blur (the depth based one, aperture 0) on a graphics card: the same engine picture, with the blur drawn on it (not for a moved viewpoint, which the engine picture has none of).
+  // (Setting engineBlur, on unless set to false.)
+  // (the background sharp preview does not start the depth measurement or work on after a card step fell back to the processor: the general picture below does, as before)
+  if (engineBase(aperture, dof, u, v) === 'blur' && !(quiet && (!state.depth || (state.cpuFallbacks && state.cpuFallbacks.size)))) {
+    try {
+      return await lytroEdof({ id, job, scale, color, masks, quiet, blur: { alpha, dof, bokeh: bokeh || {} } });
+    } catch (err) {
+      // the blur on the engine's picture failed (a card step): the general picture below follows
+      console.warn('The blur on the engine picture failed; using the general picture', err);
+      state.jobs.superres = job;
+    }
+  }
   state.jobs.superres = job;
   const { lf, dev, sampler } = state;
   const samplerJob = makeJobGuard(() => state.sampler);
@@ -1625,7 +1645,7 @@ const D5_LEVEL = false;
 
 // `quiet`: the background sharp preview of the live view (main.js runSharp). It must not hold up what the user does next, so it never starts
 // the depth measurement (the worker is busy until that ends) and stays away once a graphics card step has fallen back to the CPU (that is slow).
-async function lytroEdof({ id, job, scale = 3, color = null, masks = null, quiet = false }) {
+async function lytroEdof({ id, job, scale = 3, color = null, masks = null, quiet = false, blur = null }) {
   requireRaw();
   if (quiet && (!state.depth || (state.cpuFallbacks && state.cpuFallbacks.size))) return { cancelled: true };
   state.jobs.superres = job;
@@ -1644,9 +1664,20 @@ async function lytroEdof({ id, job, scale = 3, color = null, masks = null, quiet
   const { W, H } = superResParams(sampler, { scale });
   const cs = colorState(color);
   const dbg = debugFlags();
+  // With a blur: the picture is blurred on the graphics card (its memory counts too), and the engine picture kept there, so a later focus or blur change only draws the blur again.
+  if (blur && !checkRenderMemory(sampler, scale, { cpu: false, quiet })) return { cancelled: true };
+  const blurBaseKey = blur ? stillKey(['srbase-engine', scale, state.detail, state.localTone, cs.lens ? [cs.lens.k || 0, cs.lens.k2 || 0, cs.lens.edge || 0, cs.lens.zoom || 1] : null]) : null;
+  const blurCtx = blur ? { focus: blur.alpha, ref: 0, overrides: masks, view: viewOf(0, 0) } : null;
+  const presentBlur = (tex, w, h) => presentGpu(id, tex, w, h, { alpha: blur.alpha, dof: blur.dof, bokeh: blur.bokeh, color, pxPerUnit: 14 * scale, masks: blurCtx, distortionCorrected: true }, { id, type: 'result' });
+  if (blur && baseKept(state.keptBase, blurBaseKey)) {
+    const { tex: baseTex, w: baseW, h: baseH } = state.keptBase;
+    progress(KEPT_LABEL, 0.5);
+    await presentBlur(baseTex, baseW, baseH);
+    return undefined;
+  }
   // The same picture was made just before (only color settings changed since; the sharpening and noise reduction and the local adjustments are part of the color pass here):
   // its rays are not combined again.
-  const keepKey = !color && !quiet ? stillKey(['edof', scale], ['details']) : null;
+  const keepKey = !color && (!quiet || blur) ? stillKey(['edof', scale], ['details']) : null;
   const reuse = !!keepKey && !!state.keptEdof && state.keptEdof.key === keepKey && state.keptEdof.W === W && state.keptEdof.H === H
     && !dbg.dumpField && !dbg.cmpDepth && !hook('depthOverride') && !hook('depthFinal') && !hook('depthOnly') && !hook('edofLinear');
   // Or kept next to the photo by an earlier session (desktop app).
@@ -1880,6 +1911,14 @@ async function lytroEdof({ id, job, scale = 3, color = null, masks = null, quiet
     if (hook('edofLinear')) hook('edofLinear')(out, W, H);
     setHook('lytroStats', sp.stats);
   if (keepKey) state.keptEdof = { key: keepKey, out: out.slice(), W, H };
+  }
+  if (blur) {
+    if (state.jobs.superres !== job) return { cancelled: true };
+    progress('Applying depth of field', 0);
+    const tex = state.gpu.uploadRGB(out, W, H, { full: bits16Ids.has(id) });
+    state.keptBase = { key: blurBaseKey, tex: state.gpu.keep(tex, W, H, 'stillbase'), w: W, h: H };
+    await presentBlur(tex, W, H);
+    return undefined;
   }
   const pixels = toPixels(reuse || disk ? out.slice() : out, W, H, { focus: 0, overrides: masks, view: viewOf(0, 0) }, cs, true);
   post({ id, type: 'result', width: W, height: H, pixels: pixels.buffer, kept: !!(keepKey && state.keptEdof && state.keptEdof.key === keepKey) }, [pixels.buffer]);
