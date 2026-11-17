@@ -66,3 +66,15 @@ test('a library read back keeps the copies, and rebuilds one from its note when 
   assert.equal(rebuilt.photos.find((p) => p.master).master, photo.id);
   assert.equal(rebuilt.photos.find((p) => p.master).name, copy.name);
 });
+
+test('a photo can be renamed; a blank name changes nothing', async () => {
+  const { lib, photo } = await libraryWith();
+  assert.equal(await lib.renamePhoto(photo, '  Sunset   over the bay '), true);
+  assert.equal(lib.get(photo.id).name, 'Sunset over the bay');
+  assert.equal(await lib.renamePhoto(photo, '   '), false);
+  assert.equal(lib.get(photo.id).name, 'Sunset over the bay');
+  // kept with the library
+  await lib.save();
+  const again = await new Library(lib.store).load();
+  assert.equal(again.get(photo.id).name, 'Sunset over the bay');
+});

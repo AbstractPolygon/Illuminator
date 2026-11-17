@@ -1023,6 +1023,18 @@ async function pasteSettings(photo) {
   }
 }
 
+// Rename (a photo's ••• menu): the name is typed in the photo's row or tile; Enter keeps it, Escape leaves the old one.
+function renamePhoto(photo) {
+  const row = [...$('library-list').children].find((el) => el.dataset.photoId === photo.id)
+    || [...$('photo-grid').children].find((el) => el.dataset.id === photo.id);
+  const done = async (name) => {
+    if (name && (await state.lib.renamePhoto(photo, name)) && state.current && state.current.photo === photo) state.current.name = photo.name;
+    renderLibrary();
+  };
+  if (row) editName(row, photo.name, done, 'Photo name');
+  else done(window.prompt('Photo name', photo.name));
+}
+
 // The name of the photo a virtual copy was made from.
 function virtualMasterName(photo) {
   const m = state.lib.get(photo.master);
@@ -1051,6 +1063,7 @@ function photoMenu(photo, button, at = null) {
   // Settings first, so they stay in view however many albums there are.
   items.push({ label: 'Rating, flag and keywords…', action: () => marks.openMarks(photo) });
   items.push({ label: 'Copy settings', action: () => copySettings(photo) });
+  items.push({ label: 'Rename…', action: () => renamePhoto(photo) });
   items.push({ label: 'Create virtual copy', action: () => createVirtualCopy(photo) });
   items.push({
     label: copiedSettings ? `Paste settings from ${copiedSettings.name}…` : 'Paste settings',
