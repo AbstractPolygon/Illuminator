@@ -4491,7 +4491,7 @@ async function showModelsIntro() {
         status.textContent = 'Downloaded';
       } else if (g.gpu && !gpuOk) {
         box.disabled = true;
-        status.textContent = 'Needs a graphics card with WebGPU';
+        status.textContent = 'Needs a GPU';
       }
       rows.push({ g, it, box, status, have });
     }
@@ -4587,7 +4587,7 @@ async function refreshUpscaleModels() {
     }
     box.checked = have || state === 'stale';
     box.disabled = !gpuOk && !have;
-    box.title = gpuOk ? '' : 'Needs a graphics card with WebGPU';
+    box.title = gpuOk ? '' : 'Needs a GPU';
     const value = modelMethod(m.id);
     const option = [...select.options].find((o) => o.value === value);
     if (have && !option) select.append(new Option(m.name, value));
@@ -4651,7 +4651,7 @@ async function refreshSharpenModels() {
     const box = list.querySelector(`input[data-model="${m.id}"]`);
     box.checked = have;
     box.disabled = !gpuOk && !have;
-    box.title = gpuOk ? '' : 'Needs a graphics card with WebGPU';
+    box.title = gpuOk ? '' : 'Needs a GPU';
     const value = sharpenMethod(m.id);
     const option = [...select.options].find((o) => o.value === value);
     if (have && !option) select.append(new Option(m.name, value));
