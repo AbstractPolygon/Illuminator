@@ -173,3 +173,17 @@ test('onion: Rings warp bends the rings; with no onion the ring settings change 
   assert.equal(a, b);
   assert.equal(bokehKernel({ shape: 'circle', onion: 0.5, warp: 0.5 }).onionMap.map.length > 0, true);
 });
+
+test('the processor blur copes with depths that are not numbers and with a huge blur', async () => {
+  const { applyDepthOfField } = await import('../app/js/core/dof.js');
+  const w = 24;
+  const h = 16;
+  const rgb = Float32Array.from({ length: w * h * 3 }, (_, i) => ((i * 37) % 255) / 255);
+  const depth = new Float32Array(w * h).fill(0.3);
+  depth[5] = NaN;
+  depth[40] = Infinity;
+  for (const options of [{}, { shape: 'blades', blades: 6 }]) {
+    const out = applyDepthOfField(rgb, w, h, depth, w, h, 0, 1e9, 14, options);
+    assert.ok(out.every(Number.isFinite), 'no NaN or infinite values come out');
+  }
+});

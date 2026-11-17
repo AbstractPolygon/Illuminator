@@ -282,6 +282,8 @@ const QUEUE_RUNNER = typeof location !== 'undefined' && /[?&]queue\b/.test(locat
 async function openLibrary() {
   for (const url of thumbs.values()) if (url) URL.revokeObjectURL(url);
   thumbs.clear();
+  // (the pictures still waiting belong to the library being left)
+  thumbWaiting.length = 0;
   const readSummary = (f) => readPhotoSummary(blobReader(f));
   try {
     // (the hidden copy that makes the render queue's files keeps no library of its own)
@@ -311,10 +313,11 @@ let thumbRedraw = null;
 async function loadThumbs() {
   while (thumbWaiting.length) {
     const photo = thumbWaiting.shift();
-    if (!state.lib || !state.lib.get(photo.id)) continue; // removed from the library meanwhile
+    const lib = state.lib;
+    if (!lib || lib.get(photo.id) !== photo) continue; // removed from the library meanwhile, or from another library
     try {
-      const blob = await asBlob(await state.lib.thumbnail(photo));
-      if (!blob || thumbs.get(photo.id) !== null) continue;
+      const blob = await asBlob(await lib.thumbnail(photo));
+      if (state.lib !== lib || !blob || thumbs.get(photo.id) !== null) continue;
       thumbs.set(photo.id, URL.createObjectURL(blob));
       thumbRedraw ||= setTimeout(() => {
         thumbRedraw = null;
@@ -632,6 +635,8 @@ let filmstripCollapsed = (() => {
   }
 })();
 let filmstripCentered = null;
+// The items of the strip as drawn last, by photo id (renderFilmstrip).
+let filmItems = new Map();
 
 // With a library photo open (not the thumbnails): the strip and the button back to the thumbnails show.
 function showPhotoNav() {
@@ -649,11 +654,22 @@ function renderFilmstrip(photos, current) {
   const strip = $('filmstrip');
   if (strip.hidden) {
     filmstripCentered = null;
+    filmItems = new Map();
     return;
   }
   const list = $('filmstrip-list');
   const scroll = list.scrollLeft;
+  // An item is built again only when what it shows changed (a thumbnail arriving, a rating, the open photo): the rest are reused, so a big album costs no more than the
+  // few that changed each time the library is drawn.
+  const kept = new Map();
   list.replaceChildren(...photos.map((photo) => {
+    const url = thumbFor(photo);
+    const sig = JSON.stringify([photo.name, photo.master || '', url || '', photo === current, photo.rating || 0, photo.flag || '', photo.keywords || []]);
+    const old = filmItems.get(photo.id);
+    if (old && old.sig === sig) {
+      kept.set(photo.id, old);
+      return old.el;
+    }
     // (an item holds the thumbnail button, which opens the photo, and the pick box and stars over it: ui/marks.js)
     const item = document.createElement('div');
     item.className = photo === current ? 'film current' : 'film';
@@ -665,7 +681,6 @@ function renderFilmstrip(photos, current) {
     b.className = 'film-open';
     b.setAttribute('aria-label', photo.name);
     if (photo === current) b.setAttribute('aria-current', 'true');
-    const url = thumbFor(photo);
     if (url) b.append(Object.assign(document.createElement('img'), { src: url, alt: '', draggable: false }));
     b.onclick = (e) => chooseListedPhoto(photo, e);
     item.append(b);
@@ -688,8 +703,10 @@ function renderFilmstrip(photos, current) {
       photoMenu(photo, more, { x: e.clientX, y: e.clientY });
     };
     item.append(more);
+    kept.set(photo.id, { el: item, sig });
     return item;
   }));
+  filmItems = kept;
   // The photo that is open comes into view when it changes; otherwise the strip stays where the user scrolled it.
   const here = current ? current.id : null;
   if (here !== filmstripCentered) {
@@ -1297,6 +1314,8 @@ $('library-list').addEventListener('pointerup', (e) => {
 });
 
 async function openItem(photo) {
+  // A pending Pick focus point (Lenticular Print) was for the photo that was open.
+  cancelLentPick();
   // A click on another photo while this one is still loading takes over: everything below stops at its next await.
   const my = openSeq.next();
   state.scripted = false;
@@ -1450,7 +1469,19 @@ function resetView() {
   showSidebarEnabled();
 }
 
+function cancelLentPick() {
+  if (!state.lentPick) return;
+  state.lentPick = null;
+  canvas.style.cursor = '';
+  try {
+    lenticular.showFocus();
+  } catch {
+    // (not set up yet)
+  }
+}
+
 function closePhoto() {
+  cancelLentPick();
   // Its last change is kept, and nothing in flight (an open, a render) lands on the empty view.
   endProcessing();
   flushSave();

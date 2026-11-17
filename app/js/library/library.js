@@ -81,7 +81,7 @@ export class Library {
 
   // Writes to the folder of a photo that was removed would recreate it.
   isListed(photo) {
-    return !!photo && this.photos.some((p) => p.id === photo.id);
+    return !!photo && !!this.get(photo.id);
   }
 
   // Keeps what library.json held before it is replaced by a rebuilt or older-format index; an existing backup is never overwritten.
@@ -251,8 +251,14 @@ export class Library {
     return this.saving;
   }
 
+  // By id, from a map kept for the list as it is: rebuilt when the list is replaced or changes length (every change to it does one of the two).
   get(id) {
-    return this.photos.find((p) => p.id === id) || null;
+    if (!this.byId || this.byIdFor !== this.photos || this.byIdSize !== this.photos.length) {
+      this.byId = new Map(this.photos.map((p) => [p.id, p]));
+      this.byIdFor = this.photos;
+      this.byIdSize = this.photos.length;
+    }
+    return this.byId.get(id) || null;
   }
 
   // Copies photos into the library. entries: [{ name, label, file, sidecar,
@@ -284,7 +290,8 @@ export class Library {
         }
         // (a virtual copy is not another import of the photo: only the masters are looked at)
         const sameName = (p) => !p.master && p.name.toLowerCase() === String(e.name).toLowerCase();
-        const old = replace && (this.photos.find(sameName) || (summary.photoId && this.photos.find((p) => !p.master && p.photoId === summary.photoId)));
+        // (the photo's id says which photo it is: a name can be shared, or changed by Rename)
+        const old = replace && ((summary.photoId && this.photos.find((p) => !p.master && p.photoId === summary.photoId)) || this.photos.find(sameName));
         if (old) {
           // New files first, into staging; the old folder goes only once they are all there.
           const staging = `${STAGING}/${old.id}`;
@@ -381,9 +388,25 @@ export class Library {
     const gone = new Set(ids);
     // A photo's virtual copies go with it.
     for (const p of this.photos) if (p.master && gone.has(p.master)) gone.add(p.id);
-    for (const id of gone) await this.store.remove(`${PHOTOS}/${id}`, options);
+    // Out of the list first, so nothing still waiting to write one of these folders (edits, caches, thumbnails) recreates it once it is gone; a folder that cannot be
+    // removed (the trash question, a failure) is put back in the list, so the index and the disk keep agreeing.
+    const before = this.photos;
+    const albumsBefore = this.albums.map((a) => [a, a.photos]);
     this.photos = this.photos.filter((p) => !gone.has(p.id));
     for (const a of this.albums) a.photos = a.photos.filter((id) => !gone.has(id));
+    try {
+      for (const id of gone) await this.store.remove(`${PHOTOS}/${id}`, options);
+    } catch (err) {
+      const removed = new Set(gone);
+      this.photos = before;
+      for (const [a, list] of albumsBefore) a.photos = list;
+      // (the ones removed before the failure are gone for good: list only the folders still there)
+      const left = new Set((await this.store.list(PHOTOS).catch(() => [])).filter((e) => e.dir).map((e) => e.name));
+      this.photos = before.filter((p) => !removed.has(p.id) || left.has(p.id));
+      for (const [a, list] of albumsBefore) a.photos = list.filter((id) => this.get(id));
+      await this.save().catch(() => {});
+      throw err;
+    }
     await this.save();
   }
 
@@ -399,19 +422,26 @@ export class Library {
     return out;
   }
 
+  // The record the light field files are named in: the photo's own, or for a virtual copy its master's as it is now (a replaced import changes the names).
+  baseOf(photo) {
+    return photo.master ? this.get(photo.master) || photo : photo;
+  }
+
   file(photo) {
-    return this.store.file(`${this.baseDir(photo)}/${photo.file}`);
+    return this.store.file(`${this.baseDir(photo)}/${this.baseOf(photo).file}`);
   }
 
   sidecar(photo) {
-    return photo.sidecar ? this.store.file(`${this.baseDir(photo)}/${photo.sidecar}`) : Promise.resolve(null);
+    const b = this.baseOf(photo);
+    return b.sidecar ? this.store.file(`${this.baseDir(photo)}/${b.sidecar}`) : Promise.resolve(null);
   }
 
   // { image, range } files of the photo's Lytro Desktop depth map, or null.
   async userDepth(photo) {
-    if (!photo.depthMap || !photo.depthRange) return null;
+    const b = this.baseOf(photo);
+    if (!b.depthMap || !b.depthRange) return null;
     const dir = this.baseDir(photo);
-    const [image, range] = await Promise.all([this.store.file(`${dir}/${photo.depthMap}`), this.store.file(`${dir}/${photo.depthRange}`)]);
+    const [image, range] = await Promise.all([this.store.file(`${dir}/${b.depthMap}`), this.store.file(`${dir}/${b.depthRange}`)]);
     return image && range ? { image, range } : null;
   }
 
@@ -479,13 +509,15 @@ export class Library {
 
   // The photo's Lytro Desktop stack.lfp (holding the depth Lytro computed), or null.
   stack(photo) {
-    return photo.stack ? this.store.file(`${this.baseDir(photo)}/${photo.stack}`).catch(() => null) : Promise.resolve(null);
+    const b = this.baseOf(photo);
+    return b.stack ? this.store.file(`${this.baseDir(photo)}/${b.stack}`).catch(() => null) : Promise.resolve(null);
   }
 
   thumbnail(photo) {
     // (a virtual copy shows its master's thumbnail until one is made for it)
     const dir = photo.thumbHere ? `${PHOTOS}/${photo.id}` : this.baseDir(photo);
-    return photo.thumb ? this.store.file(`${dir}/${photo.thumb}`) : Promise.resolve(null);
+    const name = photo.thumbHere ? photo.thumb : this.baseOf(photo).thumb;
+    return name ? this.store.file(`${dir}/${name}`) : Promise.resolve(null);
   }
 
   async saveThumbnail(photo, blob) {
@@ -665,7 +697,18 @@ export class Library {
     const asBlob = async (f) => (f instanceof Blob ? f : new Blob([await f.arrayBuffer()]));
     const files = [];
     const photos = [];
-    for (const p of this.list(id)) {
+    // A virtual copy goes with its photo (its settings, not its files again): the photos of the album, each once, then their copies that are in it.
+    const listed = this.list(id);
+    const masters = [];
+    const seen = new Set();
+    for (const q of listed) {
+      const m = this.baseOf(q);
+      if (!seen.has(m.id)) {
+        seen.add(m.id);
+        masters.push(m);
+      }
+    }
+    for (const p of masters) {
       const dir = `${PHOTOS}/${p.id}`;
       const file = await this.file(p);
       if (!file) continue;
@@ -683,7 +726,13 @@ export class Library {
       if (stack) files.push({ path: `${dir}/${p.stack}`, data: await asBlob(stack) });
       const edits = await this.store.readText(`${dir}/${EDITS_FILE}`).catch(() => null);
       if (edits) files.push({ path: `${dir}/${EDITS_FILE}`, data: edits });
-      photos.push({ folder: p.id, rating: p.rating, flag: p.flag, keywords: p.keywords, name: p.name, file: p.file, sidecar: sidecar ? p.sidecar : null, thumb: thumb ? p.thumb : null, depthMap: depth ? p.depthMap : null, depthRange: depth ? p.depthRange : null, stack: stack ? p.stack : null, edits: !!edits });
+      const copies = [];
+      for (const c of listed.filter((x) => x.master === p.id)) {
+        const ce = await this.store.readText(`${PHOTOS}/${c.id}/${EDITS_FILE}`).catch(() => null);
+        if (ce) files.push({ path: `${PHOTOS}/${c.id}/${EDITS_FILE}`, data: ce });
+        copies.push({ folder: c.id, name: c.name, edits: !!ce });
+      }
+      photos.push({ copies, folder: p.id, rating: p.rating, flag: p.flag, keywords: p.keywords, name: p.name, file: p.file, sidecar: sidecar ? p.sidecar : null, thumb: thumb ? p.thumb : null, depthMap: depth ? p.depthMap : null, depthRange: depth ? p.depthRange : null, stack: stack ? p.stack : null, edits: !!edits });
     }
     const index = { format: ARCHIVE_FORMAT, version: ARCHIVE_VERSION, name: album.name, exported: new Date().toISOString(), photos };
     return writeZip([{ path: 'album.json', data: JSON.stringify(index, null, 2) }, ...files], { onProgress });
@@ -709,6 +758,26 @@ export class Library {
       if (!edits || (await this.loadEdits(photos[i]))) continue;
       await this.store.writeText(`${PHOTOS}/${photos[i].id}/${EDITS_FILE}`, new TextDecoder().decode(await edits.arrayBuffer()));
     }
+    // Its virtual copies: made again with the settings they had (one with that name already here is left as it is).
+    const copyIds = [];
+    for (let i = 0; i < photos.length; i++) {
+      for (const c of items[i].meta.copies || []) {
+        const have = this.photos.find((p) => p.master === photos[i].id && p.name === c.name);
+        if (have) {
+          copyIds.push(have.id);
+          continue;
+        }
+        const copy = await this.createVirtualCopy(photos[i]);
+        if (!copy) continue;
+        copy.name = String(c.name || copy.name);
+        const dir = `${PHOTOS}/${copy.id}`;
+        const e = c.edits ? at(c.folder, EDITS_FILE) : null;
+        if (e) await this.store.writeText(`${dir}/${EDITS_FILE}`, new TextDecoder().decode(await e.arrayBuffer()));
+        else await this.store.remove(`${dir}/${EDITS_FILE}`).catch(() => {});
+        copyIds.push(copy.id);
+      }
+    }
+    await this.save();
     // The marks the photos had (a photo already here keeps its own).
     for (let i = 0; i < photos.length; i++) {
       const meta = items[i].meta;
@@ -718,7 +787,7 @@ export class Library {
     }
     const name = String(index.name || 'Imported album');
     const album = this.albums.find((a) => a.name === name) || (await this.createAlbum(name));
-    await this.addToAlbum(album.id, photos.map((p) => p.id));
+    await this.addToAlbum(album.id, [...photos.map((p) => p.id), ...copyIds]);
     return { album, photos };
   }
 

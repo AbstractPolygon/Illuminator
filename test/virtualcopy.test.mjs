@@ -6,7 +6,7 @@ import { Library } from '../app/js/library/library.js';
 const file = (name, bytes = [1, 2, 3]) => new File([new Uint8Array(bytes)], name);
 
 async function libraryWith(name = 'IMG_0001.LFR') {
-  const lib = await new Library(memoryStorage()).load();
+  const lib = await new Library(memoryStorage(), { readSummary: async () => ({ photoId: `PID-${name}`, thumbnail: null }) }).load();
   const [photo] = await lib.add([{ name, label: 'IMG_0001', file: file(name), sidecar: null, thumb: file('thumb.jpg', [9]) }]);
   return { lib, photo };
 }
@@ -77,4 +77,54 @@ test('a photo can be renamed; a blank name changes nothing', async () => {
   await lib.save();
   const again = await new Library(lib.store).load();
   assert.equal(again.get(photo.id).name, 'Sunset over the bay');
+});
+
+test('a copy follows its photo when the photo\'s files are replaced by an import', async () => {
+  const { lib, photo } = await libraryWith('IMG_5.LFR');
+  const copy = await lib.createVirtualCopy(photo);
+  // (a replacing import of the same photo with another file name: the copy takes the names from the photo as they are now)
+  photo.file = 'IMG_5.lfp';
+  await lib.store.writeBlob(`Photos/${photo.id}/IMG_5.lfp`, new Blob([new Uint8Array([7, 7])]));
+  assert.deepEqual([...new Uint8Array(await (await lib.file(copy)).arrayBuffer())], [7, 7]);
+});
+
+test('an album with a photo and its copy exports the files once and imports the copy with its settings', async () => {
+  const { lib, photo } = await libraryWith('IMG_6.LFR');
+  await lib.saveEdits(photo, { look: 'master' });
+  const copy = await lib.createVirtualCopy(photo);
+  await lib.saveEdits(copy, { look: 'copy' });
+  const album = await lib.createAlbum('Trip');
+  await lib.addToAlbum(album.id, [photo.id, copy.id]);
+  const zip = await lib.exportAlbum(album.id);
+  // another library: the photo comes in once, with its copy and the settings of each
+  const readSummary = async () => ({ photoId: 'PID-6', thumbnail: null });
+  const other = await new Library(memoryStorage(), { readSummary }).load();
+  const { photos } = await other.importAlbum(zip);
+  assert.equal(photos.length, 1, 'the copy is not a photo of its own in the archive');
+  const imported = other.photos.filter((p) => !p.master);
+  const copies = other.photos.filter((p) => p.master);
+  assert.equal(imported.length, 1);
+  assert.equal(copies.length, 1);
+  assert.deepEqual(await other.loadEdits(imported[0]), { look: 'master' });
+  assert.deepEqual(await other.loadEdits(copies[0]), { look: 'copy' });
+  assert.equal(copies[0].name, copy.name);
+  // importing it again does not make another copy
+  await other.importAlbum(zip);
+  assert.equal(other.photos.filter((p) => p.master).length, 1);
+});
+
+test('deleting a photo takes it out of the list before its folder goes, and puts it back if the folder cannot be removed', async () => {
+  const { lib, photo } = await libraryWith('IMG_8.LFR');
+  const real = lib.store.remove.bind(lib.store);
+  let listedDuring = null;
+  lib.store.remove = async (path, o) => {
+    listedDuring = lib.isListed(photo);
+    return real(path, o);
+  };
+  await lib.remove([photo.id]);
+  assert.equal(listedDuring, false);
+  const { lib: lib2, photo: p2 } = await libraryWith('IMG_9.LFR');
+  lib2.store.remove = async () => { throw new Error('could not be moved to the trash'); };
+  await assert.rejects(lib2.remove([p2.id]));
+  assert.ok(lib2.get(p2.id), 'still listed: the folder is still there');
 });
