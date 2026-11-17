@@ -2307,6 +2307,8 @@ const sharpBaseKey = () => `${state.current && state.current.photo}|${state.came
 function sharpWanted() {
   const info = state.info;
   if (!info || !info.hasRaw || state.mode !== 'camera' || !showsCamera() || state.fullResMode || state.playing || drag.on || stereoShown()) return false;
+  // Detail recovery makes the picture itself from every sensor pixel (runRecovery): a sharp picture made after it would take its place, or stop it.
+  if (+$('still-passes').value > 0) return false;
   if (!hook('sharpAnyGpu') && /swiftshader|llvmpipe|software|softpipe|^CPU/i.test(info.renderer || 'CPU')) return false;  // (the flag: tests on a software renderer)
   // With the blur drawn from the depth map (aperture 0, the default bokeh) the sharp picture is made too, and the blur is put on it: what is in focus keeps
   // every sensor pixel's detail at any f-stop (on the live view alone it was as soft as one view). Optical refocusing (aperture above 0) keeps its view.

@@ -1445,7 +1445,7 @@ async function superRes({ id, job, alpha = 0, scale, u = 0, v = 0, aperture = 0,
   requireRaw();
   // Setting lytroEngine (on unless set to false): the all in focus picture the way Lytro's engine builds it (lytroEdof), for photos that carry its ray table and white image (raw camera files).
   // (it has no depth of field: with a blur the all in focus picture below is made, and the blur put on it)
-  if (aperture <= 0 && !(dof > 0) && state.settings.lytroEngine !== false && state.lf.rayWarpBytes && state.lf.readModulation && !alpha) return lytroEdof({ id, job, scale, color, masks, quiet });
+  if (aperture <= 0 && !(dof > 0) && state.settings.lytroEngine !== false && state.lf.rayWarpBytes && state.lf.readModulation) return lytroEdof({ id, job, scale, color, masks, quiet });
   state.jobs.superres = job;
   const { lf, dev, sampler } = state;
   const samplerJob = makeJobGuard(() => state.sampler);
