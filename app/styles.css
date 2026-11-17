@@ -311,6 +311,10 @@ dialog h2 { margin: 0; }
 dialog menu { display: flex; gap: 8px; padding: 0; margin: 0; }
 #quick-export-dialog { width: min(480px, 94vw); }
 #update-dialog { width: min(520px, 94vw); }
+#models-intro-dialog { width: min(560px, 94vw); }
+#models-intro-dialog p { margin: 0; }
+#models-intro-dialog h3 { margin: 6px 0 0; font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+#models-intro-dialog .model-row { display: flex; align-items: baseline; gap: 8px; }
 .update-pill { padding: 6.5px 12px 5.5px; margin-right: 4px; white-space: nowrap; font-weight: 600; color: #fff; background: var(--live); border-color: var(--live); }
 .update-pill:hover:not(:disabled) { border-color: #fff; filter: brightness(1.08); }
 #update-dialog form { gap: 8px; }

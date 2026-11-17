@@ -16,7 +16,7 @@ const CACHE = 'illuminator-fill-models-v1';
 export const FILL_MODEL = {
   id: 'migan',
   name: 'MI-GAN',
-  note: 'fills what no view saw, MIT',
+  note: 'MIT',
   url: 'https://huggingface.co/andraniksargsyan/migan/resolve/406830d0fa60666da0071c342ad2fbc8f30c5c64/migan_pipeline_v2.onnx',
   size: 28079181,
   sha256: '6f1f3530a1a2324b19752018ce756088b07973cda8d7d890034ace5c8a48c40b',

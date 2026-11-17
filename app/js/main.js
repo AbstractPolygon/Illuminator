@@ -4452,6 +4452,86 @@ $('view-fill').addEventListener('change', () => {
 });
 refreshFillModel().catch(() => {});
 
+// First run after an install: a window listing the optional models that can be downloaded, and where to find them in Settings later. Shown once (not in automated runs).
+// Each ticked model is downloaded the way its Settings list does it, and that list is refreshed, so the model appears where it is used.
+async function showModelsIntro() {
+  try {
+    if (localStorage.getItem('illuminator.modelsIntro') === '1' || navigator.webdriver) return;
+  } catch {
+    return;
+  }
+  const dialog = $('models-intro-dialog');
+  const list = $('models-intro-list');
+  const gpuOk = await aiUpscaleAvailable();
+  const groups = [
+    { title: 'Depth models', where: 'Camera > Depth > Depth method', items: DEPTH_MODELS.map((m) => ({ m, have: () => depthModelState(m), get: (p) => downloadDepthModel(m, p) })), refresh: refreshDepthModels },
+    { title: 'Upscaling models', where: 'Render Settings > Upscaling > Method', gpu: true, items: UPSCALE_MODELS.map((m) => ({ m, have: () => modelState(m), get: (p) => downloadModel(m, p) })), refresh: refreshUpscaleModels },
+    { title: 'Sharpening models', where: 'Render Settings > Upscaling > Sharpening model', gpu: true, items: SHARPEN_MODELS.map((m) => ({ m, have: () => modelState(m), get: (p) => downloadModel(m, p) })), refresh: refreshSharpenModels },
+    { title: 'Fill model', where: 'Camera > Perspective > Fill with AI', items: [{ m: FILL_MODEL, have: () => fillModelState(), get: (p) => downloadFillModel(p) }], refresh: refreshFillModel },
+  ];
+  const rows = [];
+  for (const g of groups) {
+    const head = document.createElement('h3');
+    head.textContent = g.title;
+    const where = Object.assign(document.createElement('p'), { className: 'hint', textContent: `Used in ${g.where}.` });
+    list.append(head, where);
+    for (const it of g.items) {
+      const row = document.createElement('label');
+      row.className = 'check model-row';
+      const box = Object.assign(document.createElement('input'), { type: 'checkbox' });
+      const text = document.createElement('span');
+      text.textContent = `${it.m.name}, ${it.m.note} (${Math.round(it.m.size / 1e6)} MB)`;
+      const status = Object.assign(document.createElement('span'), { className: 'hint model-state' });
+      row.append(box, text, status);
+      list.append(row);
+      const have = (await it.have()) === 'ready';
+      if (have) {
+        box.checked = true;
+        box.disabled = true;
+        status.textContent = 'Downloaded';
+      } else if (g.gpu && !gpuOk) {
+        box.disabled = true;
+        status.textContent = 'Needs a graphics card with WebGPU';
+      }
+      rows.push({ g, it, box, status, have });
+    }
+  }
+  // Nothing left to offer (every model is already here): no window.
+  if (!rows.some((r) => !r.box.disabled)) {
+    list.textContent = '';
+    return;
+  }
+  try {
+    localStorage.setItem('illuminator.modelsIntro', '1');
+  } catch {
+    // It may be shown again next time.
+  }
+  $('models-intro-go').onclick = async () => {
+    const go = $('models-intro-go');
+    go.disabled = true;
+    const wanted = rows.filter((r) => r.box.checked && !r.box.disabled);
+    let failed = 0;
+    for (const r of wanted) {
+      r.box.disabled = true;
+      try {
+        await r.it.get((p) => { r.status.textContent = `Downloading… ${Math.round(p * 100)}%`; });
+        r.status.textContent = 'Downloaded';
+      } catch (err) {
+        failed++;
+        r.box.checked = false;
+        r.status.textContent = err && err.message ? err.message : String(err);
+      }
+    }
+    for (const g of new Set(wanted.map((r) => r.g))) await g.refresh().catch(() => {});
+    $('models-intro-status').textContent = failed ? 'Some models could not be downloaded; try again in Settings.' : wanted.length ? 'Done. Find them any time in Settings.' : '';
+    go.disabled = false;
+    if (wanted.length && !failed) dialog.close();
+  };
+  dialog.showModal();
+}
+// (after the first screen is up, so it does not hold the start)
+setTimeout(() => { showModelsIntro().catch(() => {}); }, 1500);
+
 async function refreshUpscaleModels() {
   const select = $('upscale-method');
   const before = select.value;
@@ -6350,6 +6430,25 @@ if (!native && navigator.usb && CAMERA_IMPORT) {
   $('usb-watch-btn').onclick = () => state.askCameraPermission();
 }
 $('camera-choose').onclick = () => importFromCameraFolder();
+
+// The browser version: a browser may serve the page and its scripts from its cache for a while after a new version went live, so the first open shows the old one (the
+// old About window, for one). When the live version number differs from the one running, the page is loaded once more from the server (not in the desktop app, whose files
+// come with it). Once per tab session, so a host that serves an old file cannot loop it.
+if (!native && /^https?:$/.test(location.protocol)) {
+  (async () => {
+    try {
+      if (sessionStorage.getItem('illuminator.reloaded') === VERSION) return;
+      const text = await (await fetch(new URL('./version.js', import.meta.url), { cache: 'no-store' })).text();
+      const live = /VERSION\s*=\s*'([^']+)'/.exec(text);
+      if (live && live[1] !== VERSION) {
+        sessionStorage.setItem('illuminator.reloaded', VERSION);
+        location.reload();
+      }
+    } catch {
+      // No network or no storage: the page stays as it is.
+    }
+  })();
+}
 
 // Test hook: ?sample opens the synthetic sample on load.
 if (new URLSearchParams(location.search).has('sample')) $('sample-btn').click();
