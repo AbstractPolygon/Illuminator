@@ -63,6 +63,44 @@ export function initExport({ state, $, canvas, ctx, layoutCanvas, showsCamera, s
     return upscaleImage(source, Math.round(source.width * k), Math.round(source.height * k), upscaleSettings());
   }
 
+  // A copy of `source` (a canvas or bitmap) sharpened by the chosen sharpening model (Render Settings > Upscaling), for pictures that are not made again at 16 bits:
+  // 3D images, depth and other views, and video frames. The picture itself when no model is chosen or it cannot run (said once per save).
+  async function sharpened(source, notify = true) {
+    const sharp = sharpenParams();
+    if (!sharp) return source;
+    try {
+      const w = source.width;
+      const h = source.height;
+      const work = Object.assign(document.createElement('canvas'), { width: w, height: h });
+      const g = work.getContext('2d', { willReadFrequently: true });
+      g.drawImage(source, 0, 0);
+      const data = g.getImageData(0, 0, w, h);
+      let rgb = new Uint16Array(w * h * 3);
+      for (let i = 0; i < w * h; i++) {
+        rgb[3 * i] = data.data[4 * i] * 257;
+        rgb[3 * i + 1] = data.data[4 * i + 1] * 257;
+        rgb[3 * i + 2] = data.data[4 * i + 2] * 257;
+      }
+      rgb = await aiSharpen(sharp.model, () => readModel(sharp.model), rgb, w, h, sharp.amount, notify ? showProgress : () => {});
+      if (notify) hideProgress();
+      for (let i = 0; i < w * h; i++) {
+        data.data[4 * i] = rgb[3 * i] >> 8;
+        data.data[4 * i + 1] = rgb[3 * i + 1] >> 8;
+        data.data[4 * i + 2] = rgb[3 * i + 2] >> 8;
+      }
+      g.putImageData(data, 0, 0);
+      return work;
+    } catch (err) {
+      if (notify) hideProgress();
+      if (!sharpenFailed) {
+        sharpenFailed = true;
+        showNotice('Could not sharpen with the model', `${err && err.message ? err.message : err} The picture is used without it.`);
+      }
+      return source;
+    }
+  }
+  let sharpenFailed = false;
+
   // The formats that keep the highlights above white (they need the highlight map from the graphics card).
   const isHdrFormat = (f) => f === 'jpeghdr' || f === 'tiffhdr';
 
@@ -73,6 +111,12 @@ export function initExport({ state, $, canvas, ctx, layoutCanvas, showsCamera, s
     // 16-bit PNG, and enlarging or sharpening with a model, start from the picture made again at 16 bits (below).
     if ((($('photo-format').value === 'png16') || isHdrFormat($('photo-format').value) || (model && k > 1) || sharpenParams()) && source === canvas && showsCamera() && !stereoShown() && state.info) {
       savePhotoRendered(name, model, k);
+      return;
+    }
+    // (3D images, depth and other views are sharpened as they are, then enlarged)
+    sharpenFailed = false;
+    if (sharpenParams() && !(source === canvas && state.enlarged)) {
+      sharpened(source).then((made) => saveAs8Bit(made, name));
       return;
     }
     saveAs8Bit(source, name);
@@ -519,6 +563,7 @@ export function initExport({ state, $, canvas, ctx, layoutCanvas, showsCamera, s
       const whole = cut.x === 0 && cut.y === 0 && cut.w === w && cut.h === h;
       const part = whole ? native : Object.assign(document.createElement('canvas'), { width: Math.max(1, Math.round(cut.w)), height: Math.max(1, Math.round(cut.h)) });
       const opts = upscaleSettings();
+      sharpenFailed = false;
       const stream = c.captureStream(state.fps);
       const pick = chooseVideoType($('video-format').value, $('video-codec').value, canRecord);
       if (!pick) throw new Error('This browser cannot record video.');
@@ -565,7 +610,8 @@ export function initExport({ state, $, canvas, ctx, layoutCanvas, showsCamera, s
           else nctx.drawImage(img, 0, 0, native.width, native.height);
         }
         if (!whole) part.getContext('2d').drawImage(native, cut.x, cut.y, cut.w, cut.h, 0, 0, part.width, part.height);
-        return { big: upscaleImage(part, c.width, c.height, opts), img };
+        // (a sharpening model sharpens each frame at its size, before it is enlarged to the video's size)
+        return { big: upscaleImage(await sharpened(part, false), c.width, c.height, opts), img };
       };
       // Cancel is offered only while frames are recorded; the loop stops at the next frame.
       cancelBtn.onclick = () => { cancel.request(); cancelBtn.disabled = true; };
