@@ -100,3 +100,19 @@ test('the display gamma tables of the Lytro look match the powers', async () => 
   assert.ok(worstIn < 1e-6, `to linear ${worstIn}`);
   assert.ok(worstOut < 0.02, `to gamma (8 bit levels) ${worstOut}`);
 });
+
+test('mixRgb16 mixes two pictures and sharpening models are listed apart from upscaling ones', async () => {
+  const { mixRgb16 } = await import('../app/js/core/aiupscale.js');
+  const { UPSCALE_MODELS, SHARPEN_MODELS, sharpenMethod, sharpenModelOf, methodModel } = await import('../app/js/core/upscalemodels.js');
+  const a = Uint16Array.from([0, 1000, 65535]);
+  const b = Uint16Array.from([65535, 1000, 0]);
+  assert.deepEqual([...mixRgb16(a, b, 0)], [0, 1000, 65535]);
+  assert.deepEqual([...mixRgb16(a, b, 1)], [65535, 1000, 0]);
+  assert.equal(mixRgb16(a, b, 0.5)[0], 32767);
+  assert.ok(SHARPEN_MODELS.length >= 1 && SHARPEN_MODELS.every((m) => m.scale === 1));
+  assert.ok(UPSCALE_MODELS.every((m) => m.scale > 1));
+  const nafnet = SHARPEN_MODELS[0];
+  assert.equal(sharpenModelOf(sharpenMethod(nafnet.id)), nafnet);
+  assert.equal(methodModel(sharpenMethod(nafnet.id)), null);
+  assert.equal(sharpenModelOf('ai:' + UPSCALE_MODELS[0].id), null);
+});

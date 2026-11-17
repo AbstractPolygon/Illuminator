@@ -23,8 +23,8 @@ import { importCalibration, listCalibrations, loadCalibration, removeCalibration
 import { encodeProcessed, decodeProcessed } from './core/processed-cache.js';
 import { hashKey, stillKeyText } from './core/still-cache.js';
 import { bokehKernel, ballRGB, encodeBokehImage, BOKEH_IMAGE_SIZE } from './core/dof.js';
-import { UPSCALE_MODELS, modelMethod, methodModel, modelState, downloadModel, removeModel, readModel } from './core/upscalemodels.js';
-import { aiUpscale, aiUpscaleAvailable, denoiseRgb16, addGrain16 } from './core/aiupscale.js';
+import { UPSCALE_MODELS, SHARPEN_MODELS, sharpenMethod, sharpenModelOf, modelMethod, methodModel, modelState, downloadModel, removeModel, readModel } from './core/upscalemodels.js';
+import { aiUpscale, aiSharpen, aiUpscaleAvailable, denoiseRgb16, addGrain16 } from './core/aiupscale.js';
 import { DEPTH_MODELS, depthModelMethod, methodDepthModel, depthModelState, downloadDepthModel, removeDepthModel } from './core/depthmodels.js';
 import { setMemoryLimits, fitsMemory, memoryProblem, superResVram } from './core/memorybudget.js';
 import { NativeFile, openFiles, openCalibrationFile, pickFolder, isLightFieldName, findSidecar, download, native, CAMERA_IMPORT, LYTRO_USB_VENDOR, recallCameraFolder, captureDownloads } from './platform.js';
@@ -2938,12 +2938,13 @@ let renderingAtSize = false;
 async function renderAtPhotoSize() {
   if (renderingAtSize || !state.lastImage || state.lastImage.pair || state.mode !== 'camera') return;
   const k = +$('photo-size').value || 1;
-  if (!(k > 1)) {
-    showNotice('Photo Size is Native', 'Choose a larger Photo size (Render Settings > Upscaling) to enlarge the picture.');
+  const sharp = sharpenParams();
+  if (!(k > 1) && !sharp) {
+    showNotice('Photo Size is Native', 'Choose a larger Photo size (Render Settings > Upscaling) to enlarge the picture, or a Sharpening model to sharpen it.');
     return;
   }
   const model = methodModel($('upscale-method').value);
-  if (!model) {
+  if (!model && !sharp) {
     draw(state.lastImage);
     return;
   }
@@ -2956,23 +2957,35 @@ async function renderAtPhotoSize() {
     const w = canvas.width;
     const h = canvas.height;
     const base = ctx.getImageData(0, 0, w, h);
-    const rgb = new Uint16Array(w * h * 3);
+    let rgb = new Uint16Array(w * h * 3);
     for (let i = 0; i < w * h; i++) {
       rgb[3 * i] = base.data[4 * i] * 257;
       rgb[3 * i + 1] = base.data[4 * i + 1] * 257;
       rgb[3 * i + 2] = base.data[4 * i + 2] * 257;
     }
+    // the sharpening model works at the picture's size, before the enlargement
+    if (sharp) {
+      rgb = await aiSharpen(sharp.model, () => readModel(sharp.model), rgb, w, h, sharp.amount, showProgress);
+      hideProgress();
+    }
     const W = Math.round(w * k);
     const H = Math.round(h * k);
     const P = modelUpscaleParams();
-    const grown = await aiUpscale(model, () => readModel(model), denoiseRgb16(rgb, w, h, P.denoise), w, h, showProgress);
-    hideProgress();
-    let big = { rgb: grown.rgb, width: grown.width, height: grown.height };
-    if (grown.width !== W) {
-      const sized = upscaleBits16(grown.rgb, grown.width, grown.height, W, H, { method: 'lanczos', sharpen: 0 });
-      if (sized) big = { rgb: sized, width: W, height: H };
+    let big;
+    if (model && k > 1) {
+      const grown = await aiUpscale(model, () => readModel(model), denoiseRgb16(rgb, w, h, P.denoise), w, h, showProgress);
+      hideProgress();
+      big = { rgb: grown.rgb, width: grown.width, height: grown.height };
+      if (grown.width !== W) {
+        const sized = upscaleBits16(grown.rgb, grown.width, grown.height, W, H, { method: 'lanczos', sharpen: 0 });
+        if (sized) big = { rgb: sized, width: W, height: H };
+      }
+      big = finishModelEnlargement(big, rgb, w, h, P);
+    } else {
+      // no enlarging model: the plain enlargement (or none, at the native size) of the sharpened picture
+      const plain = k > 1 ? upscaleBits16(rgb, w, h, W, H, { method: $('upscale-method').value || 'lanczos', sharpen: +$('upscale-sharpen').value / 100, lobes: +$('upscale-lobes').value }) : null;
+      big = plain ? { rgb: plain, width: W, height: H } : { rgb, width: w, height: h };
     }
-    big = finishModelEnlargement(big, rgb, w, h, P);
     const out = new ImageData(big.width, big.height);
     for (let i = 0; i < big.width * big.height; i++) {
       out.data[4 * i] = big.rgb[3 * i] >> 8;
@@ -3001,6 +3014,12 @@ async function renderAtPhotoSize() {
 // sharpening and the grain applied to what comes out.
 function modelUpscaleParams() {
   return { strength: +$('upscale-strength').value / 100, denoise: +$('upscale-denoise').value / 100, sharpen: +$('upscale-sharpen').value / 100, grain: +$('upscale-grain').value / 100 };
+}
+
+// The chosen sharpening model (Render Settings > Upscaling) and how much of its result is used, or null when none is chosen (or it was removed).
+function sharpenParams() {
+  const model = sharpenModelOf($('sharpen-model').value);
+  return model ? { model, amount: +$('sharpen-model-amount').value / 100 } : null;
 }
 
 // The model's enlargement `big` (16-bit RGB of the picture `rgb`, w x h) with the model settings applied: mixed with the plain enlargement, sharpened, grained.
@@ -4513,6 +4532,71 @@ async function refreshUpscaleModels() {
 }
 refreshUpscaleModels().catch(() => {});
 
+// Settings > Sharpening models: the same download list for models that keep the picture's size (core/upscalemodels.js, scale 1). A downloaded one is a choice under Render
+// Settings > Upscaling > Sharpening model, applied to saved photos and the picture made at its size before any enlargement.
+async function refreshSharpenModels() {
+  const select = $('sharpen-model');
+  const before = select.value;
+  const gpuOk = await aiUpscaleAvailable();
+  const list = $('sharpen-models-list');
+  if (!list.children.length) {
+    for (const m of SHARPEN_MODELS) {
+      const row = document.createElement('label');
+      row.className = 'check model-row';
+      const box = Object.assign(document.createElement('input'), { type: 'checkbox' });
+      box.dataset.model = m.id;
+      const text = document.createElement('span');
+      text.textContent = `${m.name}, ${m.note} (${Math.round(m.size / 1e6)} MB)`;
+      const status = Object.assign(document.createElement('span'), { className: 'hint model-state' });
+      row.append(box, text, status);
+      list.append(row);
+      box.onchange = async () => {
+        if (modelBusy) {
+          box.checked = !box.checked;
+          return;
+        }
+        modelBusy = true;
+        box.disabled = true;
+        try {
+          if (box.checked) {
+            status.textContent = 'Downloading… 0%';
+            await downloadModel(m, (p) => { status.textContent = `Downloading… ${Math.round(p * 100)}%`; });
+          } else {
+            await removeModel(m);
+          }
+          status.textContent = '';
+        } catch (err) {
+          box.checked = false;
+          status.textContent = err && err.message ? err.message : String(err);
+        }
+        modelBusy = false;
+        await refreshSharpenModels();
+      };
+    }
+  }
+  for (const m of SHARPEN_MODELS) {
+    const have = (await modelState(m)) === 'ready';
+    const box = list.querySelector(`input[data-model="${m.id}"]`);
+    box.checked = have;
+    box.disabled = !gpuOk && !have;
+    box.title = gpuOk ? '' : 'Needs a graphics card with WebGPU';
+    const value = sharpenMethod(m.id);
+    const option = [...select.options].find((o) => o.value === value);
+    if (have && !option) select.append(new Option(m.name, value));
+    else if (!have && option) option.remove();
+  }
+  if (before && ![...select.options].some((o) => o.value === before)) select.value = '';
+  else select.value = before;
+  const any = select.options.length > 1;
+  $('sharpen-model-row').hidden = !any;
+  $('sharpen-model-amount-row').hidden = !any || !select.value;
+}
+refreshSharpenModels().catch(() => {});
+$('sharpen-model').addEventListener('change', () => {
+  $('sharpen-model-amount-row').hidden = !$('sharpen-model').value;
+  scheduleSave();
+});
+
 // Settings > Memory (the desktop app): the most RAM and video memory the app may plan to use, from 1 GB up to what the computer has less what the system keeps (4 GB of RAM, 512 MB of video memory). At the top
 // of the range (the start) there is no limit of the app's own. The limits size the heavy steps (a full sensor render, a 16-bit export, an upscaling model; core/memorybudget.js)
 // and, when the app starts, cap its JavaScript heap and the video memory Chromium plans for (electron/main.cjs).
@@ -5014,7 +5098,7 @@ const { curve } = initToneCurve({ $, applySettingsSoon: (...a) => applySettingsS
 const { setPicking, pickWhiteBalance } = initWhiteBalancePicker({ state, canRender: (...a) => canRender(...a), $, canvas, viewPoint: (...a) => viewPoint(...a), engine, showSliderValue: (...a) => showSliderValue(...a), applySettings: (...a) => applySettings(...a), scheduleSave: (...a) => scheduleSave(...a), showError: (...a) => showError(...a) });
 
 // export: ui/export.js
-const { baseName, shownScale, showAtPhotoSize, savePhoto, showPhotoFormat, savePng, showVideoCodecs, readParams, showUpscaleControls, frameList, frameGeometry, exportVideo } = initExport({ state, $, canvas, ctx, layoutCanvas: (...a) => layoutCanvas(...a), showsCamera: (...a) => showsCamera(...a), stereoShown, showNotice: (...a) => showNotice(...a), engine, cameraParams: (...a) => cameraParams(...a), showProgress: (...a) => showProgress(...a), hideProgress: (...a) => hideProgress(...a), modelUpscaleParams: (...a) => modelUpscaleParams(...a), finishModelEnlargement: (...a) => finishModelEnlargement(...a), showError: (...a) => showError(...a), showSliderValue: (...a) => showSliderValue(...a), scheduleSave: (...a) => scheduleSave(...a), draw: (...a) => draw(...a), cropValues: (...a) => cropValues(...a), animationRequest: (...a) => animationRequest(...a), eyeOffset, eyeParams, ensureAnimation: (...a) => ensureAnimation(...a), drawGeometry: (...a) => drawGeometry(...a), stereoTag });
+const { baseName, shownScale, showAtPhotoSize, savePhoto, showPhotoFormat, savePng, showVideoCodecs, readParams, showUpscaleControls, frameList, frameGeometry, exportVideo } = initExport({ state, $, canvas, ctx, layoutCanvas: (...a) => layoutCanvas(...a), showsCamera: (...a) => showsCamera(...a), stereoShown, showNotice: (...a) => showNotice(...a), engine, cameraParams: (...a) => cameraParams(...a), showProgress: (...a) => showProgress(...a), hideProgress: (...a) => hideProgress(...a), modelUpscaleParams: (...a) => modelUpscaleParams(...a), sharpenParams: (...a) => sharpenParams(...a), finishModelEnlargement: (...a) => finishModelEnlargement(...a), showError: (...a) => showError(...a), showSliderValue: (...a) => showSliderValue(...a), scheduleSave: (...a) => scheduleSave(...a), draw: (...a) => draw(...a), cropValues: (...a) => cropValues(...a), animationRequest: (...a) => animationRequest(...a), eyeOffset, eyeParams, ensureAnimation: (...a) => ensureAnimation(...a), drawGeometry: (...a) => drawGeometry(...a), stereoTag });
 const lenticular = initLenticular({ $, state, engine, cameraParams: (...a) => cameraParams(...a), eyeParams, withPivotZoom: (...a) => withPivotZoom(...a), pivotFor: (...a) => pivotFor(...a), cropValues: (...a) => cropValues(...a), drawGeometry: (...a) => drawGeometry(...a), animationPlan: (...a) => animationPlan(...a), invalidateAnimation: (...a) => invalidateAnimation(...a), showNotice: (...a) => showNotice(...a), showProgress: (...a) => showProgress(...a), hideProgress: (...a) => hideProgress(...a), showError: (...a) => showError(...a), baseName, showSliderValue: (...a) => showSliderValue(...a) , scheduleSave: (...a) => scheduleSave(...a) });
 
 // camera import: ui/cameraimport.js

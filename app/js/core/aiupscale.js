@@ -113,6 +113,29 @@ export async function aiUpscale(model, readModel, rgb, w, h, onProgress = () => 
 }
 
 
+// Sharpens `rgb` (see tiledUpscale) with a sharpening model (scale 1, as NAFNet deblur): the picture at its size, mixed with the original by `amount` 0..1.
+export async function aiSharpen(model, readModel, rgb, w, h, amount = 1, onProgress = () => {}) {
+  if (!(amount > 0)) return rgb;
+  const need = modelRam(w, h, 1);
+  if (need > MAX_RESULT_BYTES || !fitsMemory('ram', need)) {
+    throw new Error(memoryProblem('ram', need, `Sharpening ${w}×${h} with a model`, 'Lower the render size or raise the limit.'));
+  }
+  onProgress('Loading the sharpening model', 0);
+  const { ort, session } = await loadUpscaleSession(model, readModel);
+  const tile = fitsMemory('vram', LOW_VRAM) ? AI_TILE : SMALL_TILE;
+  const run = async (chw) => (await session.run({ input: new ort.Tensor('float32', chw, [1, 3, tile, tile]) })).output.data;
+  const sharp = await tiledUpscale(rgb, w, h, 1, run, { tile, onProgress: (p) => onProgress(`Sharpening with ${model.name}`, p) });
+  return mixRgb16(rgb, sharp, amount);
+}
+
+// `a` and `b` (16-bit RGB of the same size) mixed: 0 is `a`, 1 is `b`.
+export function mixRgb16(a, b, t) {
+  if (!(t < 1)) return b;
+  const out = new Uint16Array(a.length);
+  for (let i = 0; i < out.length; i++) out[i] = a[i] + (b[i] - a[i]) * t;
+  return out;
+}
+
 // Before enlarging: a light edge-preserving smoothing of the picture (16-bit RGB, 3 per pixel), so the model does not take noise for texture and sharpen it. `amount` 0..1 is
 // how much of the smoothed picture replaces the original; the smoothing keeps strong edges (a 3 x 3 neighbourhood weighted by how close each neighbour's color is).
 export function denoiseRgb16(rgb, w, h, amount) {

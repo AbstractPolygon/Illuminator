@@ -14,7 +14,11 @@ const CACHE = 'illuminator-upscale-models-v1';
 const REPO_BASE = 'https://raw.githubusercontent.com/AbstractPolygon/Illuminator/main/models/';
 const SOURCE_BASE = `https://huggingface.co/${MODEL_SOURCE.repo}/resolve/${MODEL_SOURCE.revision}/`;
 
-export const UPSCALE_MODELS = MODEL_DATA;
+// Enlarging models (scale 2 or 4) and sharpening models (scale 1: the picture comes out at its size, as NAFNet deblur), both downloaded the same way.
+export const UPSCALE_MODELS = MODEL_DATA.filter((m) => m.scale > 1);
+export const SHARPEN_MODELS = MODEL_DATA.filter((m) => m.scale === 1);
+export const sharpenMethod = (id) => `sharp:${id}`;
+export const sharpenModelOf = (value) => (typeof value === 'string' && value.startsWith('sharp:') ? SHARPEN_MODELS.find((m) => m.id === value.slice(6)) || null : null);
 
 // The Method value of a model in Render Settings > Upscaling.
 export const modelMethod = (id) => `ai:${id}`;

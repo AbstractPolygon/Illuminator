@@ -9,6 +9,7 @@ Copies of the optional super resolution models the app can download (Settings > 
 | `2xNomosUni_span_multijpg.onnx` | 1.7 MB | `8fcfaa1c0a2ccb8d73b7b76bf9b0305dfb7db3cca9ebac56f514e72e3977595f` |
 | `RealESRGAN_x4plus.onnx` | 67 MB | `c6a0cc3b0535ea566f30f20b8dd42f0462502b9e22cf45ea6e0b3ccf55d03d98` |
 | `RealESRGAN_x2plus.onnx` | 67 MB | `401eabff08c010c105f42535c40c360e58dbdbaa1aef4a5601c872ded61ef7bb` |
+| `NAFNet-GoPro-width32.onnx` | 69 MB | `16ed3b105a058e0f9e9f01805ae8a580249794be649a05a9b9552e1f53e6173e` |
 
 The general and x4plus Real-ESRGAN files are ONNX exports (opset 17, input `input` float32 `[1, 3, H, W]` 0..1, output `output` `[1, 3, 4H, 4W]`) of the official [Real-ESRGAN](https://github.com/xinntao/Real-ESRGAN) weights by Xintao Wang et al., released under the BSD 3-Clause License (`LICENSE-Real-ESRGAN.txt`). The exports are by [relax123666/clearpic-models](https://huggingface.co/relax123666/clearpic-models), pinned in `manifest.json`.
 
@@ -17,6 +18,8 @@ The general and x4plus Real-ESRGAN files are ONNX exports (opset 17, input `inpu
 **SPAN x2** (`2xNomosUni_span_multijpg.onnx`) is its 2× twin by the same author, converted the same way from [Phips/2xNomosUni_span_multijpg](https://huggingface.co/Phips/2xNomosUni_span_multijpg) (CC BY 4.0; `LICENSE-2xNomosUni_span_multijpg.txt`); it matches the PyTorch model to about 6e-6.
 
 **Real-ESRGAN x2plus** (`RealESRGAN_x2plus.onnx`) enlarges 2× instead of 4×, so the 1.5× and 2× Photo sizes are not made at 4× and reduced. It is converted here the same way (`scripts/convert-model.py`) from the official weights, `RealESRGAN_x2plus.pth` in Real-ESRGAN's [v0.2.1 release](https://github.com/xinntao/Real-ESRGAN/releases/tag/v0.2.1) (BSD 3-Clause, `LICENSE-Real-ESRGAN.txt`); the release's file is pinned by its SHA-256 in `manifest.json`.
+
+**NAFNet deblur** (`NAFNet-GoPro-width32.onnx`) is a sharpening model, not an upscaler: the picture comes out at the size it went in (Settings > Sharpening models; Render Settings > Upscaling > Sharpening model). NAFNet is by Liangyu Chen et al. (MIT, `LICENSE-NAFNet.txt`); it is converted here with `scripts/convert-model.py` from the GoPro width 32 weights, as published in the [nyanko7/nafnet-models](https://huggingface.co/nyanko7/nafnet-models) mirror of the official files, and matches the PyTorch model to about 5e-5. It accepts any picture size.
 
 ## Keeping them up to date
 

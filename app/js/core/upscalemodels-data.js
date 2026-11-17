@@ -108,5 +108,32 @@ export const MODEL_DATA = [
       "license": "BSD-3-Clause",
       "licenseFile": "LICENSE-Real-ESRGAN.txt"
     }
+  },
+  {
+    "id": "NAFNet-GoPro-width32",
+    "name": "NAFNet deblur",
+    "note": "removes blur, same size",
+    "file": "NAFNet-GoPro-width32.onnx",
+    "size": 69123883,
+    "sha256": "16ed3b105a058e0f9e9f01805ae8a580249794be649a05a9b9552e1f53e6173e",
+    "scale": 1,
+    "weights": "NAFNet-GoPro-width32.pth (Chen et al., MIT)",
+    "converted": {
+      "from": {
+        "repo": "nyanko7/nafnet-models",
+        "file": "NAFNet-GoPro-width32.pth",
+        "revision": "08e8c701eb662688cccda3bf3074e90e902bcd3b",
+        "sha256": "19394e6155d12ef6371d1d57496f87f0ec88f92bdffa27c0792690722d5d1a5c"
+      },
+      "script": "scripts/convert-model.py",
+      "tools": {
+        "torch": "2.15.0",
+        "spandrel": "0.4.2",
+        "onnx": "1.23.2",
+        "opset": 17
+      },
+      "license": "MIT",
+      "licenseFile": "LICENSE-NAFNet.txt"
+    }
   }
 ];
