@@ -51,6 +51,8 @@ export function initLenticular({ $, state, engine, cameraParams, eyeParams, with
   function showInfo() {
     const s = settings();
     $('lent-depth-row').hidden = isAnimation(s.type);
+    // (the focus point is for 3D prints: an animation's focus comes from its frames)
+    $('lent-focus-row').hidden = isAnimation(s.type);
     try {
       const plan = lenticularPlan(s);
       $('lent-info').textContent = `${plan.views} pictures under each lens · ${plan.width} × ${plan.height} px at ${plan.dpi} DPI. Print at 100%, without scaling.`;
@@ -60,6 +62,53 @@ export function initLenticular({ $, state, engine, cameraParams, eyeParams, with
       $('lent-info').classList.add('error');
     }
   }
+
+  // The focus for 3D prints: the depth at a point of the picture clicked for it ({ alpha, x, y, photo }), or none (the picture's current focus). Per photo: not kept.
+  let focus = null;
+  const pickedFocus = () => (focus && focus.photo === state.info ? focus : null);
+  function showFocus() {
+    const f = pickedFocus();
+    if (!f && focus) focus = null;
+    $('lent-focus-clear').disabled = !f;
+    $('lent-focus-pick').classList.toggle('active', !!state.lentPick);
+    $('lent-focus-info').textContent = state.lentPick
+      ? 'Click the picture where the print should be sharp (Esc cancels).'
+      : f ? `Focus: the depth at ${Math.round(f.x * 100)}% across, ${Math.round(f.y * 100)}% down.` : 'Focus: as the picture is now.';
+  }
+  function cancelPick() {
+    if (!state.lentPick) return;
+    state.lentPick = null;
+    $('view').style.cursor = '';
+    showFocus();
+  }
+  // main.js hands the next click on the picture to state.lentPick(viewX, viewY, fractionX, fractionY).
+  $('lent-focus-pick').onclick = () => {
+    if (!(state.info && state.info.hasRaw)) return showNotice('Choosing a focus point needs a photo with its light field (a raw Lytro photo).');
+    if (state.lentPick) return cancelPick();
+    state.lentPick = async (x, y, fx, fy) => {
+      state.lentPick = null;
+      const gen = state.info;
+      try {
+        showProgress('Finding the depth there', null);
+        const res = await engine.request('focusAt', { x, y, u: state.camera.u, v: state.camera.v, depth: true }, { onProgress: () => {} });
+        hideProgress();
+        if (state.info === gen && res && typeof res.alpha === 'number') focus = { alpha: res.alpha, x: fx, y: fy, photo: gen };
+      } catch (err) {
+        hideProgress();
+        showError(err, 'Could not pick the focus');
+      }
+      showFocus();
+    };
+    $('view').style.cursor = 'crosshair';
+    showFocus();
+  };
+  $('lent-focus-clear').onclick = () => {
+    focus = null;
+    showFocus();
+  };
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') cancelPick();
+  });
 
   // A picture through a geometry (or as it is), as a canvas.
   function shaped(img, g) {
@@ -86,7 +135,8 @@ export function initLenticular({ $, state, engine, cameraParams, eyeParams, with
   // 3D: n views across the aperture, each through the crop, rotation and its pivot, as canvases (left viewpoint first).
   async function views3d(n, depth, axis = 'x') {
     if (!(state.info && state.info.hasRaw)) throw new Error('A 3D lenticular print needs a photo with its light field (a raw Lytro photo).');
-    const p = cameraParams();
+    // The focus (the depth that sits on the sheet's surface) is the one picked for the print, or else the picture's.
+    const p = { ...cameraParams(), ...(pickedFocus() ? { alpha: focus.alpha } : {}) };
     // (Movement past 100%: the views beyond the lens's opening are made by the worker from the edge view and the depth map)
     const reach = (state.info.radius || 4.5) * (depth / 100);
     // Across the lens left to right, or (tilting up and down) top to bottom.
@@ -382,5 +432,6 @@ export function initLenticular({ $, state, engine, cameraParams, eyeParams, with
   $('lent-btn').onclick = savePrint;
   $('lent-test-btn').onclick = saveTest;
   showInfo();
-  return { showInfo };
+  showFocus();
+  return { showInfo, showFocus };
 }
