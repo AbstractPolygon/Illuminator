@@ -4342,6 +4342,14 @@ export class GpuRenderer {
   depthOfField(src, w, h, options) {
     const { focus, strength, highlights = 0, clip = 1, tilt = [0, 0], point = [0.5, 0.5], spread = 0, smooth = 0, feather = 0, draft = false, sharp = null } = options;
     const gl = this.gl;
+    // How far the blur reaches anywhere in the picture: the largest focus difference to the depth range, with the tilt, less the spread.
+    {
+      const [lo0, hi0] = this.depthRange || [0, 0];
+      const reach0 = Math.abs(tilt[0]) + Math.abs(tilt[1]);
+      const widest = strength * Math.max(0, Math.max(Math.abs(hi0 - focus), Math.abs(lo0 - focus)) + reach0 - spread);
+      // Nothing blurs by even a quarter of a pixel, and with no highlight boost the picture comes out as it came in: no passes (also for a depth range that is not a number).
+      if (!(widest >= 0.25) && !(highlights > 0)) return src;
+    }
     const prep = this.mipmapped(w, h, 'dofPrep');
     const out = this.scratch(w, h, 'dofOut');
     let P = this.programs.dofPrep;

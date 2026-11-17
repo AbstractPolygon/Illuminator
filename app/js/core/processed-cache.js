@@ -78,7 +78,7 @@ export function decodeProcessed(buffer) {
     if (!listed.every((e) => e && typeof e === 'object' && validKey(e.key) && Number.isInteger(e.w) && Number.isInteger(e.h))) return null;
     const hl = header.lens;
     if (hl != null && !(typeof hl === 'object' && typeof hl.key === 'string' && [hl.r0, hl.c0, hl.rows, hl.cols].every(Number.isFinite))) return null;
-    if (!(n >= 0) || (n === 0 && !header.open && !listed.length && !header.lens) || buffer.byteLength < at + n * 4) return null;
+    if (!(n >= 0) || (n === 0 && !header.open && !listed.length && !header.lens && !(Array.isArray(header.models) && header.models.length)) || buffer.byteLength < at + n * 4) return null;
     const alpha = new Float32Array(buffer.slice(at, at + n * 4));
     at += n * 4;
     const extra = [];

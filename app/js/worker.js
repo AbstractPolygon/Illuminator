@@ -897,7 +897,7 @@ function releasePhoto({ all = false } = {}) {
   state.pp = null;
   processedBuilt = null;
   state.sampler = null;
-  for (const k of ['depth', 'depthRaw', 'depthPlain', 'depthParts', 'depthParallax', 'depth5', 'depthEngine', 'depthExact', 'depthOwn', 'depthOwnF', 'modelDepth', 'objects', 'userDepth', 'depthJob',
+  for (const k of ['depth', 'depthRaw', 'depthPlain', 'depthParts', 'depthParallax', 'depth5', 'depthEngine', 'depthExact', 'depthOwn', 'depthOwnF', 'modelDepth', 'modelJob', 'objects', 'userDepth', 'depthJob',
     'rawOriginal', 'rawFixed', 'rawWhite', 'rayWarp', 'rayWarpEdof', 'geoTable', 'geoTableExact', 'reconSource', 'rayField', 'refocusViews', 'kept', 'vignetting', 'center', 'exactOffsets',
     'lensOffsets', 'lensShiftFor', 'lensOut', 'lensCacheIn', 'depthCacheIn', 'depthCacheOut', 'openOut', 'usmDepth', 'usmMap', 'engineScale', 'engineWb', 'scratch']) state[k] = null;
   state.engineViews = undefined;
@@ -2205,10 +2205,21 @@ async function ensureModelDepth(id) {
       // The model's map kept with the photo (or made earlier in this session) is used as it is; the model runs only when there is none.
       const mapKey = cacheKeys.modelDepthKey(state, model, outW, outH);
       let rel = state.modelMaps && state.modelMaps.get(mapKey) ? state.modelMaps.get(mapKey).rel : null;
-      const fresh = !rel;
-      if (!rel) rel = await runDepthModel(model, readDepthModel, centerView(), outW, outH, (stage, p) => post({ id, type: 'progress', stage, progress: p }));
+      let fresh = false;
+      if (!rel) {
+        // One run per photo and model at a time: a second request while it runs waits for it (a setting changed, or the open and a setting both asked).
+        if (!(state.modelJob && state.modelJob.key === mapKey)) {
+          const job = { key: mapKey, promise: runDepthModel(model, readDepthModel, centerView(), outW, outH, (stage, p) => post({ id, type: 'progress', stage, progress: p })) };
+          state.modelJob = job;
+          job.promise.then(() => { if (state.modelJob === job) state.modelJob = null; }, () => { if (state.modelJob === job) state.modelJob = null; });
+          fresh = true;
+        }
+        rel = await state.modelJob.promise;
+      }
       if (state.sampler !== sampler || !state.depthRaw) return;
       if (fresh && state.modelMaps) {
+        // (only the newest map of a model is kept with the photo: ones made at another size or with other settings would only add to its file)
+        for (const k of [...state.modelMaps.keys()]) if (JSON.parse(k).model === model.id) state.modelMaps.delete(k);
         state.modelMaps.set(mapKey, { rel, w: outW, h: outH });
         postDepthCache();
       }

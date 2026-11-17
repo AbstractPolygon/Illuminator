@@ -479,8 +479,8 @@ function kernelRows(k, r) {
 // prefix sums. Onion rings split the kernel into nested shapes, each adding
 // the change in ring brightness at its edge.
 // `need` (optional, one byte a pixel): only those pixels are made (the rest are left 0), for a level of the stack only some pixels use.
-function shapedBlur(src, w, h, r, k, need = null) {
-  const out = new Float32Array(src.length);
+// The row prefix sums of a picture (every level of the stack blurs the same picture, so applyDepthOfField makes them once).
+function rowPrefix(src, w, h) {
   const prefix = new Float64Array((w + 1) * h * 3);
   for (let y = 0; y < h; y++) {
     for (let c = 0; c < 3; c++) {
@@ -493,6 +493,13 @@ function shapedBlur(src, w, h, r, k, need = null) {
       }
     }
   }
+  return prefix;
+}
+let sharedPrefix = null;
+
+function shapedBlur(src, w, h, r, k, need = null) {
+  const out = new Float32Array(src.length);
+  const prefix = sharedPrefix && sharedPrefix.src === src && sharedPrefix.w === w && sharedPrefix.h === h ? sharedPrefix.prefix : rowPrefix(src, w, h);
   // Nested shapes [rows, weight]: weight is the ring brightness inside its
   // edge minus the brightness just outside it.
   // (the onion skin's rings, averaged round the ball: the processor's blur draws nested shapes, so it cannot show their wobble or the spots)
@@ -559,16 +566,20 @@ export function boxBlur(src, w, h, r) {
       }
     }
   }
-  for (let x = 0; x < w; x++) {
-    for (let c = 0; c < 3; c++) {
-      let acc = 0;
-      for (let k = -r; k <= r; k++) acc += tmp[(Math.min(h - 1, Math.max(0, k)) * w + x) * 3 + c];
-      for (let y = 0; y < h; y++) {
-        out[(y * w + x) * 3 + c] = acc / n;
-        const add = Math.min(h - 1, y + r + 1);
-        const sub = Math.max(0, y - r);
-        acc += tmp[(add * w + x) * 3 + c] - tmp[(sub * w + x) * 3 + c];
-      }
+  // (the columns together, row by row: the sums are the same as one column at a time, and memory is read in order)
+  const row = w * 3;
+  const acc = new Float64Array(row);
+  for (let k = -r; k <= r; k++) {
+    const at = Math.min(h - 1, Math.max(0, k)) * row;
+    for (let i = 0; i < row; i++) acc[i] += tmp[at + i];
+  }
+  for (let y = 0; y < h; y++) {
+    const o = y * row;
+    const add = Math.min(h - 1, y + r + 1) * row;
+    const sub = Math.max(0, y - r) * row;
+    for (let i = 0; i < row; i++) {
+      out[o + i] = acc[i] / n;
+      acc[i] += tmp[add + i] - tmp[sub + i];
     }
   }
   return out;
@@ -663,6 +674,7 @@ export function applyDepthOfField(rgb, w, h, depth, dw, dh, focus, strength, pxP
   const sx = dw / w;
   const sy = dh / h;
   // The blur radius of every pixel, then smoothed over `feather` pixels.
+  const maxRadius = 0.5 * Math.hypot(w, h);
   let radius = new Float32Array(w * h);
   for (let y = 0; y < h; y++) {
     const dy = Math.min(dh - 1, Math.floor((y + 0.5) * sy));
@@ -670,7 +682,9 @@ export function applyDepthOfField(rgb, w, h, depth, dw, dh, focus, strength, pxP
     for (let x = 0; x < w; x++) {
       const d = depth[dy * dw + Math.min(dw - 1, Math.floor((x + 0.5) * sx))];
       const f = rowFocus + tilt[0] * ((x + 0.5) / w - point[0]);
-      radius[y * w + x] = strength * softEdge(Math.abs(d - f) - spread, smooth) * pxPerUnit;
+      // (a depth that is not a number, or a huge blur, must not stretch the stack of copies without end: no pixel blurs by more than half the picture's diagonal)
+      const rr = strength * softEdge(Math.abs(d - f) - spread, smooth) * pxPerUnit;
+      radius[y * w + x] = rr > maxRadius ? maxRadius : rr > 0 ? rr : 0;
     }
   }
   if (feather > 0) radius = smoothMap(radius, w, h, feather);
@@ -683,19 +697,26 @@ export function applyDepthOfField(rgb, w, h, depth, dw, dh, focus, strength, pxP
     radii.push(r);
     if (r >= top) break;
   }
+  // The levels all blur the same picture: its row sums are made once (kept only while they are made).
+  sharedPrefix = kernel.kind ? { src, w, h, prefix: rowPrefix(src, w, h) } : null;
   const bracket = new Int16Array(w * h);
   for (let i = 0; i < radius.length; i++) {
     let k = 0;
     while (k < radii.length - 2 && radii[k + 1] < radius[i]) k++;
     bracket[i] = k;
   }
-  const levels = radii.map((r, L) => {
-    if (L === 0) return src;
-    const need = new Uint8Array(w * h);
-    let any = false;
-    for (let i = 0; i < need.length; i++) if (bracket[i] === L || bracket[i] + 1 === L) any = need[i] = 1;
-    return any ? blur(src, w, h, r, kernel, need) : null;
-  });
+  let levels;
+  try {
+    levels = radii.map((r, L) => {
+      if (L === 0) return src;
+      const need = new Uint8Array(w * h);
+      let any = false;
+      for (let i = 0; i < need.length; i++) if (bracket[i] === L || bracket[i] + 1 === L) any = need[i] = 1;
+      return any ? blur(src, w, h, r, kernel, need) : null;
+    });
+  } finally {
+    sharedPrefix = null;
+  }
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
       const r = radius[y * w + x];

@@ -168,13 +168,37 @@ export function applyBokehFx(rgb, w, h, fx, clip = 1) {
   const G = fxGeometry(fx, hw);
   const out = new Float32Array(hw * hh * 3);
   // (the streak has its own bright parts, with its own threshold)
-  const streakImg = fx.streak > 0 ? streakGlow(pointsOf(brightParts(rgb, w, h, clip, fx.streakThreshold), hw, hh), hw, hh, G.a) : null;
+  // (with the usual threshold it is the same picture as the bright parts above)
+  const streakParts = fx.streak > 0 ? ((fx.streakThreshold ?? 0.7) === 0.7 ? hl : brightParts(rgb, w, h, clip, fx.streakThreshold)) : null;
+  const streakImg = fx.streak > 0 ? streakGlow(pointsOf(streakParts, hw, hh), hw, hh, G.a) : null;
   const starImg = fx.star > 0 ? atLod(pointsOf(hl, hw, hh), hw, hh, Math.log2(G.starStep)) : null;
   const ghostImg = fx.ghosts > 0 ? atLod(hl, hw, hh, G.ghostLod) : null;
   let fogImg = null;
   if (fx.fog > 0) fogImg = boxBlur(atLod(hl, hw, hh, G.fogLod), hw, hh, Math.max(1, Math.round(0.02 * hw)));
   const dirtImg = fx.dirt > 0 ? atLod(hl, hw, hh, G.dirtLod) : null;
   const dm = fx.dirt > 0 ? dirtMap() : null;
+  // The starburst's taps, the same for every pixel: their offsets (rounded once: for a whole pixel x, round(x + d) is x + round(d)) and weights.
+  let starDx = null;
+  let starDy = null;
+  let starW = null;
+  if (starImg) {
+    const n = fx.spikes * STAR_TAPS;
+    starDx = new Int32Array(n);
+    starDy = new Int32Array(n);
+    starW = new Float64Array(n);
+    let t = 0;
+    for (let m = 0; m < fx.spikes; m++) {
+      const a = (2 * Math.PI * m) / fx.spikes;
+      const dx = Math.cos(a);
+      const dy = Math.sin(a);
+      for (let j = 1; j <= STAR_TAPS; j++, t++) {
+        const d = j * G.starStep;
+        starDx[t] = Math.round(dx * d);
+        starDy[t] = Math.round(dy * d);
+        starW[t] = Math.exp(-d / G.L0);
+      }
+    }
+  }
   const sample = (img, x, y, c) => (x < 0 || y < 0 || x >= hw || y >= hh ? 0 : img[3 * (y * hw + x) + c]);
   for (let y = 0; y < hh; y++) {
     for (let x = 0; x < hw; x++) {
@@ -184,14 +208,11 @@ export function applyBokehFx(rgb, w, h, fx, clip = 1) {
         if (streakImg) v += softLimit(fx.streak * FX_GAIN.streak * (1 / (2 * G.L)) * streakImg[o + c] * STREAK_TINT[c]);
         if (starImg) {
           let s = 0;
-          for (let m = 0; m < fx.spikes; m++) {
-            const a = (2 * Math.PI * m) / fx.spikes;
-            const dx = Math.cos(a);
-            const dy = Math.sin(a);
-            for (let j = 1; j <= STAR_TAPS; j++) {
-              const d = j * G.starStep;
-              s += Math.exp(-d / G.L0) * sample(starImg, Math.round(x + dx * d), Math.round(y + dy * d), c);
-            }
+          for (let t = 0; t < starW.length; t++) {
+            const xx = x + starDx[t];
+            const yy = y + starDy[t];
+            if (xx < 0 || yy < 0 || xx >= hw || yy >= hh) continue;
+            s += starW[t] * starImg[3 * (yy * hw + xx) + c];
           }
           v += softLimit(fx.star * FX_GAIN.star * (6 / fx.spikes) * ((G.starStep * G.starStep) / G.L0) * s);
         }
