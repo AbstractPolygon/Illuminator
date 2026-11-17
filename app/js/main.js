@@ -4333,8 +4333,7 @@ $('cal-folder').onclick = async () => {
 // Upscaling > Method. They need a graphics card with WebGPU.
 let modelBusy = false;
 const updatingModels = new Set();
-// Depth models (Settings > Depth models): a downloaded model is a choice under Camera > Depth > Depth method. A built in one (Depth Anything V2 Small) is always a
-// choice, and its row in Settings says it is built in, with nothing to tick.
+// Depth models (Settings > Depth models): a downloaded model is a choice under Camera > Depth > Depth method.
 let depthModelBusy = false;
 async function refreshDepthModels() {
   const select = $('depth-style');
@@ -4351,12 +4350,6 @@ async function refreshDepthModels() {
       const status = Object.assign(document.createElement('span'), { className: 'hint model-state' });
       row.append(box, text, status);
       list.append(row);
-      if (m.bundled) {
-        box.hidden = true;
-        text.textContent = `${m.name}, ${m.note}`;
-        status.textContent = 'Built in';
-        continue;
-      }
       box.onchange = async () => {
         if (depthModelBusy) {
           box.checked = !box.checked;
@@ -4387,7 +4380,6 @@ async function refreshDepthModels() {
     const have = (await depthModelState(m)) === 'ready';
     const box = list.querySelector(`input[data-model="${m.id}"]`);
     box.checked = have;
-    box.disabled = !!m.bundled;
     const value = depthModelMethod(m.id);
     const option = [...select.options].find((o) => o.value === value);
     if (have && !option) select.append(new Option(m.name, value));
