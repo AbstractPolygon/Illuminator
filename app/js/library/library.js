@@ -620,6 +620,15 @@ export class Library {
     return album;
   }
 
+  // A photo's name in the list (the files keep theirs). Nothing is done for a blank name.
+  async renamePhoto(photo, name) {
+    const clean = String(name || '').replace(/\s+/g, ' ').trim().slice(0, 80);
+    if (!clean || !this.isListed(photo) || photo.name === clean) return false;
+    photo.name = clean;
+    await this.save();
+    return true;
+  }
+
   async renameAlbum(id, name) {
     const a = this.album(id);
     if (!a || !String(name).trim()) return;
