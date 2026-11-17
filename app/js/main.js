@@ -1060,10 +1060,10 @@ async function createVirtualCopy(photo) {
 
 function photoMenu(photo, button, at = null) {
   const items = [];
+  items.push({ label: 'Rename…', action: () => renamePhoto(photo) });
   // Settings first, so they stay in view however many albums there are.
   items.push({ label: 'Rating, flag and keywords…', action: () => marks.openMarks(photo) });
   items.push({ label: 'Copy settings', action: () => copySettings(photo) });
-  items.push({ label: 'Rename…', action: () => renamePhoto(photo) });
   items.push({ label: 'Create virtual copy', action: () => createVirtualCopy(photo) });
   items.push({
     label: copiedSettings ? `Paste settings from ${copiedSettings.name}…` : 'Paste settings',
