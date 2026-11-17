@@ -1467,7 +1467,7 @@
       </section>
       <section class="setting" id="depth-models-setting">
         <h3>Depth models</h3>
-        <p class="hint">Downloaded models appear under Camera &gt; Depth &gt; Depth method. They see the picture as a whole and give clean object edges; the measured depth gives their scale.</p>
+        <p class="hint">Downloaded models appear under Camera &gt; Depth &gt; Depth method.</p>
         <div id="depth-models-list" class="models-list"></div>
       </section>
       <section class="setting" id="fill-model-setting">
@@ -1481,7 +1481,7 @@
       </section>
       <section class="setting" id="sharpen-models-setting">
         <h3>Sharpening models</h3>
-        <p class="hint">Downloaded models appear under Render Settings &gt; Upscaling &gt; Sharpening model. They remove blur and keep the picture's size.</p>
+        <p class="hint">Downloaded models appear under Render Settings &gt; Upscaling &gt; Sharpening model.</p>
         <div id="sharpen-models-list" class="models-list"></div>
       </section>
       <section class="setting" id="memory-setting" hidden>
@@ -1617,6 +1617,20 @@
         <span class="spacer"></span>
         <button value="cancel">Close</button>
         <a class="button primary" href="https://abstractpolygon.github.io/Illuminator/#download" target="_blank" rel="noopener">Download the desktop app</a>
+      </menu>
+    </form>
+  </dialog>
+
+  <dialog id="models-intro-dialog">
+    <form method="dialog">
+      <h2>Optional models</h2>
+      <p class="hint">Illuminator can download AI models for extra features. Tick the ones you want and press Download; they are kept on this computer. You can add or remove them at any time in Settings: Depth models, Upscaling models, Sharpening models and Fill model.</p>
+      <div id="models-intro-list" class="dialog-body"></div>
+      <menu>
+        <span id="models-intro-status" class="hint"></span>
+        <span class="spacer"></span>
+        <button type="button" id="models-intro-go">Download</button>
+        <button value="close" id="models-intro-close" autofocus>Not now</button>
       </menu>
     </form>
   </dialog>
