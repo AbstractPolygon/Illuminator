@@ -144,11 +144,18 @@ export function curveEditor(canvas, { getPoints, getRegions, setPoints }) {
     const pts = getPoints().map((p) => [...p]);
     const [x, y, s] = toCurve(e);
     const i = nearest(pts, x, y, s);
-    if (i > 0 && i < pts.length - 1) {
+    if (i < 0) return;
+    const last = pts.length - 1;
+    if (i === 0 || i === last) {
+      // An end point cannot be removed: double-clicking it puts it back where it starts (the corner of the graph).
+      pts[i] = i === 0 ? [0, 0] : [1, 1];
+    } else {
       pts.splice(i, 1);
-      setPoints(pts, true);
-      draw();
+      // With every point removed the curve is reset: the end points go back to the corners too.
+      if (pts.length === 2) pts[0] = [0, 0], pts[1] = [1, 1];
     }
+    setPoints(pts, true);
+    draw();
   });
 
   // Redrawn when the panel opens or the sidebar resizes.
