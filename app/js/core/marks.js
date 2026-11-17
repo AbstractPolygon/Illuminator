@@ -1,5 +1,5 @@
 // Ratings, flags and keywords for library photos. A photo carries { rating (0-5), flag ('pick' | 'reject' | null), keywords [text] }; they are kept in
-// library.json and written to an XMP sidecar next to the photo (IMG_0001.xmp), which other programs (Lightroom, Bridge, digiKam and the like) read.
+// library.json and written to an XMP sidecar next to the photo (IMG_0001.xmp), which other programs (Bridge, digiKam and the like) read.
 
 export const MAX_KEYWORDS = 50;
 export const FLAGS = ['pick', 'reject'];

@@ -1,4 +1,4 @@
-// Color adjustments from the Color panel, Lightroom style. Every slider runs
+// Color adjustments from the Color panel. Every slider runs
 // from -1 to 1 with 0 meaning "as shot".
 //
 // White balance (temperature, tint) is folded into the color matrix as
@@ -41,7 +41,7 @@ const LD_WB = {
 const lnGain = (c, x, t) => c[0] + c[1] * x + c[2] * x * x + c[3] * t;
 
 // Camera RGB gains that re-balance a picture white balanced for `asShot`
-// kelvin as if for `kelvin` (higher looks warmer, like Lightroom), and add
+// kelvin as if for `kelvin` (higher looks warmer), and add
 // tint (-150 green to 150 magenta), the way Lytro Desktop's temperature and
 // tint move its gains. Normalized to keep luminance.
 export function whiteBalanceGains(kelvin, asShot, tint = 0) {

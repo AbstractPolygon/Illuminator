@@ -388,6 +388,7 @@ function renderLibrary() {
     li.tabIndex = 0;
     li.setAttribute('role', 'button');
     if (queueUi && queueUi.isPicked(photo)) li.classList.add('picked');
+    if (photo.master) li.title = `Virtual copy of ${virtualMasterName(photo)}`;
     li.draggable = true;
     li.ondragstart = (e) => {
       e.dataTransfer.setData(PHOTO_DRAG, photo.id);
@@ -691,7 +692,7 @@ function renderGrid(photos, album) {
     const url = thumbFor(photo);
     const thumb = url ? Object.assign(document.createElement('img'), { src: url, alt: '' }) : null;
     if (thumb) frame.prepend(thumb);
-    const name = Object.assign(document.createElement('div'), { className: 'name', textContent: photo.name, title: photo.name });
+    const name = Object.assign(document.createElement('div'), { className: 'name', textContent: photo.name, title: photo.master ? `Virtual copy of ${virtualMasterName(photo)}` : photo.name });
     const more = Object.assign(document.createElement('button'), { className: 'more', type: 'button', textContent: '•••', title: 'Albums, copy and paste settings, delete' });
     more.setAttribute('aria-label', `Actions for ${photo.name}`);
     more.setAttribute('aria-haspopup', 'menu');
@@ -817,8 +818,10 @@ function deleteSelected() {
 async function removePhotos(list) {
   let permanent = false;
   for (const photo of list) {
+    // (a photo's virtual copies go with it)
+    const withCopies = [photo, ...state.lib.photos.filter((p) => p.master === photo.id)];
     // Nothing pending may write the photo's folder again once it is gone (edits are not flushed: the photo is deleted).
-    cancelSaves(photo);
+    for (const p of withCopies) cancelSaves(p);
     try {
       await state.lib.remove([photo.id], permanent ? { permanent: true } : undefined);
     } catch (err) {
@@ -828,11 +831,13 @@ async function removePhotos(list) {
       permanent = true;
       await state.lib.remove([photo.id], { permanent: true });
     }
-    const url = thumbs.get(photo.id);
-    if (url) URL.revokeObjectURL(url);
-    thumbs.delete(photo.id);
-    selection.ids.delete(photo.id);
-    if (state.current && state.current.photo === photo) closePhoto();
+    for (const p of withCopies) {
+      const url = thumbs.get(p.id);
+      if (url) URL.revokeObjectURL(url);
+      thumbs.delete(p.id);
+      selection.ids.delete(p.id);
+      if (state.current && state.current.photo === p) closePhoto();
+    }
   }
   renderLibrary();
 }
@@ -1018,11 +1023,35 @@ async function pasteSettings(photo) {
   }
 }
 
+// The name of the photo a virtual copy was made from.
+function virtualMasterName(photo) {
+  const m = state.lib.get(photo.master);
+  return m ? m.name : photo.name;
+}
+
+// Create virtual copy (a photo's ••• menu): another entry for the same photo (the same light field files, stored once) with settings of its own, starting from the photo's
+// current settings. The copy is opened so it can be changed at once.
+async function createVirtualCopy(photo) {
+  // What is open has not been saved yet: the copy starts from what is on the screen.
+  if (state.current && state.current.photo === photo && state.info) await flushSave();
+  let copy = null;
+  try {
+    copy = await state.lib.createVirtualCopy(photo);
+  } catch (err) {
+    console.warn('Could not create the virtual copy', err);
+    return showNotice('The virtual copy could not be created.');
+  }
+  if (!copy) return;
+  renderLibrary();
+  openItem(copy);
+}
+
 function photoMenu(photo, button, at = null) {
   const items = [];
   // Settings first, so they stay in view however many albums there are.
   items.push({ label: 'Rating, flag and keywords…', action: () => marks.openMarks(photo) });
   items.push({ label: 'Copy settings', action: () => copySettings(photo) });
+  items.push({ label: 'Create virtual copy', action: () => createVirtualCopy(photo) });
   items.push({
     label: copiedSettings ? `Paste settings from ${copiedSettings.name}…` : 'Paste settings',
     disabled: !copiedSettings || copiedSettings.id === photo.id,
@@ -1035,7 +1064,7 @@ function photoMenu(photo, button, at = null) {
   // Desktop only: the photo's folder in the library, in the system's file manager.
   if (native && native.library && native.library.open) {
     const fileManager = /Mac/i.test(navigator.platform) ? 'Finder' : /Win/i.test(navigator.platform) ? 'Explorer' : 'file manager';
-    items.push({ label: `Open in ${fileManager}`, action: () => native.library.open(`Photos/${photo.id}`).catch((err) => console.warn('Could not open the photo folder', err)) });
+    items.push({ label: `Open in ${fileManager}`, action: () => native.library.open(`Photos/${photo.master || photo.id}`).catch((err) => console.warn('Could not open the photo folder', err)) });
   }
   items.push('-');
   items.push({ heading: 'Albums' });
@@ -1062,7 +1091,9 @@ function photoMenu(photo, button, at = null) {
     action: () => {
       const remove = () => removePhotos([photo]);
       if (!state.lib.persistent) return remove();
-      return confirmInMenu(`Delete ${photo.name} from the library? ${where}`, 'Delete', remove);
+      const copies = state.lib.photos.filter((p) => p.master === photo.id).length;
+      const withCopies = copies ? ` Its ${copies === 1 ? 'virtual copy is' : `${copies} virtual copies are`} deleted too.` : '';
+      return confirmInMenu(`Delete ${photo.name} from the library? ${where}${withCopies}`, 'Delete', remove);
     },
   });
   showMenu(button, items, at);

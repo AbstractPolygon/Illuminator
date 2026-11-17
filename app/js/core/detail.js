@@ -1,4 +1,4 @@
-// Details panel: noise reduction and sharpening, Lightroom style. Runs on
+// Details panel: noise reduction and sharpening. Runs on
 // linear RGB before color and tone (gpu/renderer.js mirrors it):
 //   0. spot removal: Speckles clamps single pixels that stand out from all
 //      eight neighbors (hot, dead and stray pixels) to the neighbors'
