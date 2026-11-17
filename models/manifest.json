@@ -49,7 +49,7 @@
     {
       "id": "2xNomosUni_span_multijpg",
       "name": "SPAN x2",
-      "note": "fast, photos, best for 1.5× and 2×",
+      "note": "fast, photos, best for 1.5\u00d7 and 2\u00d7",
       "file": "2xNomosUni_span_multijpg.onnx",
       "size": 1656556,
       "sha256": "8fcfaa1c0a2ccb8d73b7b76bf9b0305dfb7db3cca9ebac56f514e72e3977595f",
@@ -86,7 +86,7 @@
     {
       "id": "RealESRGAN_x2plus",
       "name": "Real-ESRGAN x2plus",
-      "note": "best for 1.5× and 2×",
+      "note": "best for 1.5\u00d7 and 2\u00d7",
       "file": "RealESRGAN_x2plus.onnx",
       "size": 67156233,
       "sha256": "401eabff08c010c105f42535c40c360e58dbdbaa1aef4a5601c872ded61ef7bb",
@@ -115,10 +115,10 @@
       "name": "NAFNet deblur",
       "note": "removes blur, same size",
       "file": "NAFNet-GoPro-width32.onnx",
-      "size": 69123883,
-      "sha256": "16ed3b105a058e0f9e9f01805ae8a580249794be649a05a9b9552e1f53e6173e",
+      "size": 34972016,
+      "sha256": "cb0e869b69237b55fb88157b52ff88af02923115e008b0f65c493e319332815c",
       "scale": 1,
-      "weights": "NAFNet-GoPro-width32.pth (Chen et al., MIT)",
+      "weights": "NAFNet-GoPro-width32.pth (Chen et al., MIT), weights stored at half precision",
       "converted": {
         "from": {
           "repo": "nyanko7/nafnet-models",
@@ -126,7 +126,7 @@
           "revision": "08e8c701eb662688cccda3bf3074e90e902bcd3b",
           "sha256": "19394e6155d12ef6371d1d57496f87f0ec88f92bdffa27c0792690722d5d1a5c"
         },
-        "script": "scripts/convert-model.py",
+        "script": "scripts/convert-model.py, then scripts/halve-weights.py",
         "tools": {
           "torch": "2.15.0",
           "spandrel": "0.4.2",
@@ -134,7 +134,8 @@
           "opset": 17
         },
         "license": "MIT",
-        "licenseFile": "LICENSE-NAFNet.txt"
+        "licenseFile": "LICENSE-NAFNet.txt",
+        "halved": true
       }
     }
   ]
