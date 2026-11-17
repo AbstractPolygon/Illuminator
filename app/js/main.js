@@ -372,6 +372,14 @@ const EMPTY_LIBRARY = CAMERA_IMPORT
 // The Camera section's state (see setCameraSection).
 const cameraThumbs = new Map();
 
+// Rows and tiles are built again only when what they show changed (a thumbnail arriving, a rating, the open photo, a busy photo, a name): the others are reused, so
+// drawing a big library after each thumbnail costs only what changed, not the whole list again.
+let listRows = new Map();
+let gridTiles = new Map();
+function photoSig(photo, current, url) {
+  return JSON.stringify([photo.name, photo.master ? virtualMasterName(photo) : '', url || '', photo === current, !!(queueUi && queueUi.isPicked(photo)), busy.has(photo.id), photo.rating || 0, photo.flag || '', photo.keywords || []]);
+}
+
 function renderLibrary() {
   renderAlbums();
   const album = state.lib && state.album ? state.lib.album(state.album) : null;
@@ -384,7 +392,15 @@ function renderLibrary() {
   const focused = document.activeElement && document.activeElement.closest ? document.activeElement.closest('#library-list li') : null;
   const focusId = focused ? focused.dataset.photoId : null;
   const focusMore = !!focused && document.activeElement !== focused;
+  const nextRows = new Map();
   $('library-list').replaceChildren(...photos.map((photo) => {
+    const url = thumbFor(photo);
+    const sig = photoSig(photo, current, url);
+    const kept = listRows.get(photo.id);
+    if (kept && kept.sig === sig) {
+      nextRows.set(photo.id, kept);
+      return kept.el;
+    }
     const li = document.createElement('li');
     li.className = photo === current ? 'current' : '';
     li.dataset.photoId = photo.id;
@@ -397,7 +413,6 @@ function renderLibrary() {
       e.dataTransfer.setData(PHOTO_DRAG, photo.id);
       e.dataTransfer.effectAllowed = 'copy';
     };
-    const url = thumbFor(photo);
     const img = url ? Object.assign(document.createElement('img'), { src: url, alt: '' }) : Object.assign(document.createElement('div'), { className: 'noimg' });
     const name = document.createElement('span');
     name.textContent = photo.name;
@@ -428,8 +443,10 @@ function renderLibrary() {
       e.preventDefault();
       photoMenu(photo, more, { x: e.clientX, y: e.clientY });
     };
+    nextRows.set(photo.id, { el: li, sig });
     return li;
   }));
+  listRows = nextRows;
   if (focusId) {
     const row = [...$('library-list').children].find((el) => el.dataset.photoId === focusId);
     if (row) (focusMore ? row.querySelector('.more') || row : row).focus({ preventScroll: true });
@@ -783,7 +800,15 @@ function renderGrid(photos, album) {
   const current = state.current && state.current.photo;
   gridOrder = photos.map((p) => p.id);
   selection.keepOnly(gridOrder);
+  const nextTiles = new Map();
   $('photo-grid').replaceChildren(...photos.map((photo) => {
+    const url = thumbFor(photo);
+    const sig = photoSig(photo, current, url);
+    const kept = gridTiles.get(photo.id);
+    if (kept && kept.sig === sig) {
+      nextTiles.set(photo.id, kept);
+      return kept.el;
+    }
     const tile = document.createElement('div');
     tile.className = (photo === current ? 'tile current' : 'tile') + (selection.has(photo.id) ? ' selected' : '');
     tile.dataset.id = photo.id;
@@ -798,7 +823,6 @@ function renderGrid(photos, album) {
     const frame = Object.assign(document.createElement('div'), { className: 'frame' });
     frame.append(busyBadge());
     if (busy.has(photo.id)) tile.classList.add('busy');
-    const url = thumbFor(photo);
     const thumb = url ? Object.assign(document.createElement('img'), { src: url, alt: '' }) : null;
     if (thumb) frame.prepend(thumb);
     const name = Object.assign(document.createElement('div'), { className: 'name', textContent: photo.name, title: photo.master ? `Virtual copy of ${virtualMasterName(photo)}` : photo.name });
@@ -836,8 +860,10 @@ function renderGrid(photos, album) {
         } else openItem(photo);
       }
     };
+    nextTiles.set(photo.id, { el: tile, sig });
     return tile;
   }));
+  gridTiles = nextTiles;
   showSelection();
   $('grid-empty').hidden = photos.length > 0;
   $('grid-empty').textContent = album

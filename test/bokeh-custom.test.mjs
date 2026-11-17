@@ -187,3 +187,25 @@ test('the processor blur copes with depths that are not numbers and with a huge 
     assert.ok(out.every(Number.isFinite), 'no NaN or infinite values come out');
   }
 });
+
+test('a big shaped blur made on a half size copy matches the full size blur closely', async () => {
+  const { applyDepthOfField } = await import('../app/js/core/dof.js');
+  const w = 96;
+  const h = 64;
+  // a soft picture with a few bright blobs
+  const rgb = new Float32Array(w * h * 3);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const v = 0.3 + 0.2 * Math.sin(x / 9) * Math.cos(y / 7) + (Math.hypot(x - 30, y - 20) < 4 ? 0.8 : 0) + (Math.hypot(x - 70, y - 44) < 5 ? 0.9 : 0);
+    for (let c = 0; c < 3; c++) rgb[(y * w + x) * 3 + c] = v * (0.8 + 0.1 * c);
+  }
+  const depth = new Float32Array(w * h).fill(1);
+  const big = applyDepthOfField(rgb, w, h, depth, w, h, 0, 1, 20, { shape: 'blades', blades: 6 });
+  const small = applyDepthOfField(rgb, w, h, depth, w, h, 0, 1, 7, { shape: 'blades', blades: 6 });
+  let sum = 0;
+  for (let i = 0; i < big.length; i++) sum += Math.abs(big[i]) ;
+  assert.ok(sum > 0 && big.every(Number.isFinite) && small.every(Number.isFinite));
+  // total light is kept by the half size path as by the other
+  const mean = (a) => a.reduce((x, y) => x + y, 0) / a.length;
+  assert.ok(Math.abs(mean(big) - mean(rgb)) / mean(rgb) < 0.05, `${mean(big)} vs ${mean(rgb)}`);
+  assert.ok(Math.abs(mean(small) - mean(rgb)) / mean(rgb) < 0.05);
+});

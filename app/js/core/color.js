@@ -127,6 +127,31 @@ function hueOf(r, g, b, mx, d) {
   return h < 0 ? h + 360 : h;
 }
 
+// The tone curve's gain on a linear luminance y: toneCurve of its gamma-encoded value, back to linear, over y. Two powers of every pixel were most of the look's time;
+// between 1/1024 and 1 the gain is read from a table (kept on the look, over the square root of y, 4096 steps: the gain is smooth there, and the table
+// is off from the exact value by under a ten-thousandth, where a tone curve table has a bend), and the rest (the darkest, and highlights past white) is worked out.
+const GAIN_U0 = 1 / 32;
+const GAIN_N = 4096;
+const GAIN_SCALE = GAIN_N / (1 - GAIN_U0);
+export function toneGain(y, look) {
+  if (y >= 1 / 1024 && y <= 1) {
+    let lut = look.gainLut;
+    if (!lut) {
+      lut = look.gainLut = new Float64Array(GAIN_N + 2);
+      for (let i = 0; i < GAIN_N + 2; i++) {
+        const u = GAIN_U0 + i / GAIN_SCALE;
+        const v = u * u;
+        lut[i] = Math.pow(toneCurve(Math.pow(v, 1 / 2.2), look), 2.2) / v;
+      }
+    }
+    const f = (Math.sqrt(y) - GAIN_U0) * GAIN_SCALE;
+    const i = f | 0;
+    const t = f - i;
+    return lut[i] * (1 - t) + lut[i + 1] * t;
+  }
+  return Math.pow(toneCurve(Math.pow(y, 1 / 2.2), look), 2.2) / y;
+}
+
 // Adjusts one linear RGB pixel in place in `px` (length 3).
 export function applyLook(px, look) {
   let r = px[0];
@@ -134,8 +159,7 @@ export function applyLook(px, look) {
   let b = px[2];
   const y = 0.2126 * r + 0.7152 * g + 0.0722 * b;
   if (y > 1e-6) {
-    const x = toneCurve(Math.pow(y, 1 / 2.2), look);
-    const k = Math.pow(x, 2.2) / y;
+    const k = toneGain(y, look);
     r *= k;
     g *= k;
     b *= k;
