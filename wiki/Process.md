@@ -37,7 +37,7 @@ Blown-out highlights keep more detail than the sensor's middle pixels hold: the 
 
 ## Tone Curve
 
-A curve over brightness, from black (left) to white (right): click to add a point, drag it, double-click to remove it. The curve never reverses, so tones keep their order. Below it, *Highlights*, *Lights*, *Darks* and *Shadows* lift or lower each quarter of the range. *Reset curve* straightens it.
+A curve over brightness, from black (left) to white (right): click to add a point, drag it, double-click to remove it. The two end points stay: double-clicking one puts it back in its corner, and removing every other point straightens the curve. The curve never reverses, so tones keep their order. Below it, *Highlights*, *Lights*, *Darks* and *Shadows* lift or lower each quarter of the range. *Reset curve* straightens it.
 
 ## Color
 

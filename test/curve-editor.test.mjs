@@ -89,3 +89,17 @@ test('a disabled editor ignores clicks', () => {
   handlers.pointerdown({ button: 0, pointerId: 1, clientX: 100, clientY: 100 });
   assert.equal(changed, 0);
 });
+
+test('removing every point resets the curve, and an end point double-clicked goes back to its corner', () => {
+  const t = setup([[0, 0.1], [0.3, 0.45], [0.7, 0.6], [1, 0.8]]);
+  t.handlers.dblclick(t.at(0.3, 0.45));
+  assert.equal(t.state.points.length, 3, 'one point removed, the others stay');
+  assert.deepEqual(t.state.points[0], [0, 0.1]);
+  t.handlers.dblclick(t.at(0.7, 0.6));
+  assert.deepEqual(t.state.points, [[0, 0], [1, 1]], 'with no points left the end points are back in the corners');
+  assert.equal(t.state.calls[t.state.calls.length - 1], true);
+  // an end point alone
+  const u = setup([[0, 0.2], [0.5, 0.6], [1, 0.9]]);
+  u.handlers.dblclick(u.at(1, 0.9));
+  assert.deepEqual(u.state.points, [[0, 0.2], [0.5, 0.6], [1, 1]]);
+});
