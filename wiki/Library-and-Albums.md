@@ -79,3 +79,5 @@ Photos you open while an album is selected are added to that album too.
 ## Thumbnail grid
 
 Choosing *All photos* or an album shows its photos as a grid in the middle of the window. Make the thumbnails bigger or smaller with the slider and <img src="images/thumb-smaller.png" width="20" height="20" alt="Smaller thumbnails"> <img src="images/thumb-bigger.png" width="20" height="20" alt="Bigger thumbnails"> above the grid, or the **+** and **−** keys. Click a thumbnail (or select it and press Enter) to open the photo.
+
+With a photo open, the **film strip** under the picture shows the photos of the same album (or all photos, or the filter) as a row of thumbnails: click one to open it. The open photo is outlined, and the strip scrolls to it. Click *Film strip* above the row to fold it away or bring it back (the choice is remembered). The button with four squares at the left of the buttons above the picture takes you back to the thumbnail grid.

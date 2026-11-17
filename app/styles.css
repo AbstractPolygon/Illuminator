@@ -135,6 +135,20 @@ h2 { font-size: 13px; font-weight: 600; color: var(--heading); margin: 14px 0 8p
 .stage { flex: 1; display: flex; flex-direction: column; min-width: 0; }
 /* Album grid: takes the place of the picture and its controls. */
 .stage.grid > :not(.grid-view) { display: none; }
+/* The film strip: the photos of the list as a row of thumbnails under the picture; it folds down to its title. */
+.filmstrip { flex: none; border-top: 1px solid var(--line); background: var(--panel); }
+.filmstrip-toggle { display: flex; align-items: center; gap: 4px; width: 100%; padding: 3px 10px; background: none; border: 0; color: var(--muted); font-size: 12px; text-align: left; cursor: pointer; }
+.filmstrip-toggle:hover { color: var(--text); }
+.filmstrip-toggle svg { transition: transform 0.12s; }
+.filmstrip.collapsed .filmstrip-toggle svg { transform: rotate(-90deg); }
+.filmstrip-list { display: flex; gap: 6px; overflow-x: auto; padding: 4px 10px 8px; }
+.filmstrip.collapsed .filmstrip-list { display: none; }
+.filmstrip-list button { flex: none; width: 96px; height: 66px; padding: 0; border: 2px solid transparent; border-radius: 5px; overflow: hidden; background: #2a2e35; cursor: pointer; position: relative; }
+.filmstrip-list button img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.filmstrip-list button:hover { border-color: var(--line); }
+.filmstrip-list button.current { border-color: var(--accent); }
+.filmstrip-list button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
 .grid-view { flex: 1; display: flex; flex-direction: column; min-height: 0; background: #0f1114; }
 .grid-bar { display: flex; align-items: center; gap: 10px; padding: 10px 16px; border-bottom: 1px solid var(--line); background: var(--panel); }
 .grid-bar h2 { margin: 0; font-size: 14px; }
