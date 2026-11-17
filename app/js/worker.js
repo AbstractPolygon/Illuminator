@@ -1386,7 +1386,7 @@ async function superResPreview({ id, job, alpha = 0, u = 0, v = 0, aperture = 0,
   requireRaw();
   const gpu = state.gpu;
   if (!gpu || !gpu.floatBlend || state.settings.fullSensorPreview === false) return { none: true };
-  if (aperture <= 0 && state.settings.lytroEngine !== false && state.lf.rayWarpBytes && state.lf.readModulation && !alpha) return { none: true };
+  if (aperture <= 0 && !(dof > 0) && state.settings.lytroEngine !== false && state.lf.rayWarpBytes && state.lf.readModulation) return { none: true };  // (the engine's picture is made instead: see superRes)
   state.jobs.preview = job;
   const { lf, dev, sampler } = state;
   // The quick look is optional: where the card could not hold even it, there is none.
