@@ -654,24 +654,47 @@ function renderFilmstrip(photos, current) {
   const list = $('filmstrip-list');
   const scroll = list.scrollLeft;
   list.replaceChildren(...photos.map((photo) => {
+    // (an item holds the thumbnail button, which opens the photo, and the pick box and stars over it: ui/marks.js)
+    const item = document.createElement('div');
+    item.className = photo === current ? 'film current' : 'film';
+    item.dataset.photoId = photo.id;
+    item.title = photo.master ? `${photo.name} (virtual copy)` : photo.name;
+    item.setAttribute('role', 'listitem');
     const b = document.createElement('button');
     b.type = 'button';
-    b.className = photo === current ? 'current' : '';
-    b.dataset.photoId = photo.id;
-    b.title = photo.master ? `${photo.name} (virtual copy)` : photo.name;
-    b.setAttribute('role', 'listitem');
+    b.className = 'film-open';
     b.setAttribute('aria-label', photo.name);
     if (photo === current) b.setAttribute('aria-current', 'true');
     const url = thumbFor(photo);
     if (url) b.append(Object.assign(document.createElement('img'), { src: url, alt: '', draggable: false }));
     b.onclick = (e) => chooseListedPhoto(photo, e);
-    return b;
+    item.append(b);
+    const mark = marks && marks.badge(photo);
+    if (mark) {
+      mark.classList.add('film-marks');
+      item.append(mark);
+    }
+    if (marks) item.append(marks.rater(photo));
+    // The same ••• menu as the list and the grid have, at the top right (also on a right-click).
+    const more = Object.assign(document.createElement('button'), { className: 'more', type: 'button', textContent: '•••', title: 'Rename, copy and paste settings, albums, delete' });
+    more.setAttribute('aria-label', `Actions for ${photo.name}`);
+    more.setAttribute('aria-haspopup', 'menu');
+    more.onclick = (e) => {
+      e.stopPropagation();
+      photoMenu(photo, more);
+    };
+    item.oncontextmenu = (e) => {
+      e.preventDefault();
+      photoMenu(photo, more, { x: e.clientX, y: e.clientY });
+    };
+    item.append(more);
+    return item;
   }));
   // The photo that is open comes into view when it changes; otherwise the strip stays where the user scrolled it.
   const here = current ? current.id : null;
   if (here !== filmstripCentered) {
     filmstripCentered = here;
-    const el = list.querySelector('button.current');
+    const el = list.querySelector('.film.current');
     if (el) el.scrollIntoView({ inline: 'center', block: 'nearest' });
   } else list.scrollLeft = scroll;
 }
