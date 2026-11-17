@@ -794,6 +794,13 @@ vec3 bubbleTint(vec2 dq, float t) {
   return mix(vec3(1.0), c / ((c.r + c.g + c.b) / 3.0), uBubble * rim);
 }
 
+// The coverage of the shapes that go by the distance (all but the custom image), from the distance itself.
+float coverFromDist(float dist, float r) {
+  return uShape == 0
+    ? exp(-2.0 * (dist / r) * (dist / r))
+    : clamp((r + 0.5 * uSoft * r + 0.5 - dist) / (uSoft * r + 1.0), 0.0, 1.0);
+}
+
 // The shape's coverage (0..1, not yet divided by its area) at offset o from the ball's center, radius r: the custom shape reads its image (below a radius of 2 pixels it
 // cannot show: a small disc); the others go by the distance.
 float coverAt(vec2 o, float r) {
@@ -803,10 +810,7 @@ float coverAt(vec2 o, float r) {
     // (o runs from this pixel to the tap; the light goes from the tap to this pixel, so the shape is read at -o)
     return maskAt(-vec2(uRot.x * o.x + uRot.y * o.y, -uRot.y * o.x + uRot.x * o.y) / r);
   }
-  float dist = shapeDist(o);
-  return uShape == 0
-    ? exp(-2.0 * (dist / r) * (dist / r))
-    : clamp((r + 0.5 * uSoft * r + 0.5 - dist) / (uSoft * r + 1.0), 0.0, 1.0);
+  return coverFromDist(shapeDist(o), r);
 }
 
 // Where the lenses of the cat's-eye are at frame position pos: the narrow direction (xy) and half the distance between the circles in radii (z); core/dof.js catEyeAt.
@@ -823,7 +827,8 @@ vec3 catAt(vec2 pos, ivec2 size) {
 }
 
 // The weight of a pixel at offset o for a ball of radius r. side: 1 for light from behind the focus, -1 from in front; cat: catAt. Sets gTint.
-float weightAt(vec2 o, float r, float side, vec3 cat) {
+// dist: shapeDist(o) when the caller has it already (the gather's taps), else -1.
+float weightAt(vec2 o, float r, float side, vec3 cat, float dist) {
   r = max(r, 0.5);
   gTint = vec3(1.0);
   float base = uShape == 3 ? (r < 2.0 ? 1.0 / (r * r) : 1.0 / (r * r * uKernelArea)) : 1.0 / (r * r * uAspect);
@@ -840,7 +845,7 @@ float weightAt(vec2 o, float r, float side, vec3 cat) {
     cover = (cv.x + cv.y + cv.z) / 3.0;
     gTint = cv / max(cover, 1e-9);
   } else {
-    cover = coverAt(o, r);
+    cover = dist >= 0.0 && uShape != 3 ? coverFromDist(dist, r) : coverAt(o, r);
   }
   float g = 1.0;
   // The onion skin and the ball's character, once the ball is big enough to show them: turned with the shape and shrunk with it onto a round ball, so they follow it.
@@ -867,7 +872,7 @@ float weightAt(vec2 o, float r, float side, vec3 cat) {
 vec3 gather(vec2 pf, vec4 c, ivec2 size, bool snap, bool coarse) {
   float rc = abs(c.a);
   // (a custom shape can be dark at its center: the pixel still counts a little, so a ball of nothing but dark taps keeps its color)
-  float w0 = max(weightAt(vec2(0.0), rc, c.a >= 0.0 ? 1.0 : -1.0, catAt(pf, size)), 1e-4 / max(rc * rc, 0.25));
+  float w0 = max(weightAt(vec2(0.0), rc, c.a >= 0.0 ? 1.0 : -1.0, catAt(pf, size), -1.0), 1e-4 / max(rc * rc, 0.25));
   vec3 sum = c.rgb * w0 * gTint;
   float wsum = w0;
   ivec2 t = clamp(ivec2(pf) / ${DOF_TILE}, ivec2(0), textureSize(uTiles, 0) - 1);
@@ -912,7 +917,7 @@ vec3 gather(vec2 pf, vec4 c, ivec2 size, bool snap, bool coarse) {
     float dist = shapeDist(qf - pf);
     // Behind this pixel: only within this pixel's own blur.
     if (s.a > c.a + 0.5 && dist > rc + 0.5) continue;
-    float w = weightAt(qf - pf, rq, s.a >= 0.0 ? 1.0 : -1.0, catAt(qf, size)) * tapArea;
+    float w = weightAt(qf - pf, rq, s.a >= 0.0 ? 1.0 : -1.0, catAt(qf, size), dist) * tapArea;
     sum += s.rgb * w * gTint;
     wsum += w;
   }
@@ -4403,16 +4408,22 @@ export class GpuRenderer {
       P = this.programs.dofFeather;
       gl.useProgram(P.p);
       gl.uniform1i(P.u.uSrc, 1);
-      gl.uniform1f(P.u.uSigma, sigma);
-      gl.uniform1i(P.u.uRadius, Math.min(40, Math.ceil(2.5 * sigma)));
-      this.target(tmp, w, h);
-      this.bindTex(1, prep);
-      gl.uniform2i(P.u.uDir, 1, 0);
-      this.draw();
-      this.target(prep, w, h);
-      this.bindTex(1, tmp);
-      gl.uniform2i(P.u.uDir, 0, 1);
-      this.draw();
+      // The shader's kernel reaches 40 pixels (2.5 sigma, so a sigma up to 16): past that, the same blur is made in several passes (Gaussians of sigma / sqrt(n) added up
+      // to sigma), instead of a kernel cut short that blurred less than asked.
+      const passes = Math.max(1, Math.ceil((sigma / 16) ** 2));
+      const each = sigma / Math.sqrt(passes);
+      gl.uniform1f(P.u.uSigma, each);
+      gl.uniform1i(P.u.uRadius, Math.min(40, Math.ceil(2.5 * each)));
+      for (let n = 0; n < passes; n++) {
+        this.target(tmp, w, h);
+        this.bindTex(1, prep);
+        gl.uniform2i(P.u.uDir, 1, 0);
+        this.draw();
+        this.target(prep, w, h);
+        this.bindTex(1, tmp);
+        gl.uniform2i(P.u.uDir, 0, 1);
+        this.draw();
+      }
     }
 
     gl.bindTexture(gl.TEXTURE_2D, prep);
@@ -4533,9 +4544,9 @@ export class GpuRenderer {
     const hh = Math.ceil(h / 2);
     const G = fxGeometry(fx, hw);
     const hlTex = this.mipmapped(hw, hh, 'fxHl');
-    const ptTex = this.mipmapped(hw, hh, 'fxPt');
-    const hsTex = this.mipmapped(hw, hh, 'fxHs');
-    const ptSTex = this.mipmapped(hw, hh, 'fxPtS');
+    // (only what the effects on use: the spikes' peaks and the streak's own bright parts and peaks are half size pictures of 8 bytes a pixel, with mip levels for the
+    // first two, and with only fog or dirt on they were made for nothing)
+    const ptTex = fx.star > 0 ? this.mipmapped(hw, hh, 'fxPt') : null;
     const half = this.scratch(hw, hh, 'fxHalf');
     const out = this.scratch(w, h, 'fxFull');
     const P = this.programs.bokehFx;
@@ -4574,9 +4585,12 @@ export class GpuRenderer {
       gl.generateMipmap(gl.TEXTURE_2D);
     }
     // the streak's own bright parts (its threshold), and its small peaks
+    let ptSTex = null;
     if (fx.streak > 0) {
       gl.uniform1i(P.u.uPass, 0);
       gl.uniform1f(P.u.uKnee, fx.streakThreshold);
+      const hsTex = this.mipmapped(hw, hh, 'fxHs');
+      ptSTex = this.scratch(hw, hh, 'fxPtS');
       this.bindTex(2, src);
       this.bindTex(7, src);
       this.target(hsTex, hw, hh);
@@ -4610,7 +4624,7 @@ export class GpuRenderer {
           gl.uniform1f(P.u.uShiftW, Math.exp(-shift / G.L));
           this.bindTex(5, from || src);
           this.target(to, hw, hh);
-          this.bindTex(4, ptTex);
+          this.bindTex(4, hlTex);
           this.draw();
           from = to;
         }
@@ -4636,9 +4650,9 @@ export class GpuRenderer {
     this.target(half, hw, hh);
     this.bindTex(2, hlTex);
     this.bindTex(3, this.fxDirtTex || hlTex);
-    this.bindTex(4, ptTex);
-    this.bindTex(5, streakA || ptTex);
-    this.bindTex(6, streakB || ptTex);
+    this.bindTex(4, ptTex || hlTex);
+    this.bindTex(5, streakA || hlTex);
+    this.bindTex(6, streakB || hlTex);
     this.draw();
     // pass 2: added to the picture
     gl.uniform1i(P.u.uPass, 2);
