@@ -467,8 +467,10 @@ button.wide { display: block; width: 100%; }
 /* Upscaling and depth models: collapsible, closed at first. */
 #about-dialog .credit-group > summary { cursor: pointer; list-style: none; display: flex; align-items: baseline; gap: 6px; }
 #about-dialog .credit-group > summary::-webkit-details-marker { display: none; }
-#about-dialog .credit-group > summary::before { content: '▸'; color: var(--muted); font-size: 11px; margin-top: 20px; }
-#about-dialog .credit-group[open] > summary::before { content: '▾'; }
+/* The same chevron as the sections' (right when closed, down when open). */
+#about-dialog .credit-group > summary { align-items: flex-start; }
+#about-dialog .credit-group > summary::before { content: ''; flex: none; width: 7px; height: 7px; margin: 25px 4px 0 2px; border-right: 2px solid var(--muted); border-bottom: 2px solid var(--muted); transform: translateY(-2px) rotate(-45deg); transition: transform 0.12s; }
+#about-dialog .credit-group[open] > summary::before { transform: translateY(-2px) rotate(45deg); }
 #about-dialog .credit-group > summary h3 { display: inline; }
 /* Same as the top bar: the logo left of the app name. */
 #about-dialog h2 { display: flex; align-items: center; gap: 6px; font-size: 16px; font-weight: bold; letter-spacing: 0.02em; color: var(--text); }
