@@ -4,7 +4,7 @@ import { upscaleImage, upscaleBits16 } from '../gpu/upscale.js';
 import { invert, isIdentity, geometry } from '../core/geometry.js';
 import { download } from '../platform.js';
 import { fitsMemory, exportRam, memoryProblem, superResVram } from '../core/memorybudget.js';
-import { aiUpscale, denoiseRgb16 } from '../core/aiupscale.js';
+import { aiUpscale, aiSharpen, denoiseRgb16 } from '../core/aiupscale.js';
 import { encodePng16 } from '../core/png16.js';
 import { buildUltraHdr, hdrLinearRgb } from '../core/ultrahdr.js';
 import { encodeTiffFloat } from '../core/tiff.js';
@@ -13,7 +13,7 @@ import { VIDEO_FORMATS, videoType, VIDEO_CODECS, videoFrame, chooseVideoType, vi
 import { MIN_VIDEO_FRAMES, playOrder, recordFrames, cancelControl } from '../core/videoexport.js';
 import { toImageData } from '../engine.js';
 
-export function initExport({ state, $, canvas, ctx, layoutCanvas, showsCamera, stereoShown, showNotice, engine, cameraParams, showProgress, hideProgress, modelUpscaleParams, finishModelEnlargement, showError, showSliderValue, scheduleSave, draw, cropValues, animationRequest, eyeOffset, eyeParams, ensureAnimation, drawGeometry, stereoTag }) {
+export function initExport({ state, $, canvas, ctx, layoutCanvas, showsCamera, stereoShown, showNotice, engine, cameraParams, showProgress, hideProgress, modelUpscaleParams, sharpenParams, finishModelEnlargement, showError, showSliderValue, scheduleSave, draw, cropValues, animationRequest, eyeOffset, eyeParams, ensureAnimation, drawGeometry, stereoTag }) {
   function baseName() {
     return state.current ? state.current.name.replace(/\.[^.]+$/, '') : 'lytro';
   }
@@ -70,8 +70,8 @@ export function initExport({ state, $, canvas, ctx, layoutCanvas, showsCamera, s
   function savePhoto(source, name) {
     const model = methodModel($('upscale-method').value);
     const k = +$('photo-size').value || 1;
-    // 16-bit PNG, and enlarging with an upscaling model, start from the picture made again at 16 bits (below).
-    if ((($('photo-format').value === 'png16') || isHdrFormat($('photo-format').value) || (model && k > 1)) && source === canvas && showsCamera() && !stereoShown() && state.info) {
+    // 16-bit PNG, and enlarging or sharpening with a model, start from the picture made again at 16 bits (below).
+    if ((($('photo-format').value === 'png16') || isHdrFormat($('photo-format').value) || (model && k > 1) || sharpenParams()) && source === canvas && showsCamera() && !stereoShown() && state.info) {
       savePhotoRendered(name, model, k);
       return;
     }
@@ -203,6 +203,16 @@ export function initExport({ state, $, canvas, ctx, layoutCanvas, showsCamera, s
       if (!fitsMemory('ram', exportRam(width, height, k))) {
         showNotice('Not saved', memoryProblem('ram', exportRam(width, height, k), `Saving ${W}×${H} at 16 bits`, 'Lower the Photo Size or raise the limit.'));
         return;
+      }
+      // a sharpening model works at the picture's size, before any enlargement
+      const sharp = sharpenParams();
+      if (sharp) {
+        try {
+          rgb = await aiSharpen(sharp.model, () => readModel(sharp.model), rgb, width, height, sharp.amount, showProgress);
+        } catch (err) {
+          showNotice('Could not sharpen with the model', `${err && err.message ? err.message : err} The picture is saved without it.`);
+        }
+        hideProgress();
       }
       if (k !== 1) {
         let big = null;

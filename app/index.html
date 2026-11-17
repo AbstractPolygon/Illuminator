@@ -1353,6 +1353,14 @@
           <label id="upscale-grain-row" title="Adds fine film-like grain to the enlargement. 0 for none" hidden>Grain <output data-for="upscale-grain" for="upscale-grain">0</output>
             <input id="upscale-grain" type="range" min="0" max="100" step="1" value="0" data-default="0">
           </label>
+          <label id="sharpen-model-row" title="A downloaded sharpening model (Settings) removes blur from saved photos before they are enlarged" hidden>Sharpening model
+            <select id="sharpen-model">
+              <option value="" selected>Off</option>
+            </select>
+          </label>
+          <label id="sharpen-model-amount-row" title="How much of the model's result is used; the rest is the picture as it was" hidden>Sharpening strength <output data-for="sharpen-model-amount" for="sharpen-model-amount">100</output>
+            <input id="sharpen-model-amount" type="range" min="0" max="100" step="1" value="100" data-default="100">
+          </label>
           <input id="upscale-params" type="hidden" value="{}" data-text>
         </details>
         <details class="subpanel">
@@ -1470,6 +1478,11 @@
       <section class="setting" id="models-setting">
         <h3>Upscaling models</h3>
         <div id="models-list" class="models-list"></div>
+      </section>
+      <section class="setting" id="sharpen-models-setting">
+        <h3>Sharpening models</h3>
+        <p class="hint">Downloaded models appear under Render Settings &gt; Upscaling &gt; Sharpening model. They remove blur and keep the picture's size.</p>
+        <div id="sharpen-models-list" class="models-list"></div>
       </section>
       <section class="setting" id="memory-setting" hidden>
         <h3>Memory</h3>
@@ -1666,6 +1679,13 @@
               <li><a href="https://github.com/Picsart-AI-Research/MI-GAN" target="_blank" rel="noopener">MI-GAN</a></li>
             </ul>
             <p class="hint about-copyright">Copyright © 2024 Picsart AI Research (PAIR). Licensed under the <a href="https://github.com/Picsart-AI-Research/MI-GAN/blob/main/LICENSE" target="_blank" rel="noopener">MIT License</a>. ONNX version by <a href="https://huggingface.co/andraniksargsyan/migan" target="_blank" rel="noopener">Andranik Sargsyan</a>.</p>
+            </details>
+            <details class="credit-group">
+              <summary><h3 class="credit-extra">Sharpening models</h3></summary>
+            <ul class="links">
+              <li><a href="https://github.com/megvii-research/NAFNet" target="_blank" rel="noopener">NAFNet deblur</a> (GoPro, width 32; converted to ONNX for Illuminator)</li>
+            </ul>
+            <p class="hint about-copyright">Copyright © 2022 megvii-model (Liangyu Chen et al.). Licensed under the <a href="https://github.com/megvii-research/NAFNet/blob/main/LICENSE" target="_blank" rel="noopener">MIT License</a>.</p>
             </details>
             <details class="credit-group">
               <summary><h3 class="credit-extra">Film looks</h3></summary>
