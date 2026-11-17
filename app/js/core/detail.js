@@ -123,6 +123,16 @@ export function applyDetail(rgb, w, h, p) {
     const sr = rangeSigma(p);
     const k = -0.5 / (sr * sr);
     const ks = -0.5 / (1.5 * 1.5);
+    // The weight of a tap is its distance's part times the brightness difference's part: the first is the same for every pixel (made once), the second is read from a
+    // table over the squared difference (linear between 2048 entries, out to where the weight is under a ten billionth: a tap further off counts for nothing).
+    const side = 2 * NR_RADIUS + 1;
+    const spatial = new Float64Array(side * side);
+    for (let dy = -NR_RADIUS; dy <= NR_RADIUS; dy++) for (let dx = -NR_RADIUS; dx <= NR_RADIUS; dx++) spatial[(dy + NR_RADIUS) * side + dx + NR_RADIUS] = Math.exp(ks * (dx * dx + dy * dy));
+    const LUT_N = 2048;
+    const d2max = k < 0 ? 23 / -k : 0;
+    const rangeLut = new Float64Array(LUT_N + 2);
+    for (let i = 0; i < LUT_N + 2; i++) rangeLut[i] = Math.exp(k * ((i / LUT_N) * d2max));
+    const lutScale = d2max > 0 ? LUT_N / d2max : 0;
     for (let y = 0; y < h; y++) {
       for (let x = 0; x < w; x++) {
         const c = S[y * w + x];
@@ -130,11 +140,16 @@ export function applyDetail(rgb, w, h, p) {
         let wsum = 0;
         for (let dy = -NR_RADIUS; dy <= NR_RADIUS; dy++) {
           const yy = Math.min(h - 1, Math.max(0, y + dy));
+          const sRow = (dy + NR_RADIUS) * side + NR_RADIUS;
           for (let dx = -NR_RADIUS; dx <= NR_RADIUS; dx++) {
             const xx = Math.min(w - 1, Math.max(0, x + dx));
             const v = S[yy * w + xx];
             const d = v - c;
-            const wt = Math.exp(ks * (dx * dx + dy * dy) + k * d * d);
+            const f = d * d * lutScale;
+            if (f >= LUT_N) continue;
+            const i = f | 0;
+            const t = f - i;
+            const wt = spatial[sRow + dx] * (rangeLut[i] * (1 - t) + rangeLut[i + 1] * t);
             sum += v * wt;
             wsum += wt;
           }
@@ -152,19 +167,19 @@ export function applyDetail(rgb, w, h, p) {
     const r = CHROMA_RADIUS;
     const g = [];
     for (let i = -r; i <= r; i++) g.push(Math.exp(-0.5 * (i / sigma) ** 2));
+    // (an edge tap is clamped onto the border pixel, so every window holds every weight: their sum is the same everywhere)
+    const gsum = g.reduce((a, b) => a + b, 0);
     const C = rgb;
     const T = new Float32Array(rgb.length);
     for (let y = 0; y < h; y++) {
       for (let x = 0; x < w; x++) {
         for (let c = 0; c < 3; c++) {
           let s = 0;
-          let ws = 0;
           for (let i = -r; i <= r; i++) {
             const xx = Math.min(w - 1, Math.max(0, x + i));
             s += C[3 * (y * w + xx) + c] * g[i + r];
-            ws += g[i + r];
           }
-          T[3 * (y * w + x) + c] = s / ws;
+          T[3 * (y * w + x) + c] = s / gsum;
         }
       }
     }
@@ -172,13 +187,11 @@ export function applyDetail(rgb, w, h, p) {
       for (let x = 0; x < w; x++) {
         for (let c = 0; c < 3; c++) {
           let s = 0;
-          let ws = 0;
           for (let i = -r; i <= r; i++) {
             const yy = Math.min(h - 1, Math.max(0, y + i));
             s += T[3 * (yy * w + x) + c] * g[i + r];
-            ws += g[i + r];
           }
-          out[3 * (y * w + x) + c] = s / ws;
+          out[3 * (y * w + x) + c] = s / gsum;
         }
       }
     }
@@ -257,24 +270,38 @@ export function removeSpeckles(rgb, w, h, p) {
   const t = speckleThreshold(p);
   const ring = speckRing(p.speckleSize);
   const out = new Float32Array(rgb.length);
+  // The square root of every value, once (the ring of a pixel is read by sixteen others).
+  const root = new Float64Array(rgb.length);
+  for (let i = 0; i < rgb.length; i++) root[i] = Math.sqrt(Math.max(0, rgb[i]));
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
       const i = y * w + x;
       for (let c = 0; c < 3; c++) {
-        let lo = Infinity;
-        let hi = -Infinity;
-        let sum = 0;
-        for (const [dx, dy] of ring) {
-          const xx = Math.min(w - 1, Math.max(0, x + dx));
-          const yy = Math.min(h - 1, Math.max(0, y + dy));
-          const v = Math.sqrt(Math.max(0, rgb[3 * (yy * w + xx) + c]));
-          if (v < lo) lo = v;
-          if (v > hi) hi = v;
-          sum += v;
+        const v = root[3 * i + c];
+        // A speck stands out above every tap of the ring, or below every one: the pixel is not one as soon as a tap is within reach of it on each side (the common case,
+        // found in a tap or two), and only then the ring is read no further.
+        let notAbove = false;
+        let notBelow = false;
+        for (let k = 0; k < ring.length; k++) {
+          const xx = Math.min(w - 1, Math.max(0, x + ring[k][0]));
+          const yy = Math.min(h - 1, Math.max(0, y + ring[k][1]));
+          const u = root[3 * (yy * w + xx) + c];
+          if (!(v > u + t)) notAbove = true;
+          if (!(v < u - t)) notBelow = true;
+          if (notAbove && notBelow) break;
         }
-        const v = Math.sqrt(Math.max(0, rgb[3 * i + c]));
+        if (notAbove && notBelow) {
+          out[3 * i + c] = rgb[3 * i + c];
+          continue;
+        }
+        let sum = 0;
+        for (let k = 0; k < ring.length; k++) {
+          const xx = Math.min(w - 1, Math.max(0, x + ring[k][0]));
+          const yy = Math.min(h - 1, Math.max(0, y + ring[k][1]));
+          sum += root[3 * (yy * w + xx) + c];
+        }
         const m = sum / ring.length;
-        out[3 * i + c] = v > hi + t || v < lo - t ? m * m : rgb[3 * i + c];
+        out[3 * i + c] = m * m;
       }
     }
   }

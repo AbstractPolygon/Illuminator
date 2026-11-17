@@ -585,11 +585,77 @@ export function boxBlur(src, w, h, r) {
   return out;
 }
 
+// A big shaped blur costs about 2 r row lookups a pixel (and that many times the rings of an onion skin): from this radius it is made on a half size copy of the picture
+// with half the radius (a quarter of the pixels, half the rows: about 8 times less work) and spread back bilinearly, the ball's shape still 8 pixels or more across.
+const HALF_SIZE_FROM = 16;
+
+function shapedBlurHalf(src, w, h, r, k, need) {
+  const hw = Math.ceil(w / 2);
+  const hh = Math.ceil(h / 2);
+  const small = new Float32Array(hw * hh * 3);
+  for (let y = 0; y < hh; y++) {
+    const y1 = Math.min(h - 1, 2 * y + 1);
+    for (let x = 0; x < hw; x++) {
+      const x1 = Math.min(w - 1, 2 * x + 1);
+      const a = (2 * y * w + 2 * x) * 3;
+      const b = (2 * y * w + x1) * 3;
+      const c = (y1 * w + 2 * x) * 3;
+      const d = (y1 * w + x1) * 3;
+      const o = (y * hw + x) * 3;
+      small[o] = (src[a] + src[b] + src[c] + src[d]) / 4;
+      small[o + 1] = (src[a + 1] + src[b + 1] + src[c + 1] + src[d + 1]) / 4;
+      small[o + 2] = (src[a + 2] + src[b + 2] + src[c + 2] + src[d + 2]) / 4;
+    }
+  }
+  let needSmall = null;
+  if (need) {
+    needSmall = new Uint8Array(hw * hh);
+    // (a pixel is made from the four half size pixels around it)
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) if (need[y * w + x]) {
+      const fx = Math.max(0, (x + 0.5) / 2 - 0.5);
+      const fy = Math.max(0, (y + 0.5) / 2 - 0.5);
+      const x0 = Math.min(hw - 1, Math.floor(fx));
+      const y0 = Math.min(hh - 1, Math.floor(fy));
+      const x1 = Math.min(hw - 1, x0 + 1);
+      const y1 = Math.min(hh - 1, y0 + 1);
+      needSmall[y0 * hw + x0] = needSmall[y0 * hw + x1] = needSmall[y1 * hw + x0] = needSmall[y1 * hw + x1] = 1;
+    }
+  }
+  const prefixKept = sharedPrefix;
+  sharedPrefix = null;
+  let blurred;
+  try {
+    blurred = shapedBlur(small, hw, hh, r / 2, k, needSmall);
+  } finally {
+    sharedPrefix = prefixKept;
+  }
+  const out = new Float32Array(src.length);
+  for (let y = 0; y < h; y++) {
+    const fy = Math.max(0, (y + 0.5) / 2 - 0.5);
+    const y0 = Math.min(hh - 1, Math.floor(fy));
+    const y1 = Math.min(hh - 1, y0 + 1);
+    const ty = fy - y0;
+    for (let x = 0; x < w; x++) {
+      if (need && !need[y * w + x]) continue;
+      const fx = Math.max(0, (x + 0.5) / 2 - 0.5);
+      const x0 = Math.min(hw - 1, Math.floor(fx));
+      const x1 = Math.min(hw - 1, x0 + 1);
+      const tx = fx - x0;
+      const o = (y * w + x) * 3;
+      for (let c = 0; c < 3; c++) {
+        out[o + c] = (blurred[(y0 * hw + x0) * 3 + c] * (1 - tx) + blurred[(y0 * hw + x1) * 3 + c] * tx) * (1 - ty) + (blurred[(y1 * hw + x0) * 3 + c] * (1 - tx) + blurred[(y1 * hw + x1) * 3 + c] * tx) * ty;
+      }
+    }
+  }
+  return out;
+}
+
 function blur(src, w, h, r, k, need = null) {
   if (r < 1) return src;
   if (k.kind) {
     // (a soft edge blurs the result again, which needs every pixel around the ones wanted)
-    const out = shapedBlur(src, w, h, r, k, k.soft > 0 ? null : need);
+    const wanted = k.soft > 0 ? null : need;
+    const out = r >= HALF_SIZE_FROM && w >= 16 && h >= 16 ? shapedBlurHalf(src, w, h, r, k, wanted) : shapedBlur(src, w, h, r, k, wanted);
     // (a soft edge: the disc spread over the edge's width)
     const e = Math.round((k.soft * r) / 2);
     return e >= 1 ? boxBlur(out, w, h, e) : out;

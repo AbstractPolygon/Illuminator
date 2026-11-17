@@ -665,6 +665,8 @@ const MAX_TAPS = 512;
 // half size; uPass 2 then uses that for pixels that are themselves strongly
 // blurred (at least uHalfFrom pixels), where half size looks the same.
 const DOF_TILE = 8;
+// How many rows of a picture go to the graphics card at a time when it is uploaded as floats.
+const UPLOAD_ROWS = 256;
 const DOF_GATHER = `#version 300 es
 precision highp float;
 // The half size pass (coarse): each output pixel covers 2 x 2, so a quarter of the taps (each weighted by the area it stands for) covers the same ground.
@@ -869,7 +871,10 @@ vec3 gather(vec2 pf, vec4 c, ivec2 size, bool snap, bool coarse) {
   vec3 sum = c.rgb * w0 * gTint;
   float wsum = w0;
   ivec2 t = clamp(ivec2(pf) / ${DOF_TILE}, ivec2(0), textureSize(uTiles, 0) - 1);
-  float maxR = min(uMaxR, texelFetch(uTiles, t, 0).r * uReach + 1.0);
+  // How far taps can matter to this pixel: those in front of the focus that blur over it, and those behind that it can take (a tap behind this pixel counts only within
+  // this pixel's own blur, a little past its radius): a sharp pixel beside strong background blur no longer visits taps that would all be turned away.
+  vec3 tile = texelFetch(uTiles, t, 0).rgb;
+  float maxR = min(uMaxR, max(tile.b, min(tile.g, max(c.a, 0.0) + 0.5)) * uReach + 1.0);
   if (maxR < 0.75) return c.rgb;
   // (hard edged shapes keep more: with fewer taps a single bright point lights its ball unevenly, and the notches of blades, stars and hearts fill in; the Gaussian
   // of Natural does not show it)
@@ -1108,12 +1113,16 @@ out vec4 outColor;
 void main() {
   ivec2 p = ivec2(gl_FragCoord.xy);
   ivec2 size = textureSize(uSrc, 0);
-  float m = 0.0;
+  // r: the largest radius, g: the largest behind the focus (alpha above 0), b: the largest in front (alpha below 0)
+  vec3 m = vec3(0.0);
   if (uPass == 0) {
     for (int y = 0; y < ${DOF_TILE}; y++) {
       for (int x = 0; x < ${DOF_TILE}; x++) {
         ivec2 q = p * ${DOF_TILE} + ivec2(x, y);
-        if (q.x < size.x && q.y < size.y) m = max(m, abs(texelFetch(uSrc, q, 0).a));
+        if (q.x < size.x && q.y < size.y) {
+          float a = texelFetch(uSrc, q, 0).a;
+          m = max(m, vec3(abs(a), max(a, 0.0), max(-a, 0.0)));
+        }
       }
     }
   } else {
@@ -1121,10 +1130,10 @@ void main() {
       if (k < -uRadius || k > uRadius) continue;
       ivec2 q = p + uDir * k;
       if (q.x < 0 || q.y < 0 || q.x >= size.x || q.y >= size.y) continue;
-      m = max(m, texelFetch(uSrc, q, 0).r);
+      m = max(m, texelFetch(uSrc, q, 0).rgb);
     }
   }
-  outColor = vec4(m, 0.0, 0.0, 0.0);
+  outColor = vec4(m, 0.0);
 }`;
 
 // Details, spot removal (core/detail.js removeSpeckles): each channel
@@ -3705,17 +3714,24 @@ export class GpuRenderer {
   // `full`: through a 32-bit float texture, for pictures saved at 16 bits (half floats keep about 11 bits).
   uploadRGB(rgb, w, h, { full = false } = {}) {
     const gl = this.gl;
-    const rgba = new Float32Array(w * h * 4);
-    for (let i = 0, j = 0; i < rgb.length; i += 3, j += 4) {
-      rgba[j] = rgb[i];
-      rgba[j + 1] = rgb[i + 1];
-      rgba[j + 2] = rgb[i + 2];
-      rgba[j + 3] = 1;
-    }
     const t = full ? this.scratch(w, h, 'upload', gl.RGBA32F) : this.scratch(w, h, 'upload');
     gl.activeTexture(gl.TEXTURE0 + SPARE_UNIT);
     gl.bindTexture(gl.TEXTURE_2D, t);
-    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, w, h, gl.RGBA, gl.FLOAT, rgba);
+    // In bands of rows through one small buffer that is kept: a whole picture as RGBA floats at once is 16 bytes a pixel (hundreds of MB at 20 MP) made and thrown away
+    // before every still.
+    const rows = Math.min(h, UPLOAD_ROWS);
+    if (!this.uploadBand || this.uploadBand.length < w * rows * 4) this.uploadBand = new Float32Array(w * rows * 4);
+    const band = this.uploadBand;
+    for (let y0 = 0; y0 < h; y0 += rows) {
+      const n = Math.min(rows, h - y0);
+      for (let i = y0 * w * 3, j = 0, end = (y0 + n) * w * 3; i < end; i += 3, j += 4) {
+        band[j] = rgb[i];
+        band[j + 1] = rgb[i + 1];
+        band[j + 2] = rgb[i + 2];
+        band[j + 3] = 1;
+      }
+      gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, y0, w, n, gl.RGBA, gl.FLOAT, band, 0);
+    }
     return t;
   }
 
@@ -3939,11 +3955,19 @@ export class GpuRenderer {
   // Uploads w x h values (1 to 4 per pixel) as a full float texture.
   uploadFloat(values, w, h, name, perPixel = 1) {
     const gl = this.gl;
-    const rgba = new Float32Array(w * h * 4);
-    for (let i = 0; i < w * h; i++) for (let c = 0; c < perPixel; c++) rgba[4 * i + c] = values[perPixel * i + c];
     const t = this.scratch32(w, h, name);
+    // (the spare unit, so a texture bound to the one last used is not replaced)
+    gl.activeTexture(gl.TEXTURE0 + SPARE_UNIT);
     gl.bindTexture(gl.TEXTURE_2D, t);
-    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, w, h, gl.RGBA, gl.FLOAT, rgba);
+    const rows = Math.min(h, UPLOAD_ROWS);
+    if (!this.uploadBand || this.uploadBand.length < w * rows * 4) this.uploadBand = new Float32Array(w * rows * 4);
+    const band = this.uploadBand;
+    for (let y0 = 0; y0 < h; y0 += rows) {
+      const n = Math.min(rows, h - y0);
+      band.fill(0, 0, w * n * 4);
+      for (let i = 0; i < w * n; i++) for (let c = 0; c < perPixel; c++) band[4 * i + c] = values[perPixel * (y0 * w + i) + c];
+      gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, y0, w, n, gl.RGBA, gl.FLOAT, band, 0);
+    }
     return t;
   }
 
