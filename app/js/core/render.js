@@ -10,6 +10,28 @@ import { lytroTable, lytroColor, engineTable, engineToneColor, firstToneColor, s
 import { applyLocal } from './local.js';
 import { lensCenters, toLocal } from './lenslet.js';
 import { applyLook } from './color.js';
+
+// The display gamma of the Lytro look's late path (2.2) as tables, with a linear read between 4096 entries: two powers of every channel of every pixel were most of the
+// time of that path. Out of the table's reach (a value past white) the power is worked out.
+const GAMMA_N = 4096;
+const GAMMA_TO_LINEAR = Float64Array.from({ length: GAMMA_N + 2 }, (_, i) => Math.pow(Math.min(1, i / GAMMA_N), 2.2));
+// (over the square root of the linear value, where the curve is smooth down to black)
+const GAMMA_FROM_LINEAR = Float64Array.from({ length: GAMMA_N + 2 }, (_, i) => 255 * Math.pow(Math.min(1, i / GAMMA_N), 2 / 2.2));
+export function gammaToLinear(v255) {
+  const f = (v255 <= 0 ? 0 : v255 >= 255 ? 255 : v255) * (GAMMA_N / 255);
+  const i = f | 0;
+  const t = f - i;
+  return GAMMA_TO_LINEAR[i] * (1 - t) + GAMMA_TO_LINEAR[i + 1] * t;
+}
+export function linearToGamma(v) {
+  if (!(v > 0)) return 0;
+  if (v >= 1) return 255 * Math.pow(v, 1 / 2.2);
+  const f = Math.sqrt(v) * GAMMA_N;
+  const i = f | 0;
+  const t = f - i;
+  return GAMMA_FROM_LINEAR[i] * (1 - t) + GAMMA_FROM_LINEAR[i + 1] * t;
+}
+
 import { sampleLut } from './lut.js';
 
 const TAPS = 8;
@@ -696,13 +718,13 @@ export function toneMap(rgb, matrix, exposure, out, look = null, local = null, g
       let b1 = 255 * p[2];
       if (lateLook) {
         // applyLook works on linear light: undo the display gamma around it.
-        p[0] = Math.pow(Math.min(255, Math.max(0, r1)) / 255, 2.2);
-        p[1] = Math.pow(Math.min(255, Math.max(0, g1)) / 255, 2.2);
-        p[2] = Math.pow(Math.min(255, Math.max(0, b1)) / 255, 2.2);
+        p[0] = gammaToLinear(r1);
+        p[1] = gammaToLinear(g1);
+        p[2] = gammaToLinear(b1);
         applyLook(p, lateLook);
-        r1 = 255 * Math.pow(Math.max(0, p[0]), 1 / 2.2);
-        g1 = 255 * Math.pow(Math.max(0, p[1]), 1 / 2.2);
-        b1 = 255 * Math.pow(Math.max(0, p[2]), 1 / 2.2);
+        r1 = linearToGamma(p[0]);
+        g1 = linearToGamma(p[1]);
+        b1 = linearToGamma(p[2]);
       }
       px[o] = r1;
       px[o + 1] = g1;

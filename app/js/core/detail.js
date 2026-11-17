@@ -310,7 +310,35 @@ export function removeSpeckles(rgb, w, h, p) {
 
 // One separable pass over a single-channel image along x (dir 0) or y
 // (dir 1): 'max', 'min' or 'blur' (BLUR5).
+// The largest (or smallest) value in the window of 2 r + 1 along each row (dir 0) or column (dir 1), the window cut at the picture's edge (what the clamped reads of the
+// plain loop come to): a queue of the candidates, so the cost does not grow with r.
+export function slideExtreme(src, w, h, dir, r, max) {
+  const out = new Float32Array(src.length);
+  const len = dir ? h : w;
+  const lines = dir ? w : h;
+  const stride = dir ? w : 1;
+  const queue = new Int32Array(len);
+  for (let line = 0; line < lines; line++) {
+    const base = dir ? line : line * w;
+    let head = 0;
+    let tail = 0;
+    let next = 0;
+    for (let i = 0; i < len; i++) {
+      const last = Math.min(len - 1, i + r);
+      for (; next <= last; next++) {
+        const v = src[base + next * stride];
+        while (tail > head && (max ? src[base + queue[tail - 1] * stride] <= v : src[base + queue[tail - 1] * stride] >= v)) tail--;
+        queue[tail++] = next;
+      }
+      while (queue[head] < i - r) head++;
+      out[base + i * stride] = src[base + queue[head] * stride];
+    }
+  }
+  return out;
+}
+
 function pass1(src, w, h, dir, r, mode) {
+  if (mode === 'max' || mode === 'min') return slideExtreme(src, w, h, dir, r, mode === 'max');
   const out = new Float32Array(src.length);
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {

@@ -61,3 +61,42 @@ test('the tone gain read from its table matches the exact one', async () => {
   }
   assert.ok(worst < 3e-4, `worst relative error ${worst}`);
 });
+
+test('the sliding window largest and smallest match a plain scan, and dust removal still runs', async () => {
+  const { slideExtreme, removeDust } = await import('../app/js/core/detail.js');
+  const w = 37;
+  const h = 23;
+  let seed = 3;
+  const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  const src = Float32Array.from({ length: w * h }, () => rnd());
+  for (const dir of [0, 1]) for (const r of [1, 4, 10, 40]) for (const max of [true, false]) {
+    const got = slideExtreme(src, w, h, dir, r, max);
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      let m = max ? -Infinity : Infinity;
+      for (let k = -r; k <= r; k++) {
+        const xx = dir ? x : Math.min(w - 1, Math.max(0, x + k));
+        const yy = dir ? Math.min(h - 1, Math.max(0, y + k)) : y;
+        const v = src[yy * w + xx];
+        m = max ? Math.max(m, v) : Math.min(m, v);
+      }
+      assert.equal(got[y * w + x], m);
+    }
+  }
+  const rgb = Float32Array.from({ length: w * h * 3 }, () => 0.3 + 0.2 * rnd());
+  const out = removeDust(rgb, w, h, { dust: 0.5, dustSize: 0.5 });
+  assert.ok(out.every(Number.isFinite));
+});
+
+test('the display gamma tables of the Lytro look match the powers', async () => {
+  const { gammaToLinear, linearToGamma } = await import('../app/js/core/render.js');
+  let worstIn = 0;
+  let worstOut = 0;
+  for (let i = 0; i <= 5000; i++) {
+    const v = (i / 5000) * 255;
+    worstIn = Math.max(worstIn, Math.abs(gammaToLinear(v) - Math.pow(v / 255, 2.2)));
+    const l = (i / 5000) * 1.3;
+    worstOut = Math.max(worstOut, Math.abs(linearToGamma(l) - 255 * Math.pow(l, 1 / 2.2)));
+  }
+  assert.ok(worstIn < 1e-6, `to linear ${worstIn}`);
+  assert.ok(worstOut < 0.02, `to gamma (8 bit levels) ${worstOut}`);
+});
