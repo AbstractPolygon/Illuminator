@@ -3538,6 +3538,15 @@ document.addEventListener('keydown', (e) => {
 // Click to focus on the clicked spot. With a small aperture everything is
 // already sharp, so a click also opens up to f/2.8 to make the change visible.
 async function focusAt(event) {
+  // Lenticular Print > Pick focus point: the click gives the focus of the print, not of the picture.
+  if (state.lentPick) {
+    const pick = state.lentPick;
+    canvas.style.cursor = '';
+    const [vx, vy] = viewPoint(event);
+    const [px, py] = sourceFraction(event);
+    await pick(vx, vy, Math.min(1, Math.max(0, px)), Math.min(1, Math.max(0, py)));
+    return;
+  }
   // Picking a depth mask's range: the click gives the depth, not the focus.
   if (state.depthPick) {
     await pickDepthFromClick(event);

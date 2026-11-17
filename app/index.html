@@ -1261,6 +1261,13 @@
           <label id="lent-depth-row" title="Distance between the outermost viewpoints, as a share of the lens opening: more means more depth and more double images">Movement <output data-for="lent-depth" for="lent-depth">100%</output>
             <input id="lent-depth" type="range" min="20" max="300" step="10" value="100" data-default="100">
           </label>
+          <div id="lent-focus-row">
+            <div class="row2">
+              <button id="lent-focus-pick" type="button" title="Click the picture where the print should be sharp: that depth sits on the lens sheet's surface">Pick focus point</button>
+              <button id="lent-focus-clear" type="button" title="Use the focus set in the Camera section" disabled>Use current focus</button>
+            </div>
+            <p id="lent-focus-info" class="hint">Focus: as the picture is now.</p>
+          </div>
           <label title="Which way the print tilts: left and right for 3D, up and down for animations">Tilt
             <select id="lent-tilt">
               <option value="lr" selected>Left and right</option>
