@@ -13,7 +13,7 @@ const STORE = 'illuminator.lenticular';
 // (the print type and depth are the photo's, saved with its edits; these are the sheet's, the printer's and the print's)
 const FIELDS = ['lent-lpi', 'lent-dpi', 'lent-pitch', 'lent-width', 'lent-height', 'lent-reverse'];
 
-export function initLenticular({ $, state, engine, cameraParams, eyeParams, withPivotZoom, pivotFor, cropValues, drawGeometry, animationPlan, invalidateAnimation, showNotice, showProgress, hideProgress, showError, baseName, showSliderValue }) {
+export function initLenticular({ $, state, engine, cameraParams, eyeParams, withPivotZoom, pivotFor, cropValues, drawGeometry, animationPlan, invalidateAnimation, showNotice, showProgress, hideProgress, showError, baseName, showSliderValue, scheduleSave }) {
   const settings = () => ({
     type: $('lent-type').value,
     tilt: $('lent-tilt').value,
@@ -63,12 +63,26 @@ export function initLenticular({ $, state, engine, cameraParams, eyeParams, with
     }
   }
 
-  // The focus for 3D prints: the depth at a point of the picture clicked for it ({ alpha, x, y, photo }), or none (the picture's current focus). Per photo: not kept.
+  // The focus for 3D prints: the depth at a point of the picture clicked for it ({ alpha, x, y }), or none (the picture's current focus). Kept with the photo's settings
+  // as text in the hidden field lent-focus.
   let focus = null;
-  const pickedFocus = () => (focus && focus.photo === state.info ? focus : null);
+  function readFocus() {
+    try {
+      const f = JSON.parse($('lent-focus').value || 'null');
+      return f && [f.alpha, f.x, f.y].every(Number.isFinite) ? f : null;
+    } catch {
+      return null;
+    }
+  }
+  const pickedFocus = () => readFocus();
+  function setFocus(f) {
+    $('lent-focus').value = f ? JSON.stringify({ alpha: +f.alpha.toFixed(4), x: +f.x.toFixed(4), y: +f.y.toFixed(4) }) : '';
+    showFocus();
+    scheduleSave();
+  }
   function showFocus() {
-    const f = pickedFocus();
-    if (!f && focus) focus = null;
+    focus = readFocus();
+    const f = focus;
     $('lent-focus-clear').disabled = !f;
     $('lent-focus-pick').classList.toggle('active', !!state.lentPick);
     $('lent-focus-info').textContent = state.lentPick
@@ -92,7 +106,7 @@ export function initLenticular({ $, state, engine, cameraParams, eyeParams, with
         showProgress('Finding the depth there', null);
         const res = await engine.request('focusAt', { x, y, u: state.camera.u, v: state.camera.v, depth: true }, { onProgress: () => {} });
         hideProgress();
-        if (state.info === gen && res && typeof res.alpha === 'number') focus = { alpha: res.alpha, x: fx, y: fy, photo: gen };
+        if (state.info === gen && res && typeof res.alpha === 'number') setFocus({ alpha: res.alpha, x: fx, y: fy });
       } catch (err) {
         hideProgress();
         showError(err, 'Could not pick the focus');
@@ -102,10 +116,7 @@ export function initLenticular({ $, state, engine, cameraParams, eyeParams, with
     $('view').style.cursor = 'crosshair';
     showFocus();
   };
-  $('lent-focus-clear').onclick = () => {
-    focus = null;
-    showFocus();
-  };
+  $('lent-focus-clear').onclick = () => setFocus(null);
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') cancelPick();
   });
@@ -136,7 +147,7 @@ export function initLenticular({ $, state, engine, cameraParams, eyeParams, with
   async function views3d(n, depth, axis = 'x') {
     if (!(state.info && state.info.hasRaw)) throw new Error('A 3D lenticular print needs a photo with its light field (a raw Lytro photo).');
     // The focus (the depth that sits on the sheet's surface) is the one picked for the print, or else the picture's.
-    const p = { ...cameraParams(), ...(pickedFocus() ? { alpha: focus.alpha } : {}) };
+    const p = { ...cameraParams(), ...(pickedFocus() ? { alpha: pickedFocus().alpha } : {}) };
     // (Movement past 100%: the views beyond the lens's opening are made by the worker from the edge view and the depth map)
     const reach = (state.info.radius || 4.5) * (depth / 100);
     // Across the lens left to right, or (tilting up and down) top to bottom.
@@ -428,7 +439,7 @@ export function initLenticular({ $, state, engine, cameraParams, eyeParams, with
   $('lent-depth').addEventListener('input', () => showSliderValue($('lent-depth')));
   showSliderValue($('lent-depth'));
   // (a photo's edits set the type and depth without events: the depth row follows when the section is opened)
-  $('lenticular-panel').addEventListener('toggle', () => { showInfo(); showSliderValue($('lent-depth')); });
+  $('lenticular-panel').addEventListener('toggle', () => { showInfo(); showSliderValue($('lent-depth')); showFocus(); });
   $('lent-btn').onclick = savePrint;
   $('lent-test-btn').onclick = saveTest;
   showInfo();
