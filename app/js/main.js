@@ -435,6 +435,7 @@ function renderLibrary() {
   renderCameraSection();
   if (state.cameraView) renderCameraGrid();
   else renderGrid(photos, album);
+  renderFilmstrip(photos, current);
   if (marks) marks.renderKeywordList();
   if (queueUi && state.queueView) queueUi.render();
   if (looks) looks.render();
@@ -619,6 +620,73 @@ function renderAlbums() {
   }));
 }
 
+// ------------------------------------------------ film strip and the way back to the thumbnails
+
+// The film strip under the picture (the photos of the list, as the sidebar has them) can be folded away; the choice is kept for the next start.
+const FILMSTRIP_KEY = 'illuminator.filmstrip';
+let filmstripCollapsed = (() => {
+  try {
+    return localStorage.getItem(FILMSTRIP_KEY) === '0';
+  } catch {
+    return false;
+  }
+})();
+let filmstripCentered = null;
+
+// With a library photo open (not the thumbnails): the strip and the button back to the thumbnails show.
+function showPhotoNav() {
+  const open = !!(state.lib && state.current && state.current.photo && !state.grid);
+  $('grid-back-btn').hidden = !open;
+  $('filmstrip').hidden = !(open && state.listedPhotos && state.listedPhotos.length);
+  $('filmstrip').classList.toggle('collapsed', filmstripCollapsed);
+  const t = $('filmstrip-toggle');
+  t.setAttribute('aria-expanded', String(!filmstripCollapsed));
+  t.title = filmstripCollapsed ? 'Show the film strip' : 'Hide the film strip';
+}
+
+function renderFilmstrip(photos, current) {
+  showPhotoNav();
+  const strip = $('filmstrip');
+  if (strip.hidden) {
+    filmstripCentered = null;
+    return;
+  }
+  const list = $('filmstrip-list');
+  const scroll = list.scrollLeft;
+  list.replaceChildren(...photos.map((photo) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = photo === current ? 'current' : '';
+    b.dataset.photoId = photo.id;
+    b.title = photo.master ? `${photo.name} (virtual copy)` : photo.name;
+    b.setAttribute('role', 'listitem');
+    b.setAttribute('aria-label', photo.name);
+    if (photo === current) b.setAttribute('aria-current', 'true');
+    const url = thumbFor(photo);
+    if (url) b.append(Object.assign(document.createElement('img'), { src: url, alt: '', draggable: false }));
+    b.onclick = (e) => chooseListedPhoto(photo, e);
+    return b;
+  }));
+  // The photo that is open comes into view when it changes; otherwise the strip stays where the user scrolled it.
+  const here = current ? current.id : null;
+  if (here !== filmstripCentered) {
+    filmstripCentered = here;
+    const el = list.querySelector('button.current');
+    if (el) el.scrollIntoView({ inline: 'center', block: 'nearest' });
+  } else list.scrollLeft = scroll;
+}
+
+$('filmstrip-toggle').onclick = () => {
+  filmstripCollapsed = !filmstripCollapsed;
+  try {
+    localStorage.setItem(FILMSTRIP_KEY, filmstripCollapsed ? '0' : '1');
+  } catch {
+    // Storage unavailable: the choice is not kept.
+  }
+  showPhotoNav();
+};
+$('grid-back-btn').onclick = () => showGrid(true);
+
 // ------------------------------------------------ grid
 
 // Choosing an album shows its photos as thumbnails in place of the picture;
@@ -628,6 +696,7 @@ const THUMB_SIZE_KEY = 'illuminator.thumbSize';
 function showGrid(on) {
   if (on && queueUi) queueUi.setView(false, { open: false });
   state.grid = on;
+  showPhotoNav();
   document.querySelector('.stage').classList.toggle('grid', on);
   $('grid-view').hidden = !on;
   if (on) {
@@ -1375,6 +1444,7 @@ function closePhoto() {
   }
   $('histogram').getContext('2d').clearRect(0, 0, 256, 80);
   state.current = null;
+  showPhotoNav();
   canvas.classList.add('hidden');
   $('placeholder').hidden = false;
   $('placeholder').innerHTML = '<p>Drop a Lytro <code>.LFR</code> or <code>.LFP</code> file here.</p>';

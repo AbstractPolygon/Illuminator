@@ -124,6 +124,9 @@
         <p id="grid-camera-choose-row" hidden><button id="grid-camera-choose" type="button">Choose DCIM folder…</button></p>
       </div>
       <div class="modes-row top">
+        <button id="grid-back-btn" class="icon-only" title="Back to the thumbnails" aria-label="Back to the thumbnails" hidden>
+          <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><rect x="4" y="4" width="6.5" height="6.5" rx="1"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="1"/><rect x="4" y="13.5" width="6.5" height="6.5" rx="1"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1"/></svg>
+        </button>
         <nav class="modes" id="modes">
           <button data-mode="camera" class="icon-only active" title="Camera: the photo" aria-label="Camera">
             <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path d="M4 8.5a1.5 1.5 0 0 1 1.5-1.5h2.3l1.5-2h5.4l1.5 2h2.3A1.5 1.5 0 0 1 20 8.5v9a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 17.5z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><circle cx="12" cy="12.8" r="3.3" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>
@@ -193,6 +196,13 @@
           <span id="progress-text"></span>
           <button id="video-cancel-btn" type="button" title="Stop recording and discard the video" hidden>Cancel</button>
         </div>
+      </div>
+      <div id="filmstrip" class="filmstrip" hidden>
+        <button id="filmstrip-toggle" type="button" class="filmstrip-toggle" aria-expanded="true" aria-controls="filmstrip-list" title="Hide the film strip">
+          <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <span>Film strip</span>
+        </button>
+        <div id="filmstrip-list" class="filmstrip-list" role="list" aria-label="Photos"></div>
       </div>
       <div class="transport">
         <div class="transport-buttons" role="group" aria-label="Playback">
