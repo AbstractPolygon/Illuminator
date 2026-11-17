@@ -1,4 +1,4 @@
-// Editing in the histogram, as in Lightroom: its width is split into five zones (Blacks, Shadows, Exposure, Highlights, Whites, dark to light); the zone
+// Editing in the histogram: its width is split into five zones (Blacks, Shadows, Exposure, Highlights, Whites, dark to light); the zone
 // under the pointer is lit and named, and dragging left or right moves that zone's slider (a drag across the whole histogram sweeps its whole range);
 // a double-click puts the slider back. It moves the slider itself, so the picture, saving, undo and keyframes follow as from the slider.
 

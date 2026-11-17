@@ -1,6 +1,6 @@
 # Histogram and Info
 
-**Histogram.** The red, green and blue histogram of the picture as shown, updated as you edit. You can edit in it too, as in Lightroom: from dark to light it is split into *Blacks*, *Shadows*, *Exposure*, *Highlights* and *Whites*. The part under the pointer lights up with its slider's name and value; drag left or right to change that slider (across the whole histogram is its whole range), and double-click to reset it. The slider in Process moves with it.
+**Histogram.** The red, green and blue histogram of the picture as shown, updated as you edit. You can edit in it too: from dark to light it is split into *Blacks*, *Shadows*, *Exposure*, *Highlights* and *Whites*. The part under the pointer lights up with its slider's name and value; drag left or right to change that slider (across the whole histogram is its whole range), and double-click to reset it. The slider in Process moves with it.
 
 **Info.** The camera, lens and file details of the open photo: model, capture settings, sensor size, the microlens grid and which renderer is in use (GPU or CPU). *GPU time* shows how long the GPU takes to draw a view, where the browser can measure it.
 

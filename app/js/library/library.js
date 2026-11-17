@@ -37,6 +37,8 @@ import { PROCESSED_FILE } from '../core/processed-cache.js';
 import { STILL_INDEX_FILE, stillFileName, touchIndex, KEPT_INDEX_FILE, KEPT_PICTURES, keptFileName } from '../core/still-cache.js';
 
 const LIGHT_FIELD = /\.(lfr|lfp|raw)$/i;
+// A virtual copy's folder holds only its own edits and caches, and this note of which photo it is a copy of: its light field files are the master's.
+export const VIRTUAL_FILE = 'virtual.illuminator.json';
 
 function folderName(label) {
   const clean = String(label || 'photo').replace(/[^\w.-]+/g, '_').replace(/^[._]+/, '').slice(0, 60);
@@ -142,15 +144,24 @@ export class Library {
     const dirs = new Set(entries.filter((e) => e.dir).map((e) => e.name));
     let changed = false;
 
-    const kept = this.photos.filter((p) => dirs.has(p.id));
+    let kept = this.photos.filter((p) => dirs.has(p.id));
+    // (a virtual copy goes with its master)
+    const masters = new Set(kept.filter((p) => !p.master).map((p) => p.id));
+    kept = kept.filter((p) => !p.master || masters.has(p.master));
     if (kept.length !== this.photos.length) changed = true;
     this.photos = kept;
 
     // Folders the index does not know (copied in by hand, or an index lost).
+    const lostCopies = [];
     const known = new Set(this.photos.map((p) => p.id));
     for (const dir of dirs) {
       if (known.has(dir)) continue;
       const files = await this.store.list(`${PHOTOS}/${dir}`);
+      // A virtual copy whose entry was lost: its note says whose copy it is (read once every photo is listed, so its master is there).
+      if (files.some((f) => f.name === VIRTUAL_FILE)) {
+        lostCopies.push(dir);
+        continue;
+      }
       const found = groupPhotos(files.filter((f) => !f.dir).map((f) => ({ path: f.name, file: { name: f.name, size: f.size } })))[0];
       if (!found) continue;
       const thumb = files.find((f) => /^thumb\.(jpe?g|png)$/i.test(f.name));
@@ -170,6 +181,14 @@ export class Library {
         stack: found.stack ? found.stack.name : null,
         thumb: thumb ? thumb.name : null, size: found.file.size, photoId, added: new Date().toISOString(),
       });
+      changed = true;
+    }
+
+    for (const dir of lostCopies) {
+      const note = await this.store.readText(`${PHOTOS}/${dir}/${VIRTUAL_FILE}`).then((t) => JSON.parse(t)).catch(() => null);
+      const master = note && this.photos.find((p) => p.id === note.master && !p.master);
+      if (!master) continue;
+      this.photos.push({ ...this.baseFields(master), id: dir, name: String(note.name || dir), master: master.id, added: note.created || new Date().toISOString() });
       changed = true;
     }
 
@@ -263,8 +282,9 @@ export class Library {
         } catch {
           // Not readable as an LFP (a .raw dump): no id, no thumbnail.
         }
-        const sameName = (p) => p.name.toLowerCase() === String(e.name).toLowerCase();
-        const old = replace && (this.photos.find(sameName) || (summary.photoId && this.photos.find((p) => p.photoId === summary.photoId)));
+        // (a virtual copy is not another import of the photo: only the masters are looked at)
+        const sameName = (p) => !p.master && p.name.toLowerCase() === String(e.name).toLowerCase();
+        const old = replace && (this.photos.find(sameName) || (summary.photoId && this.photos.find((p) => !p.master && p.photoId === summary.photoId)));
         if (old) {
           // New files first, into staging; the old folder goes only once they are all there.
           const staging = `${STAGING}/${old.id}`;
@@ -283,7 +303,7 @@ export class Library {
           await changed();
           continue;
         }
-        const existing = summary.photoId && this.photos.find((p) => p.photoId === summary.photoId);
+        const existing = summary.photoId && this.photos.find((p) => !p.master && p.photoId === summary.photoId);
         if (existing) {
           if (e.sidecar && !existing.sidecar) {
             await this.store.copyIn(e.sidecar, `${PHOTOS}/${existing.id}/${e.sidecar.name}`);
@@ -359,24 +379,38 @@ export class Library {
   // `options.permanent`: delete for good when the folder cannot be moved to the trash (the desktop app asks before it does).
   async remove(ids, options) {
     const gone = new Set(ids);
+    // A photo's virtual copies go with it.
+    for (const p of this.photos) if (p.master && gone.has(p.master)) gone.add(p.id);
     for (const id of gone) await this.store.remove(`${PHOTOS}/${id}`, options);
     this.photos = this.photos.filter((p) => !gone.has(p.id));
     for (const a of this.albums) a.photos = a.photos.filter((id) => !gone.has(id));
     await this.save();
   }
 
+  // The folder that holds a photo's light field files: its own, or for a virtual copy its master's.
+  baseDir(photo) {
+    return `${PHOTOS}/${photo.master || photo.id}`;
+  }
+
+  // What a virtual copy takes from its master: the names of the light field files, the thumbnail and the photo's id.
+  baseFields(m) {
+    const out = { file: m.file, sidecar: m.sidecar || null, thumb: m.thumb || null, size: m.size, photoId: m.photoId };
+    for (const k of ['depthMap', 'depthRange', 'stack']) if (m[k]) out[k] = m[k];
+    return out;
+  }
+
   file(photo) {
-    return this.store.file(`${PHOTOS}/${photo.id}/${photo.file}`);
+    return this.store.file(`${this.baseDir(photo)}/${photo.file}`);
   }
 
   sidecar(photo) {
-    return photo.sidecar ? this.store.file(`${PHOTOS}/${photo.id}/${photo.sidecar}`) : Promise.resolve(null);
+    return photo.sidecar ? this.store.file(`${this.baseDir(photo)}/${photo.sidecar}`) : Promise.resolve(null);
   }
 
   // { image, range } files of the photo's Lytro Desktop depth map, or null.
   async userDepth(photo) {
     if (!photo.depthMap || !photo.depthRange) return null;
-    const dir = `${PHOTOS}/${photo.id}`;
+    const dir = this.baseDir(photo);
     const [image, range] = await Promise.all([this.store.file(`${dir}/${photo.depthMap}`), this.store.file(`${dir}/${photo.depthRange}`)]);
     return image && range ? { image, range } : null;
   }
@@ -445,11 +479,13 @@ export class Library {
 
   // The photo's Lytro Desktop stack.lfp (holding the depth Lytro computed), or null.
   stack(photo) {
-    return photo.stack ? this.store.file(`${PHOTOS}/${photo.id}/${photo.stack}`).catch(() => null) : Promise.resolve(null);
+    return photo.stack ? this.store.file(`${this.baseDir(photo)}/${photo.stack}`).catch(() => null) : Promise.resolve(null);
   }
 
   thumbnail(photo) {
-    return photo.thumb ? this.store.file(`${PHOTOS}/${photo.id}/${photo.thumb}`) : Promise.resolve(null);
+    // (a virtual copy shows its master's thumbnail until one is made for it)
+    const dir = photo.thumbHere ? `${PHOTOS}/${photo.id}` : this.baseDir(photo);
+    return photo.thumb ? this.store.file(`${dir}/${photo.thumb}`) : Promise.resolve(null);
   }
 
   async saveThumbnail(photo, blob) {
@@ -457,6 +493,7 @@ export class Library {
     const name = blob.type === 'image/png' ? 'thumb.png' : 'thumb.jpg';
     await this.store.writeBlob(`${PHOTOS}/${photo.id}/${name}`, blob);
     photo.thumb = name;
+    if (photo.master) photo.thumbHere = true;
     await this.save();
   }
 
@@ -478,6 +515,36 @@ export class Library {
     const xmp = `${PHOTOS}/${photo.id}/${stem(photo.file)}.xmp`;
     if (hasMarks(m)) await this.store.writeText(xmp, toXmp(m));
     else await this.store.remove(xmp).catch(() => {});
+  }
+
+  // A virtual copy: another entry for the same photo, with the same light field files but settings of its own (it starts with the settings of `photo`). Its folder holds
+  // only its edits, its caches and a note of whose copy it is; the files are the master's, so nothing of the photo is stored twice. A copy of a copy is a copy of the master.
+  async createVirtualCopy(photo) {
+    if (!this.isListed(photo)) return null;
+    const master = this.get(photo.master) || photo;
+    const taken = new Set(this.photos.filter((p) => p.master === master.id).map((p) => p.name.toLowerCase()));
+    let name = `${master.name} copy`;
+    for (let n = 2; taken.has(name.toLowerCase()); n++) name = `${master.name} copy ${n}`;
+    const id = this.uniqueId(`${master.id}-copy`);
+    const dir = `${PHOTOS}/${id}`;
+    const created = new Date().toISOString();
+    try {
+      await this.store.writeText(`${dir}/${VIRTUAL_FILE}`, JSON.stringify({ master: master.id, name, created }));
+      // The settings, and the depth already measured (it belongs to the light field, which is the same).
+      const edits = await this.store.readText(`${PHOTOS}/${photo.id}/${EDITS_FILE}`).catch(() => null);
+      if (edits) await this.store.writeText(`${dir}/${EDITS_FILE}`, edits);
+      const processed = await this.store.file(`${PHOTOS}/${photo.id}/${PROCESSED_FILE}`).catch(() => null);
+      if (processed) await this.store.writeBlob(`${dir}/${PROCESSED_FILE}`, new Blob([await processed.arrayBuffer()]));
+    } catch (err) {
+      await this.store.remove(dir).catch(() => {});
+      throw err;
+    }
+    const copy = { ...this.baseFields(master), id, name, master: master.id, added: created };
+    // Just after its master in the list (the list shows the newest first).
+    this.photos.splice(Math.max(0, this.photos.indexOf(master)), 0, copy);
+    for (const a of this.albums) if (a.photos.includes(photo.id)) a.photos.push(id);
+    await this.save();
+    return copy;
   }
 
   async loadEdits(photo) {

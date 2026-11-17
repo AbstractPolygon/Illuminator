@@ -1,4 +1,4 @@
-// Defringing, in the spirit of Lightroom's tool: purple, green, red and blue color
+// Defringing: purple, green, red and blue color
 // fringes appear along high-contrast edges (lens chromatic aberration, and
 // here also light field sampling). Pixels near such edges whose hue falls in
 // one of the chosen hue ranges lose that color; everything else is left
