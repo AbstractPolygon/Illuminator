@@ -601,6 +601,17 @@ function postKeptPicture(hash, w, h, rgb) {
 // an ImageBitmap. `pxPerUnit`: blur pixels per unit of focus difference per
 // unit of `dof`, for this image's size. `keep`: keep the picture as it is
 // before the color pass, so color changes can redraw it (see view()).
+// A position in the finished picture (fractions across and down) as the blur sees it. The blur works on the rays' picture before the lens correction moves things, so a point the person
+// picked on the corrected picture is the lens correction's source for it there (up to about 10 px at the edges of a 625 px wide view). A picture whose distortion is already corrected
+// (the engine's, the full sensor's) is the same frame as the finished one.
+function pointBeforeLens(point, w, h, distortionCorrected) {
+  if (!point || distortionCorrected) return point;
+  const warp = lensWarp(state.lens, w, h);
+  if (!warp) return point;
+  const [sx, sy] = warp.source(point[0] * w, point[1] * h);
+  return [sx / w, sy / h];
+}
+
 async function presentGpu(id, tex, w, h, { alpha = 0, dof = 0, bokeh = {}, pxPerUnit, masks = { focus: alpha }, keep = null, keepStill = null, draft = false, mode = undefined, color = null, distortionCorrected = false, parallax = false }, message) {
   const gpu = state.gpu;
   // Depth map contrast on the viewpoint's parallax (see state.depthParallax).
@@ -621,7 +632,7 @@ async function presentGpu(id, tex, w, h, { alpha = 0, dof = 0, bokeh = {}, pxPer
       ...shapeOptions(bokeh),
       highlights: bokeh.highlights,
       tilt: bokeh.tilt,
-      point: bokeh.point,
+      point: pointBeforeLens(bokeh.point, w, h, distortionCorrected),
       spread: bokeh.spread,
       smooth: bokeh.smooth,
       feather: (bokeh.blur || 0) * pxPerUnit,
@@ -1323,13 +1334,13 @@ async function applyParallax(id, rgb, w, h, u, v) {
   return wantsParallax() && (await ensureViewDepth(id)) ? withParallax(rgb, w, h, u, v) : rgb;
 }
 
-async function withDepthOfField(id, rgb, w, h, alpha, dof, scale = 1, bokeh = {}) {
+async function withDepthOfField(id, rgb, w, h, alpha, dof, scale = 1, bokeh = {}, distortionCorrected = false) {
   // (the lens effects round bright points come after the blur, which needs the depth; they need none)
   const fx = fxOptions(bokeh);
   if (!(dof > 0) || !(await ensureViewDepth(id))) return applyBokehFx(rgb, w, h, fx, state.dev.clip);
   const { outW, outH } = state.sampler;
   return applyBokehFx(applyDepthOfField(rgb, w, h, state.depth.alpha, outW, outH, alpha, dof * (bokeh.size ?? 1), 14 * scale * state.settings.detail, {
-    ...shapeOptions(bokeh), highlights: bokeh.highlights, clip: state.dev.clip, tilt: bokeh.tilt, point: bokeh.point, spread: bokeh.spread,
+    ...shapeOptions(bokeh), highlights: bokeh.highlights, clip: state.dev.clip, tilt: bokeh.tilt, point: pointBeforeLens(bokeh.point, w, h, distortionCorrected), spread: bokeh.spread,
     smooth: bokeh.smooth, feather: (bokeh.blur || 0) * 14 * scale * state.settings.detail,
   }), w, h, fx, state.dev.clip);
 }
@@ -1600,7 +1611,7 @@ async function superRes({ id, job, alpha = 0, scale, u = 0, v = 0, aperture = 0,
     return undefined;
   }
   if (dof > 0) progress('Applying depth of field', 1);
-  const rgb = await withDepthOfField(id, sr.rgb, sr.width, sr.height, alpha, dof, scale / state.settings.detail, bokeh);
+  const rgb = await withDepthOfField(id, sr.rgb, sr.width, sr.height, alpha, dof, scale / state.settings.detail, bokeh, sr.distortionCorrected);
   const pixels = toPixels(rgb, sr.width, sr.height, { focus: alpha, ref: aperture > 0 ? alpha : 0, overrides: masks, view: viewOf(u, v) }, cs, sr.distortionCorrected);
   post({ id, type: 'result', width: sr.width, height: sr.height, pixels: pixels.buffer }, [pixels.buffer]);
   return undefined;
@@ -3566,6 +3577,10 @@ function depthHistogram({ bins = 96 }) {
 async function focusAt({ id, x, y, u = 0, v = 0, depth = false }) {
   if (state.pp) return { alpha: state.pp.focusAt(x, y), confidence: 1 };
   requireRaw();
+  // The click is a place on the finished picture, which has the lens correction applied; the depth map and the views are in the uncorrected frame, so the click is where the lens correction
+  // took that place from (about 10 px off at the edges of a 625 px wide view, none at the center).
+  const place = lensWarp(state.lens, state.sampler.outW, state.sampler.outH);
+  if (place) [x, y] = place.source(x, y);
   // When the blur is drawn from the depth map, what is in focus is what the depth map says is at the focus value: the depth at
   // the click, so the clicked spot is exactly what the picture then shows sharp. (The estimate below is a separate measure from the
   // views, over a limited range: it cannot place a thing nearer than that, a wire close to the lens comes out as the scene behind it.)
@@ -3575,8 +3590,8 @@ async function focusAt({ id, x, y, u = 0, v = 0, depth = false }) {
     const { outW: dw, outH: dh } = state.sampler;
     const d = state.settings.detail;
     const at = (px, py) => {
-      const xi = Math.round(px);
-      const yi = Math.round(py);
+      const xi = Math.floor(px);
+      const yi = Math.floor(py);
       const list = [];
       for (let j = -1; j <= 1; j++) {
         for (let i = -1; i <= 1; i++) {

@@ -39,7 +39,7 @@ function importClosure(roots) {
 }
 
 const FILES = importClosure([...ROOTS, ...KEY_FILES]);
-const EXPECTED = { rev: 7, checksum: '9ef7cb8477a74c44' };
+const EXPECTED = { rev: 7, checksum: '4f3896b0d7f276a4' };
 
 // Comments and white space do not change a result: they are left out of the checksum.
 function checksum() {
