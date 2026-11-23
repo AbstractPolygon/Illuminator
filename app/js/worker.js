@@ -613,6 +613,31 @@ function pointBeforeLens(point, w, h, distortionCorrected) {
   return [sx / w, sy / h];
 }
 
+// The depth map as the finished (lens corrected) picture lays it out. The blur of a picture whose distortion is already corrected (the engine's, the full sensor's) reads the depth at
+// the same place in the picture, but the depth map is in the frame before the lens correction: without this a thin thing near the edge (a tree trunk in front) was looked up up to
+// about 10 px (625 px wide view) from where it is and came out blurred, though the click that set the focus was on it. Null where there is no lens correction.
+let correctedDepthKept = null;
+function depthInCorrectedFrame() {
+  const { outW, outH } = state.sampler;
+  const warp = lensWarp(state.lens, outW, outH);
+  if (!warp || !state.depth) return null;
+  const key = [state.lens.k || 0, state.lens.k2 || 0, state.lens.edge || 0, state.lens.zoom || 1, outW, outH].join();
+  if (correctedDepthKept && correctedDepthKept.alpha === state.depth.alpha && correctedDepthKept.key === key) return correctedDepthKept.out;
+  const src = state.depth.alpha;
+  const out = new Float32Array(outW * outH);
+  for (let y = 0; y < outH; y++) {
+    for (let x = 0; x < outW; x++) {
+      const [sx, sy] = warp.source(x + 0.5, y + 0.5);
+      const fx = Math.min(outW - 1.001, Math.max(0, sx - 0.5));
+      const fy = Math.min(outH - 1.001, Math.max(0, sy - 0.5));
+      // nearest (a blend would invent depths between a thin near thing and what is behind it)
+      out[y * outW + x] = src[Math.round(fy) * outW + Math.round(fx)];
+    }
+  }
+  correctedDepthKept = { alpha: src, key, out };
+  return out;
+}
+
 async function presentGpu(id, tex, w, h, { alpha = 0, dof = 0, bokeh = {}, pxPerUnit, masks = { focus: alpha }, keep = null, keepStill = null, draft = false, mode = undefined, color = null, distortionCorrected = false, parallax = false }, message) {
   const gpu = state.gpu;
   // Depth map contrast on the viewpoint's parallax (see state.depthParallax).
@@ -626,6 +651,11 @@ async function presentGpu(id, tex, w, h, { alpha = 0, dof = 0, bokeh = {}, pxPer
     // the wires on the fence photo either). The blur follows the depth map alone. (Not with a tilted focus plane, whose depth differs across the picture.)
     const tilted = bokeh.tilt && (bokeh.tilt[0] || bokeh.tilt[1]);
     const sharp = state.settings.focusMask === true && gpu.views && !tilted ? gpu.focusMask(alpha, { u0: masks.view ? masks.view.u : 0, v0: masks.view ? masks.view.v : 0, clip: state.dev.clip }) : null;
+    // (a picture whose distortion is corrected is blurred with the depth laid out the same way)
+    const corrected = distortionCorrected ? depthInCorrectedFrame() : null;
+    const realDepth = corrected ? state.depth.alpha : null;
+    if (corrected) gpu.setDepth(corrected, state.sampler.outW, state.sampler.outH);
+    try {
     tex = gpu.depthOfField(tex, w, h, {
       sharp,
       focus: alpha,
@@ -640,6 +670,9 @@ async function presentGpu(id, tex, w, h, { alpha = 0, dof = 0, bokeh = {}, pxPer
       clip: state.dev.clip,
       draft,
     });
+    } finally {
+      if (realDepth) gpu.setDepth(realDepth, state.sampler.outW, state.sampler.outH);
+    }
   }
   // Lens effects round bright points (streaks, spikes, ghosts, fog, dirt): with or without the blur.
   const lensFx = fxOptions(bokeh);
@@ -1340,7 +1373,7 @@ async function withDepthOfField(id, rgb, w, h, alpha, dof, scale = 1, bokeh = {}
   const fx = fxOptions(bokeh);
   if (!(dof > 0) || !(await ensureViewDepth(id))) return applyBokehFx(rgb, w, h, fx, state.dev.clip);
   const { outW, outH } = state.sampler;
-  return applyBokehFx(applyDepthOfField(rgb, w, h, state.depth.alpha, outW, outH, alpha, dof * (bokeh.size ?? 1), 14 * scale * state.settings.detail, {
+  return applyBokehFx(applyDepthOfField(rgb, w, h, (distortionCorrected && depthInCorrectedFrame()) || state.depth.alpha, outW, outH, alpha, dof * (bokeh.size ?? 1), 14 * scale * state.settings.detail, {
     ...shapeOptions(bokeh), highlights: bokeh.highlights, clip: state.dev.clip, tilt: bokeh.tilt, point: pointBeforeLens(bokeh.point, w, h, distortionCorrected), spread: bokeh.spread,
     smooth: bokeh.smooth, feather: (bokeh.blur || 0) * 14 * scale * state.settings.detail,
   }), w, h, fx, state.dev.clip);
