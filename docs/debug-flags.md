@@ -23,6 +23,8 @@ Read with `debugFlags().name`. In the worker, a harness usually prepends a line 
 | `cmpDepth` | prints or dumps | app/js/worker.js |  |
 | `d5Grow` | tuning value | app/js/worker.js |  |
 | `d5Round` | tuning value | app/js/worker.js |  |
+| `depthFill` | tuning value | app/js/core/depth.js |  |
+| `depthRegions` | tuning value | app/js/core/depth.js |  |
 | `depthViews` | tuning value | app/js/worker.js |  |
 | `dmLevel` | tuning value | app/js/worker.js |  |
 | `dmSimilar` | tuning value | app/js/worker.js |  |
@@ -30,6 +32,8 @@ Read with `debugFlags().name`. In the worker, a harness usually prepends a line 
 | `engineGrid` | tuning value | app/js/worker.js |  |
 | `engineView` | tuning value | app/js/worker.js |  |
 | `engineViews` | tuning value | app/js/worker.js |  |
+| `guideEps` | tuning value | app/js/core/depth.js |  |
+| `guideR` | tuning value | app/js/core/depth.js |  |
 | `heuristicHot` | tuning value | app/js/core/raw.js |  |
 | `lcost` | tuning value | app/js/worker.js |  |
 | `legacy` | tuning value | app/js/worker.js |  |
@@ -57,10 +61,12 @@ Read with `debugFlags().name`. In the worker, a harness usually prepends a line 
 | `noGpuRegions` | turns a stage off | app/js/worker.js |  |
 | `noGpuSolve` | turns a stage off | app/js/worker.js |  |
 | `noGpuViews` | turns a stage off | app/js/worker.js |  |
+| `noGuide` | turns a stage off | app/js/core/depth.js |  |
 | `noisy` | tuning value | app/js/worker.js |  |
 | `noLutBlack` | turns a stage off | app/js/core/raw.js |  |
 | `noModulation` | turns a stage off | app/js/worker.js |  |
 | `noNotch` | turns a stage off | app/js/worker.js |  |
+| `noRegions` | turns a stage off | app/js/core/depth.js |  |
 | `noTable` | turns a stage off | app/js/worker.js |  |
 | `noWbCct` | turns a stage off | app/js/worker.js |  |
 | `noWbRel` | turns a stage off | app/js/worker.js |  |
@@ -110,6 +116,7 @@ Read with `hook('name')`, published with `setHook('name', value)`.
 | `depthOnly` | harness value | app/js/worker.js |  |
 | `depthOverride` | override | app/js/worker.js |  |
 | `depthProbe` | callback: receives a stage's result | app/js/core/superres.js |  |
+| `depthStage` | harness value | app/js/core/depth.js |  |
 | `diagBins` | harness value | app/js/core/lytroedof.js |  |
 | `disStats` | callback: receives a stage's result | app/js/core/superres.js |  |
 | `dmDump` | callback: receives a stage's result | app/js/core/lytroedof.js | debugging aid: the demosaiced, saturation-recovered image at the entry of the blend stage |

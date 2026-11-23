@@ -2977,9 +2977,9 @@ async function measureClassic(id, fast, progress) {
       const coarse = state.gpu.measureDepth({ ...DEPTH_SEARCH, window: DEPTH_SEARCH.window + 1, detail: DEPTH_COARSE.detail, blur: DEPTH_COARSE.blur, occlusion: false, guided: true, floor, guide, onProgress: share(0.45, 0.8) });
       measured = combineCoarse(measured, coarse);
     }
-    // The clean-up (weighted median, region clean-up) runs at both qualities: without it wrong matches in dark or blank parts stayed as blotches (dark and
-    // light blobs in the depth view, sharp patches in the blur). Normal quality saves its time in the matching instead.
-    return finishDepth(measured, outW, outH, guide, { refine: true, color: depthColorGuide(rgb), median: state.gpu.weightedMedian.bind(state.gpu), fill: state.gpu.edgeAwareFill.bind(state.gpu), onProgress: share(0.8, 1) });
+    // The weighted median runs at both qualities: without it wrong matches in dark or blank parts stayed as blotches. The region clean-up runs with High quality only: at
+    // Normal quality its flat regions and smoothed ramps made the depth splotchy (soft blobs over surfaces that are not flat).
+    return finishDepth(measured, outW, outH, guide, { refine: true, regions: !fast, color: depthColorGuide(rgb), median: state.gpu.weightedMedian.bind(state.gpu), fill: state.gpu.edgeAwareFill.bind(state.gpu), onProgress: share(0.8, 1) });
   }
   const opts = { ...(fast ? { occlusion: false, guided: false } : {}), onProgress: progress };
   // Without a graphics card the trial depths are scored by a few helper workers side by side (js/depthpool.js): the same scores as one worker makes in turn.

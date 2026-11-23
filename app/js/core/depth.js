@@ -1,3 +1,4 @@
+import { debugFlags, hook } from './debugflags.js';
 import { segmentDepth, guidedFilterColor, snapDepthEdges } from './segments.js';
 import { mapF32, nthSmallest, nthSmallestPair } from './typed.js';
 
@@ -405,6 +406,8 @@ function removeOutliers(alpha, confidence, w, h, threshold = 0.45, guide = null,
 
 // Filling unreliable depths: how far (share of the picture) and how
 // strictly within the photo's edges, and how much confidence counts as sure.
+// (a harness can try other values: __lytro.depthFill, merged over these)
+const fillSettings = () => ({ ...DEPTH_FILL, ...(debugFlags().depthFill || {}) });
 export const DEPTH_FILL = { reach: 0.2, edge: 0.12, trust: 2, glint: 3, lift: 0.07 };
 
 // Region cleanup of high quality depth maps (core/segments.js).
@@ -1279,7 +1282,7 @@ export function estimateDepth(views, width, height, { min = DEPTH_SEARCH.min, ma
   if (onProgress) onProgress(1);
   const cv = views[Math.floor(views.length / 2)];
   const color = depthColorGuide(mapF32(cv.rgb, (x) => x * cv.gain));
-  return finishDepth(measured, width, height, guide, { refine, min, max, color });
+  return finishDepth(measured, width, height, guide, { refine, regions: guided, min, max, color });
 }
 
 // estimateDepth with the trial depths scored by helper workers side by side. `pool`: { load(shared), run(alphas, onScore) } (js/depthpool.js). The same steps in the same
@@ -1323,7 +1326,7 @@ export async function estimateDepthPooled(views, width, height, { min = DEPTH_SE
   if (onProgress) onProgress(1);
   const cv = views[mid];
   const color = depthColorGuide(mapF32(cv.rgb, (x) => x * cv.gain));
-  return finishDepth(measured, width, height, guide, { refine, min, max, color });
+  return finishDepth(measured, width, height, guide, { refine, regions: guided, min, max, color });
 }
 
 // From the scores (higher = better) of each trial depth: the best depth per
@@ -1411,7 +1414,8 @@ export function highlightMask(guide, w, h, { radius = 6, lift = 0.07, grow = 2 }
   return mask;
 }
 
-export function finishDepth({ alpha, cost, meanCost }, width, height, guide, { refine = true, min = DEPTH_SEARCH.min, max = DEPTH_SEARCH.max, color = null, median = null, fill = null, onProgress = null } = {}) {
+// `regions`: the region cleanup (High quality, or Object edges on); without it the depth keeps its own detail and its edges follow the picture's (Normal quality).
+export function finishDepth({ alpha, cost, meanCost }, width, height, guide, { refine = true, regions = refine, min = DEPTH_SEARCH.min, max = DEPTH_SEARCH.max, color = null, median = null, fill = null, onProgress = null } = {}) {
   const step = (p) => onProgress && onProgress(p);
   const fillOf = fill && color ? (v, c, g, w, h, sigmaS, sigmaR, it, col) => fill(v, c, col, w, h, sigmaS, sigmaR, it) : edgeAwareFill;
   const n = width * height;
@@ -1436,30 +1440,47 @@ export function finishDepth({ alpha, cost, meanCost }, width, height, guide, { r
   // same surface (as far as it reaches, but not across the photo's edges).
   // A glint looks different from each view (a reflection, not a surface), so the match there finds a wrong depth with a convincing minimum: the depth under and
   // around glints is not trusted, and comes from the surroundings.
-  if (DEPTH_FILL.glint) {
+  const F = fillSettings();
+  if (F.glint) {
     const scale = Math.max(1, width / 625);
-    const glint = highlightMask(guide, width, height, { radius: Math.round(6 * scale), lift: DEPTH_FILL.lift, grow: Math.round(DEPTH_FILL.glint * scale) });
+    const glint = highlightMask(guide, width, height, { radius: Math.round(6 * scale), lift: F.lift, grow: Math.round(F.glint * scale) });
     for (let i = 0; i < n; i++) if (glint[i]) confidence[i] = 0;
   }
-  const reach = Math.max(width, height) * DEPTH_FILL.reach;
+  const stage = (name, a) => { const h = hook('depthStage'); if (h) h(name, a, width, height); };
+  stage('measured', alpha);
+  stage('confidence', confidence);
+  const reach = Math.max(width, height) * F.reach;
   step(0);
-  const smooth = fillOf(alpha, confidence, guide, width, height, reach, DEPTH_FILL.edge, 3, color);
+  const smooth = fillOf(alpha, confidence, guide, width, height, reach, F.edge, 3, color);
   step(0.25);
   for (let i = 0; i < n; i++) {
-    const c = Math.min(1, confidence[i] * DEPTH_FILL.trust);
+    const c = Math.min(1, confidence[i] * F.trust);
     alpha[i] = c * alpha[i] + (1 - c) * smooth[i];
   }
+  stage('filled', alpha);
   const cleaned = removeOutliers(median5(alpha, width, height), confidence, width, height, 0.45, guide, color, fillOf);
+  stage('cleaned', cleaned);
   step(0.45);
   let result = refine ? (median && color ? median(cleaned, color, width, height, 4, 0.06, 96) : weightedMedian(cleaned, guide, width, height, 4, 0.06, 96, color)) : fillSmooth(cleaned, new Float32Array(n).fill(1), width, height, 1);
   step(0.65);
+  stage('median', result);
   // High quality: region cleanup (core/segments.js).
   // (also with normal quality when Object edges are on)
-  const flat = !!(color && DEPTH_REGIONS.on && (refine || DEPTH_REGIONS.objects));
-  if (flat) result = segmentDepth(result, confidence, color, width, height, DEPTH_REGIONS);
+  // (the cleanup's flat regions and smoothed ramps made the Normal quality depth splotchy: soft blobs across surfaces that are not flat; it runs with High quality only)
+  const flat = !!(color && DEPTH_REGIONS.on && !debugFlags().noRegions && ((refine && regions) || DEPTH_REGIONS.objects));
+  if (flat) {
+    result = segmentDepth(result, confidence, color, width, height, { ...DEPTH_REGIONS, ...(debugFlags().depthRegions || {}) });
+  }
   // Normal quality: no region cleanup, but the edges still follow the picture's.
-  else if (color && DEPTH_REGIONS.guide !== false) result = snapDepthEdges(guidedFilterColor(result, color, width, height, 5, 0.003, DEPTH_REGIONS.gpu), color, width, height, DEPTH_REGIONS.gpu);
+  else if (color && DEPTH_REGIONS.guide !== false) {
+    const dbg = debugFlags();
+    const guided = dbg.noGuide ? result : guidedFilterColor(result, color, width, height, dbg.guideR ?? 5, dbg.guideEps ?? 0.003, DEPTH_REGIONS.gpu);
+    stage('guided', guided);
+    result = snapDepthEdges(guided, color, width, height, DEPTH_REGIONS.gpu);
+  }
+  stage('edges', result);
   result = despeckleDepth(result, width, height);
+  stage('final', result);
   step(1);
   return { alpha: result, confidence, range: [min, max], flat };
 }
