@@ -1098,7 +1098,7 @@ async function open({ id, bytes, synthetic, userDepth = null, depthCache = null,
 // for keyframed animations).
 async function frames({ id, job, path, alpha = 0, aperture = 0, dof = 0, bokeh, holes = false }) {
   const list = path.map((f) => ({ u: f.u, v: f.v, alpha: f.alpha ?? alpha, aperture: f.aperture ?? aperture, dof: f.dof ?? dof, bokeh: f.bokeh ?? bokeh, masks: f.masks || null, color: f.color || null }));
-  if (state.pp) return processedFrames({ id, job, kind: 'frames', list });
+  if (state.pp) return processedFrames({ id, job, kind: 'frames', list, holes });
   requireRaw();
   state.jobs.frames = job;
   if (list.some((f) => f.aperture > 0) && !(await ensureRefocusViews(id))) return { cancelled: true };
@@ -1993,7 +1993,7 @@ function schedulePrefetch() {
 }
 
 async function view({ id, u, v, alpha = 0, aperture = 0, dof = 0, bokeh, draft = false, deferNr = false, final = false, holes = false }) {
-  if (state.pp) return processedView({ id, u, v, alpha, aperture, dof, bokeh });
+  if (state.pp) return processedView({ id, u, v, alpha, aperture, dof, bokeh, holes });
   requireRaw();
   // (past the lens edge: rendered at the edge, then moved on by the depth)
   const asked = [u, v];
@@ -3788,18 +3788,20 @@ function processedPixels(params, { reuse = false } = {}) {
   return toPixels(rgb, pp.width, pp.height, undefined, colorState(params.color));
 }
 
-async function processedView({ id, ...params }) {
+async function processedView({ id, holes, ...params }) {
   const pixels = processedPixels(params, { reuse: true });
-  post({ id, type: 'result', width: state.pp.width, height: state.pp.height, pixels: pixels.buffer }, [pixels.buffer]);
+  const unseen = holes ? state.pp.holes(params.u || 0, params.v || 0) : null;
+  post({ id, type: 'result', width: state.pp.width, height: state.pp.height, pixels: pixels.buffer, ...(unseen ? { holes: unseen } : {}) }, [pixels.buffer]);
   return undefined;
 }
 
-async function processedFrames({ id, job, list, kind }) {
+async function processedFrames({ id, job, list, kind, holes = false }) {
   state.jobs[kind] = job;
   for (let i = 0; i < list.length; i++) {
     if (state.jobs[kind] !== job) return { cancelled: true };
     const pixels = processedPixels(list[i]);
-    post({ id, type: 'frame', index: i, width: state.pp.width, height: state.pp.height, pixels: pixels.buffer }, [pixels.buffer]);
+    const unseen = holes ? state.pp.holes(list[i].u || 0, list[i].v || 0) : null;
+    post({ id, type: 'frame', index: i, width: state.pp.width, height: state.pp.height, pixels: pixels.buffer, ...(unseen ? { holes: unseen } : {}) }, [pixels.buffer]);
     await tick();
   }
   return { done: true };

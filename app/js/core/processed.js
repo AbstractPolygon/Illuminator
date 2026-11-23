@@ -16,6 +16,7 @@ import { applyDepthOfField, shapeOptions } from './dof.js';
 import { fxOptions, applyBokehFx } from './bokehfx.js';
 import { smoothDepth } from './depth.js';
 import { nthSmallest } from './typed.js';
+import { withExtension, uncoveredMask, depthRange } from './viewextend.js';
 
 const SRGB_TO_LINEAR = new Float32Array(256);
 for (let i = 0; i < 256; i++) {
@@ -221,7 +222,36 @@ export class ProcessedPicture {
     const du = u - best.u;
     const dv = v - best.v;
     if (!this.depth || (Math.abs(du) < 1e-6 && Math.abs(dv) < 1e-6)) return Float32Array.from(src);
+    // A Light L16 photo: the viewpoint is moved on from the one picture the way a Lytro photo is moved past its lens edge, nearest surface first, with the background stretched over
+    // what a near thing uncovers (core/viewextend.js).
+    if (this.source === 'l16') return this.extend(src, du, dv);
     return this.warp(src, du, dv);
+  }
+
+  // The depth as viewextend.js wants it for this picture: a point at lambda l shows at c - l * du * pxPerLambda, so the value there is -l with no reference, and `detail` turns its
+  // shift in depth map pixels into this picture's.
+  extension() {
+    const d = this.depth;
+    if (!this.ext || this.ext.of !== d.lambda) {
+      const neg = new Float32Array(d.lambda.length);
+      for (let i = 0; i < neg.length; i++) neg[i] = -d.lambda[i];
+      this.ext = { of: d.lambda, neg, range: depthRange(neg), detail: (this.pxPerLambda * d.width) / this.width };
+    }
+    return this.ext;
+  }
+
+  extend(src, du, dv) {
+    const e = this.extension();
+    const d = this.depth;
+    return withExtension(src, this.width, this.height, e.neg, d.width, d.height, [0, 0], [du, dv], 0, e.detail, e.range);
+  }
+
+  // Which pixels of the picture for viewpoint (u, v) show what no camera view held (for Fill with AI): 1 = not seen. Null for a picture that is not moved this way.
+  holes(u, v) {
+    if (this.source !== 'l16' || !this.depth || (Math.abs(u) < 1e-6 && Math.abs(v) < 1e-6)) return null;
+    const e = this.extension();
+    const d = this.depth;
+    return uncoveredMask(this.width, this.height, e.neg, d.width, d.height, [0, 0], [u, v], 0, e.detail, e.range);
   }
 
   // Backward warp: the pixel at p comes from p + lambda(source) * d * k.
