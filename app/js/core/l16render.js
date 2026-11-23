@@ -84,7 +84,8 @@ export async function renderL16Final(l16, { scale, margin, depthLambda, renderTi
         for (let c = 0; c < 3; c++) data[4 * i + c] = Math.round(255 * sRGB(Math.min(1, region.rgb[3 * i + c] * gain)));
         data[4 * i + 3] = 255;
       }
-      const finished = renderTile({ data, width: region.width, height: region.height, lambda: lambdaFor(rx0, ry0, region.width, region.height) });
+      // (`window`: where the tile sits in the whole picture, for what is placed on the whole picture: retouching spots)
+      const finished = renderTile({ data, width: region.width, height: region.height, lambda: lambdaFor(rx0, ry0, region.width, region.height), window: { x: rx0, y: ry0, width: W, height: H } });
       // the tile without its margin, into the output
       const rwp = region.width;
       for (let y = 0; y < th; y++) {

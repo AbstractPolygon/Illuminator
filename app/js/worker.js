@@ -302,14 +302,7 @@ function updateColor() {
   state.detail = makeDetail({ ...s, engineSharpen: s.engineSharpen ?? !!(state.lf && state.lf.raw && !state.pp) });
   state.localTone = withAirlight(makeLocalTone(s), center);
   state.lens = lensParams(s.lens, state.lf && state.lf.cam);
-  // Local adjustments: the masks that change something (or the one shown).
-  const masks = parseMasks(s.local && s.local.masks);
-  const show = s.local && s.local.show >= 0 && masks[s.local.show] ? s.local.show : -1;
-  state.masks = masks.filter((m, i) => i === show || activeMasks([m]).length);
-  state.maskShow = show >= 0 ? state.masks.indexOf(masks[show]) : -1;
-  // Retouching: the spots that are on (kept as the text too, for the cache keys).
-  state.spots = parseSpots(s.local && s.local.spots).filter((x) => x.on);
-  state.spotsKey = state.spots.length ? s.local.spots : null;
+  setLocalAndSpots(s);
   // The Lytro Desktop look applies saturation after its curve (toneMap).
   const camCcm = engineCcm(s);
   const exactColor = s.lytroLook !== false && !!state.engineScale && Array.isArray(camCcm) && camCcm.length === 9 && s.engineColor !== false;
@@ -430,9 +423,24 @@ function colorState(color) {
 // Local adjustments for a w x h picture (core/local.js), or null. `ctx`:
 // { focus, overrides } of this picture (see resolveMasks).
 // The spots for one picture (`ctx` as for the masks: the focus and the viewpoint), anchored to the scene: null when there are none.
-function spotsFor(ctx) {
+function spotsFor(ctx, w = 0, h = 0) {
   if (!state.spots || !state.spots.length) return null;
-  return resolveSpots(state.spots, sceneAnchor(ctx));
+  const resolved = resolveSpots(state.spots, sceneAnchor(ctx));
+  // A tile of a bigger picture (the L16 render and its zoomed-in layer): ctx.window = { x, y, width, height } is where the tile's corner sits in the whole picture and its size;
+  // the spots, placed in fractions of the whole picture, are moved into the tile's.
+  const win = ctx && ctx.window;
+  if (!win || !w || !h) return resolved;
+  const bigWhole = Math.max(win.width, win.height);
+  const bigTile = Math.max(w, h);
+  return resolved.map((sp) => ({
+    ...sp,
+    x: (sp.x * win.width - win.x) / w,
+    y: (sp.y * win.height - win.y) / h,
+    sx: (sp.sx * win.width - win.x) / w,
+    sy: (sp.sy * win.height - win.y) / h,
+    r: (sp.r * bigWhole) / bigTile,
+    feather: sp.feather,
+  }));
 }
 
 // The viewpoint and focus a picture is seen from, and the scale of the scene's movement, for anything stuck to the scene (spots, painted masks).
@@ -449,6 +457,8 @@ function anchorScale() {
 
 function localFor(w, h, ctx) {
   if (!state.masks || !state.masks.length) return null;
+  // (a tile of a bigger picture: the masks are placed on the whole picture, and are not moved into tiles yet)
+  if (ctx && ctx.window) return null;
   const d = state.depth && state.sampler ? { depth: state.depth.alpha, dw: state.sampler.outW, dh: state.sampler.outH } : {};
   return { masks: resolveMasks(state.masks, { ...ctx, anchor: sceneAnchor(ctx) }), w, h, show: state.maskShow, ...d };
 }
@@ -479,7 +489,7 @@ function toPixels(rgb, w, h, ctx, cs = state, distortionCorrected = false, onGpu
   // Texture, Clarity and Dehaze (core/localtone.js); from the GPU path already in the picture
   if (!onGpu) rgb = applyLocalTone(rgb, w, h, localToneForSize(state.localTone, w, lensColumns()));
   // (retouching: the spots, before the rest; from the GPU path they are already in the picture)
-  if (!onGpu) rgb = applySpots(rgb, w, h, spotsFor(ctx));
+  if (!onGpu) rgb = applySpots(rgb, w, h, spotsFor(ctx, w, h));
   rgb = subtractVeil(rgb, w, h, cs.veil, cs.veilAmount);
   rgb = applyLens(rgb, w, h, distortionCorrected ? withoutDistortion(cs.lens) : cs.lens);
   const exposure = cs.baseExposure * Math.pow(2, cs.settings.ev);
@@ -1516,11 +1526,11 @@ async function l16Still({ id, job, scale = 1, u = 0, v = 0, alpha = 0, dof = 0, 
     depthLambda: top.depth,
     onProgress: progress,
     cancelled: () => state.jobs.superres !== job,
-    renderTile: ({ data, width, height, lambda }) => {
+    renderTile: ({ data, width, height, lambda, window }) => {
       const tile = new ProcessedPicture({ kind: 'single', source: 'l16', images: [{ width, height, data }], depth: { width, height, lambda }, pitchRatio: { x: 1, y: 1 } });
       tile.lambdaRange = top.lambdaRange.map((x) => x * sOut);
       const rgb = tile.render({ u, v, alpha, blur, bokeh: bokeh || {} });
-      return toPixels(rgb, width, height, undefined, colorState(color));
+      return toPixels(rgb, width, height, { focus: alpha, view: { u, v }, window }, colorState(color));
     },
   });
   if (!res) return { cancelled: true };
@@ -1575,7 +1585,7 @@ async function l16Holes({ id, job, u = 0, v = 0, alpha = 0, dof = 0, bokeh, colo
   const blur = processedBlur({ u: 0, v: 0, alpha, aperture: 0, dof, bokeh, color });
   const tile = new ProcessedPicture({ kind: 'single', source: 'l16', images: [{ width: w, height: h, data }], depth: { width: w, height: h, lambda }, pitchRatio: { x: 1, y: 1 } });
   tile.lambdaRange = top.lambdaRange;
-  const pixels = toPixels(tile.render({ u: 0, v: 0, alpha, blur, bokeh: bokeh || {} }), w, h, undefined, colorState(color));
+  const pixels = toPixels(tile.render({ u: 0, v: 0, alpha, blur, bokeh: bokeh || {} }), w, h, { focus: alpha, view: { u: 0, v: 0 } }, colorState(color));
   // opaque on the uncovered places (and a pixel round them)
   const near = new Uint8Array(w * h);
   for (let y = 0; y < h; y++) {
@@ -1621,11 +1631,11 @@ async function l16Detail({ id, job, gx0, gy0, gw, gh, zs, u = 0, v = 0, alpha = 
     tile: 512,
     onProgress: (stage, p) => post({ id, type: 'progress', stage, progress: p }),
     cancelled: () => state.jobs.detail !== job,
-    renderTile: ({ data, width, height, lambda }) => {
+    renderTile: ({ data, width, height, lambda, window }) => {
       const tile = new ProcessedPicture({ kind: 'single', source: 'l16', images: [{ width, height, data }], depth: { width, height, lambda }, pitchRatio: { x: 1, y: 1 } });
       tile.lambdaRange = top.lambdaRange.map((x) => x * zs);
       const rgb = tile.render({ u, v, alpha, blur, bokeh: bokeh || {} });
-      return toPixels(rgb, width, height, undefined, colorState(color));
+      return toPixels(rgb, width, height, { focus: alpha, view: { u, v }, window }, colorState(color));
     },
   });
   if (!res) return { cancelled: true };
@@ -3975,6 +3985,17 @@ function withAirlight(p, center) {
 
 // Processed images are already developed (sRGB): only the color sliders
 // apply, with white balance relative to how the picture was rendered.
+// Local adjustments (the masks that change something, or the one shown) and the retouching spots that are on (kept as the text too, for the cache keys): for every kind of
+// photo, raw or processed.
+function setLocalAndSpots(s) {
+  const masks = parseMasks(s.local && s.local.masks);
+  const show = s.local && s.local.show >= 0 && masks[s.local.show] ? s.local.show : -1;
+  state.masks = masks.filter((m, i) => i === show || activeMasks([m]).length);
+  state.maskShow = show >= 0 ? state.masks.indexOf(masks[show]) : -1;
+  state.spots = parseSpots(s.local && s.local.spots).filter((x) => x.on);
+  state.spotsKey = state.spots.length ? s.local.spots : null;
+}
+
 function updateProcessedColor() {
   const s = state.settings;
   const pp = state.pp;
@@ -3992,6 +4013,8 @@ function updateProcessedColor() {
   state.look = makeLook(s);
   state.detail = makeDetail({ ...s, engineSharpen: s.engineSharpen ?? !!(state.lf && state.lf.raw && !state.pp) });
   state.localTone = withAirlight(makeLocalTone(s), center);
+  // (retouching and local adjustments were left out for processed photos: Light L16 photos and finished .lfp pictures)
+  setLocalAndSpots(s);
   applyAutoDefringe(center, pp.width, pp.height);
 }
 
@@ -4037,7 +4060,7 @@ function processedPixels(params, { reuse = false } = {}) {
     rgb = pp.render({ ...params, blur: processedBlur(params) });
     processedBuilt = reuse ? { pp, key, rgb } : null;
   }
-  const pixels = toPixels(rgb, pp.width, pp.height, undefined, colorState(params.color));
+  const pixels = toPixels(rgb, pp.width, pp.height, { focus: params.alpha || 0, view: { u: params.u || 0, v: params.v || 0 } }, colorState(params.color));
   pixels.level = pp;
   return pixels;
 }
