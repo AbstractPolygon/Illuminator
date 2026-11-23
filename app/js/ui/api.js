@@ -159,7 +159,7 @@ export function initScriptingApi(host) {
     // Full sensor render (Render Settings > Full sensor): `scale` and `passes` as in the controls.
     async fullSensor({ scale, passes } = {}) {
       need();
-      if (!state.info.hasRaw) throw new Error('This file has no raw light field to render');
+      if (!state.info.hasRaw && !(state.info.processed && state.info.processed.hires)) throw new Error('This file has no raw light field to render');
       setFullResMode(true);
       const values = {};
       if (scale != null) values['still-scale'] = scale;

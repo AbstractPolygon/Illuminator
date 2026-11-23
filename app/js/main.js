@@ -2889,12 +2889,25 @@ async function renderStill() {
 // the picture returns to the live view until Render is pressed again.
 // Render works for any raw photo in the camera view: at the Photo Size with the chosen Upscaling (a downloaded model enlarges the picture here), or, with Full
 // sensor on, as the full sensor still.
+// Full resolution: raw photos (the full sensor render) and Light L16 photos (the final render with the telephoto cameras' detail).
+const fullResCapable = () => !!(state.info && (state.info.hasRaw || (state.info.processed && state.info.processed.hires)));
+// A Light L16 photo's Render scale is in multiples of the camera's size (the quick views are half that); a raw photo's is in multiples of its lens grid.
+function showStillScales() {
+  const sel = $('still-scale');
+  const l16 = !!(state.info && state.info.processed && state.info.processed.hires);
+  if (sel.dataset.kind === (l16 ? 'l16' : 'raw')) return;
+  sel.dataset.kind = l16 ? 'l16' : 'raw';
+  sel.innerHTML = l16
+    ? '<option value="1">1× camera size</option><option value="1.5">1.5×</option><option value="2" selected>2×</option><option value="2.5">2.5× (telephoto detail)</option>'
+    : '<option value="2">2× lens grid</option><option value="3" selected>3× lens grid</option><option value="4">4× lens grid</option>';
+}
 function updateRenderButton() {
-  $('render-btn').disabled = !(state.info && state.info.hasRaw && state.mode === 'camera');
+  showStillScales();
+  $('render-btn').disabled = !(fullResCapable() && state.mode === 'camera');
 }
 
 function setFullResMode(on) {
-  if (on && !(state.info && state.info.hasRaw && state.mode === 'camera')) on = false;
+  if (on && !(fullResCapable() && state.mode === 'camera')) on = false;
   state.fullResMode = on;
   $('fullres-on').checked = on;
   $('fullres-panel').hidden = !on;
@@ -3046,7 +3059,7 @@ function blendWithPlain(big, rgb, w, h, strength) {
 }
 
 function setFullRes(on, { restore = true } = {}) {
-  if (on && !(state.fullResMode && state.info && state.info.hasRaw && state.mode === 'camera')) return;
+  if (on && !(state.fullResMode && fullResCapable() && state.mode === 'camera')) return;
   if (on === state.fullRes) return;
   state.fullRes = on;
   showPhotoSizes();

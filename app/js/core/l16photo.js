@@ -1,7 +1,7 @@
 // A Light L16 photo as a picture with a depth map, the form the app's "processed photo" path works with (core/processed.js): a developed picture, and depth in the unit that
 // path turns into viewpoint shifts and blur (lambda: how far a pixel moves when the viewpoint moves by one unit, in pixels).
 //
-// The picture is the cameras of the reference's group merged on the reference's grid (core/l16fusion.js: full size, 4160 x 3120 on the L16, lens distortion corrected, noise
+// The picture is the cameras of the reference's group merged on the reference's grid (core/l16fusion.js: at half size, 2080 x 1560 on the L16, for the quick views; the final render makes the full size picture and adds the telephoto cameras' detail; lens distortion corrected, noise
 // lowered), white balanced and brought to a good exposure. The depth is measured between the modules of the group (core/l16depth.js).
 //
 // The viewpoint coordinates of the app run over -0.5 to 0.5 across the "aperture" (processed.js APERTURE_RADIUS). Here that range is the rig: a camera moved
@@ -33,7 +33,7 @@ export function decodeL16(bytes, onProgress = () => {}) {
   const black = sd && sd.black_level !== undefined ? sd.black_level : 42;
   const white = sd && sd.white_level !== undefined ? sd.white_level : 1023;
   const depth = measureDepth(bytes, parsed, { ref }, (stage, p) => onProgress(stage, 0.05 + 0.8 * p));
-  const color = fuse(bytes, parsed, depth, { black, white, gains: [awb.r || 1, awb.gr || 1, awb.b || 1] }, (stage, p) => onProgress(stage, 0.85 + 0.12 * p));
+  const color = fuse(bytes, parsed, depth, { black, white, gains: [awb.r || 1, awb.gr || 1, awb.b || 1] }, (stage, p) => onProgress(stage, 0.85 + 0.12 * p), { grid: 2 });
   onProgress('Developing the picture', 0.97);
   const { width: w, height: h, rgb } = color;
   // exposure: the 99th percentile of green goes to 0.9, then the sRGB curve
@@ -51,7 +51,7 @@ export function decodeL16(bytes, onProgress = () => {}) {
   const dh = depth.height;
   const sorted = Float32Array.from(depth.invZ).sort();
   const inv0 = sorted[sorted.length >> 1];
-  const f = depth.K[0]; // the picture is the sensor's size
+  const f = depth.K[0] / 2; // the picture is half the sensor's size
   const k = 2 * RIG_RADIUS_MM * f;
   const lambda = new Float32Array(dw * dh);
   for (let i = 0; i < lambda.length; i++) lambda[i] = k * (depth.invZ[i] - inv0);
@@ -68,5 +68,13 @@ export function decodeL16(bytes, onProgress = () => {}) {
     focalPx: f,
     stackFrames: parsed.stackFrames,
     cameras: color.used,
+    // what the final render (core/l16render.js) works from
+    bytes,
+    parsed,
+    measured: depth,
+    colorOptions: { black, white, gains: [awb.r || 1, awb.gr || 1, awb.b || 1] },
+    gain,
+    k,
+    inv0,
   };
 }

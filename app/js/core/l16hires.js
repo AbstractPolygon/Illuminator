@@ -74,7 +74,7 @@ export function telephotoModules(parsed, refId, [lo, hi]) {
 
 // Renders the region { x0, y0, w, h } (pixels of the wide reference's grid) at `scale` (output pixels per wide pixel). `wide` is the merged wide picture, `depth` the measured depth
 // (core/l16depth.js), `modules` the telephoto cameras to use. Returns { width, height, rgb, covered: the share of output pixels that a telephoto camera supplied }.
-export function renderRegion(bytes, parsed, depth, wide, { x0, y0, w, h, scale }, modules, opts, onProgress = () => {}) {
+export function renderRegion(bytes, parsed, depth, wide, { x0, y0, w, h, scale }, modules, opts, onProgress = () => {}, rawCache = null) {
   const W = Math.round(w * scale);
   const H = Math.round(h * scale);
   const refCam = cameraModel(parsed.header, parsed.modules[depth.ref][0]);
@@ -123,10 +123,13 @@ export function renderRegion(bytes, parsed, depth, wide, { x0, y0, w, h, scale }
     const rel = relativePose(refCam, cam);
     const R = rel.R;
     const T = rel.T;
-    const img = demosaic(bytes, parsed.modules[id][0], opts);
-    const samp = new Float32Array(3 * W * H);
-    const have = new Uint8Array(W * H);
-    const s3 = [0, 0, 0];
+    // where each output pixel lands on this camera's sensor, and the window of the sensor that covers them
+    const sxs = new Float32Array(W * H).fill(NaN);
+    const sys = new Float32Array(W * H);
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
     for (let Y = 0; Y < H; Y++) {
       const py = y0 + (Y + 0.5) / scale;
       for (let X = 0; X < W; X++) {
@@ -140,12 +143,26 @@ export function renderRegion(bytes, parsed, depth, wide, { x0, y0, w, h, scale }
         const ix = (cam.K[0] * (R[0] * Xr + R[1] * Yr + R[2] * Z + T[0])) / Pz + cam.K[2];
         const iy = (cam.K[4] * (R[3] * Xr + R[4] * Yr + R[5] * Z + T[1])) / Pz + cam.K[5];
         const [sx, sy] = cam.distort(ix, iy);
-        if (bilinear(img.rgb, img.width, img.height, sx, sy, s3)) {
-          have[i] = 1;
-          samp[3 * i] = s3[0];
-          samp[3 * i + 1] = s3[1];
-          samp[3 * i + 2] = s3[2];
-        }
+        sxs[i] = sx;
+        sys[i] = sy;
+        if (sx < minX) minX = sx;
+        if (sx > maxX) maxX = sx;
+        if (sy < minY) minY = sy;
+        if (sy > maxY) maxY = sy;
+      }
+    }
+    if (!(maxX >= minX)) continue;
+    const img = demosaic(bytes, parsed.modules[id][0], opts, { x0: minX - 3, y0: minY - 3, w: maxX - minX + 7, h: maxY - minY + 7 }, rawCache || new Map());
+    const samp = new Float32Array(3 * W * H);
+    const have = new Uint8Array(W * H);
+    const s3 = [0, 0, 0];
+    for (let i = 0; i < W * H; i++) {
+      if (sxs[i] !== sxs[i]) continue;
+      if (bilinear(img.rgb, img.width, img.height, sxs[i] - img.x0, sys[i] - img.y0, s3)) {
+        have[i] = 1;
+        samp[3 * i] = s3[0];
+        samp[3 * i + 1] = s3[1];
+        samp[3 * i + 2] = s3[2];
       }
     }
     // gains that bring the camera's colors to the wide picture's (over where it has pixels)

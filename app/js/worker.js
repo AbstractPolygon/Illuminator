@@ -57,6 +57,7 @@ import { lensParams, applyLens, withoutDistortion, fitDistortion, lensWarp } fro
 import { parseMasks, activeMasks, packMasks, resolveMasks, hasSpatial, applySpatial } from './core/local.js';
 import { parseSpots, resolveSpots, packSpots, applySpots } from './core/retouch.js';
 import { GpuRenderer } from './gpu/renderer.js';
+import { renderL16Final } from './core/l16render.js';
 import { lytroSplatGpu } from './gpu/lytroengine.js';
 import { debugFlags, hook, setHook } from './core/debugflags.js';
 import { withExtension, depthRange, searchSteps, reachProfile, reachToward, uncoveredMask } from './core/viewextend.js';
@@ -857,7 +858,7 @@ function summary() {
     return {
       ...base,
       cam,
-      processed: { kind: pp.kind, source: pp.source, count: pp.images.length, hasDepth: pp.hasDepth, canDrag: pp.canDrag, ...(pp.levels ? { levelWidths: pp.levels.map((l) => l.width) } : {}) },
+      processed: { kind: pp.kind, source: pp.source, count: pp.images.length, hasDepth: pp.hasDepth, canDrag: pp.canDrag, ...(pp.source === 'l16' ? { hires: true } : {}), ...(pp.levels ? { levelWidths: pp.levels.map((l) => l.width) } : {}) },
       width: pp.width,
       height: pp.height,
       sizes: { 1: [pp.width, pp.height], 1.5: [pp.width, pp.height], 2: [pp.width, pp.height] },
@@ -1399,6 +1400,7 @@ function engineBase(aperture, dof, u, v) {
 }
 
 async function superResPreview({ id, job, alpha = 0, u = 0, v = 0, aperture = 0, dof = 0, bokeh, color = null, masks = null, scale, passes = 0 }) {
+  if (state.pp) return { none: true };
   // (a full sensor render keeps to the views the sensor recorded: a viewpoint past the lens edge is taken at the edge)
   const split = splitView(u, v);
   if (split) ({ u, v } = split);
@@ -1457,7 +1459,41 @@ function checkRenderMemoryNow(sampler, scale, cpu) {
 // (what the progress says when the picture comes from one kept before, not from the sensor)
 const KEPT_LABEL = 'Applying change';
 
+// The final render of a Light L16 photo (core/l16render.js): the picture at `scale` times the camera's size (1 is 4160 x 3120), with the viewpoint, blur and color of the camera view.
+async function l16Still({ id, job, scale = 1, u = 0, v = 0, alpha = 0, dof = 0, bokeh, color = null }) {
+  state.jobs.superres = job;
+  const l16 = state.lf.l16;
+  const top = state.pp;
+  const params = { u, v, alpha, aperture: 0, dof, bokeh, color };
+  const blur = processedBlur(params);
+  const sOut = 2 * scale;
+  // what the viewpoint's shift and the blur reach, in output pixels
+  const span = Math.max(Math.abs(top.lambdaRange[0]), Math.abs(top.lambdaRange[1])) * sOut;
+  const fullSpan = (top.lambdaRange[1] - top.lambdaRange[0]) * sOut;
+  const margin = Math.min(480, Math.ceil(span * Math.max(Math.abs(u), Math.abs(v)) + (blur > 0 ? blur * (bokeh && bokeh.size != null ? bokeh.size : 1) * 0.5 * fullSpan : 0) + 8));
+  const progress = (stage, p) => post({ id, type: 'progress', stage, progress: p });
+  const res = await renderL16Final(l16, {
+    scale,
+    margin,
+    depthLambda: top.depth,
+    onProgress: progress,
+    cancelled: () => state.jobs.superres !== job,
+    renderTile: ({ data, width, height, lambda }) => {
+      const tile = new ProcessedPicture({ kind: 'single', source: 'l16', images: [{ width, height, data }], depth: { width, height, lambda }, pitchRatio: { x: 1, y: 1 } });
+      tile.lambdaRange = top.lambdaRange.map((x) => x * sOut);
+      const rgb = tile.render({ u, v, alpha, blur, bokeh: bokeh || {} });
+      return toPixels(rgb, width, height, undefined, colorState(color));
+    },
+  });
+  if (!res) return { cancelled: true };
+  post({ id, type: 'result', width: res.width, height: res.height, pixels: res.pixels.buffer }, [res.pixels.buffer]);
+  return undefined;
+}
+
+
 async function superRes({ id, job, alpha = 0, scale, u = 0, v = 0, aperture = 0, dof = 0, bokeh, passes = 0, masks = null, color = null, quiet = false, label = 'Rendering from the full sensor' }) {
+  // a Light L16 photo: the final render, in tiles, with the telephoto cameras' detail
+  if (state.lf && state.lf.l16) return l16Still({ id, job, scale, u, v, alpha, dof, bokeh, color });
   // (a full sensor render keeps to the views the sensor recorded: a viewpoint past the lens edge is taken at the edge)
   const split = splitView(u, v);
   if (split) ({ u, v } = split);

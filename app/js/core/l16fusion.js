@@ -11,8 +11,22 @@ import { cameraModel } from './l16geometry.js';
 import { relativePose } from './l16depth.js';
 
 // Linear 0..1 full size RGB of a module's frame: black level removed, demosaiced, white balance gains applied. Float32Array(3 * w * h).
-export function demosaic(bytes, frame, { black = 42, white = 1023, gains = [1, 1, 1] } = {}) {
-  const { width: W, height: H, data } = decodeFrame(bytes, frame);
+// `win` ({ x0, y0, w, h }) limits the work to a window of the frame (returned at that size, from the sensor's pixels around it); `rawCache` (a Map kept by the caller) keeps
+// each module's unpacked frame between calls.
+export function demosaic(bytes, frame, { black = 42, white = 1023, gains = [1, 1, 1] } = {}, win = null, rawCache = null) {
+  const key = frame.module.id;
+  let decoded = rawCache && rawCache.get(key);
+  if (!decoded) {
+    decoded = decodeFrame(bytes, frame);
+    if (rawCache) rawCache.set(key, decoded);
+  }
+  if (win) return demosaicWindow(decoded, frame, { black, white, gains }, win);
+  return demosaicRaw(decoded, frame, { black, white, gains });
+}
+
+// The demosaic of an unpacked frame (the whole frame, or a window of it cut out with the pattern's phase kept).
+function demosaicRaw(decoded, frame, { black, white, gains }) {
+  const { width: W, height: H, data } = decoded;
   const o = frame.module.sensor_bayer_red_override || { x: 0, y: 0 };
   const rgb = new Float32Array(3 * W * H);
   const scale = 1 / (white - black);
@@ -72,6 +86,63 @@ export function demosaic(bytes, frame, { black = 42, white = 1023, gains = [1, 1
   return { width: W, height: H, rgb };
 }
 
+
+// The same demosaic over a window: the raw window is cut out with 2 pixels around it (edges clamped), the filter run on it, and the margin dropped.
+function demosaicWindow(decoded, frame, opts, win) {
+  const { width: W, height: H, data } = decoded;
+  const pad = 2;
+  const x0 = Math.max(0, Math.min(W - 1, Math.floor(win.x0)));
+  const y0 = Math.max(0, Math.min(H - 1, Math.floor(win.y0)));
+  const x1 = Math.min(W, Math.max(x0 + 1, Math.ceil(win.x0 + win.w)));
+  const y1 = Math.min(H, Math.max(y0 + 1, Math.ceil(win.y0 + win.h)));
+  // even origin keeps the pattern's phase
+  const ex0 = Math.max(0, x0 - pad - ((x0 - pad) & 1));
+  const ey0 = Math.max(0, y0 - pad - ((y0 - pad) & 1));
+  const ex1 = Math.min(W, x1 + pad);
+  const ey1 = Math.min(H, y1 + pad);
+  const w = ex1 - ex0;
+  const h = ey1 - ey0;
+  const sub = new Uint16Array(w * h);
+  for (let y = 0; y < h; y++) sub.set(data.subarray((ey0 + y) * W + ex0, (ey0 + y) * W + ex0 + w), y * w);
+  const part = demosaicRaw({ width: w, height: h, data: sub }, frame, opts);
+  const ow = x1 - x0;
+  const oh = y1 - y0;
+  const rgb = new Float32Array(3 * ow * oh);
+  for (let y = 0; y < oh; y++) rgb.set(part.rgb.subarray(3 * ((y0 - ey0 + y) * w + (x0 - ex0)), 3 * ((y0 - ey0 + y) * w + (x0 - ex0) + ow)), 3 * y * ow);
+  return { width: ow, height: oh, rgb, x0, y0 };
+}
+
+// Each 2 x 2 sensor cell as one pixel (red, the mean of the greens, blue; the monochrome module's mean for all three): a quarter-size picture, quick to make.
+export function halfSize(bytes, frame, { black = 42, white = 1023, gains = [1, 1, 1] } = {}, rawCache = null) {
+  const key = frame.module.id;
+  let decoded = rawCache && rawCache.get(key);
+  if (!decoded) {
+    decoded = decodeFrame(bytes, frame);
+    if (rawCache) rawCache.set(key, decoded);
+  }
+  const { width: W, height: H, data } = decoded;
+  const o = frame.module.sensor_bayer_red_override || { x: 0, y: 0 };
+  const mono = o.x < 0;
+  const w = W >> 1;
+  const h = H >> 1;
+  const rgb = new Float32Array(3 * w * h);
+  const scale = 1 / (white - black);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const at = (dx, dy) => Math.max(0, (data[(2 * y + dy) * W + 2 * x + dx] - black) * scale);
+      const i = 3 * (y * w + x);
+      if (mono) {
+        rgb[i] = rgb[i + 1] = rgb[i + 2] = ((at(0, 0) + at(1, 0) + at(0, 1) + at(1, 1)) / 4);
+      } else {
+        rgb[i] = at(o.x, o.y) * gains[0];
+        rgb[i + 1] = ((at(1 - o.x, o.y) + at(o.x, 1 - o.y)) / 2) * gains[1];
+        rgb[i + 2] = at(1 - o.x, 1 - o.y) * gains[2];
+      }
+    }
+  }
+  return { width: w, height: h, rgb };
+}
+
 // The depth in mm at every pixel of a w x h grid, from the depth map (1 / mm, dw x dh): bilinear in inverse depth.
 function depthGrid(invZ, dw, dh, w, h) {
   const out = new Float32Array(w * h);
@@ -95,13 +166,16 @@ const luma = (r, g, b) => 0.3 * r + 0.55 * g + 0.15 * b;
 
 // Merges the cameras. `depth` is core/l16depth.js measureDepth's result for the reference; the cameras merged are the reference and depth.modules (the monochrome one left out:
 // its picture has no color to share). Returns { width, height, rgb (linear, white balanced), used: how many cameras, merged: per camera id the share of pixels that agreed }.
-export function fuse(bytes, parsed, depth, { black = 42, white = 1023, gains = [1, 1, 1] } = {}, onProgress = () => {}) {
+// `grid` 1 merges at full size (every sensor pixel demosaiced); 2 at half size (each 2 x 2 sensor cell is one pixel: a quarter of the work and memory, for the quick views).
+export function fuse(bytes, parsed, depth, { black = 42, white = 1023, gains = [1, 1, 1] } = {}, onProgress = () => {}, { grid = 1 } = {}) {
   const refId = depth.ref;
   const refFrame = parsed.modules[refId][0];
   const refCam = cameraModel(parsed.header, refFrame);
   const opts = { black, white, gains };
   onProgress('Developing the pictures', 0.02);
-  const ref = demosaic(bytes, refFrame, opts);
+  const S = grid;
+  const load = (frame) => (S === 1 ? demosaic(bytes, frame, opts) : halfSize(bytes, frame, opts));
+  const ref = load(refFrame);
   const { width: W, height: H } = ref;
   // the output grid is the reference's undistorted picture: the value at ideal pixel (x, y) is the sensor picture at distort(x, y)
   const out = new Float32Array(3 * W * H);
@@ -126,8 +200,8 @@ export function fuse(bytes, parsed, depth, { black = 42, white = 1023, gains = [
   const valid = new Uint8Array(W * H);
   for (let y = 0; y < H; y++) {
     for (let x = 0; x < W; x++) {
-      const [sx, sy] = refCam.distort(x + 0.5, y + 0.5);
-      if (bilinear(ref.rgb, W, H, sx, sy, tmp)) {
+      const [sx, sy] = refCam.distort((x + 0.5) * S, (y + 0.5) * S);
+      if (bilinear(ref.rgb, W, H, sx / S, sy / S, tmp)) {
         const i = y * W + x;
         refUnd[3 * i] = tmp[0];
         refUnd[3 * i + 1] = tmp[1];
@@ -152,21 +226,21 @@ export function fuse(bytes, parsed, depth, { black = 42, white = 1023, gains = [
     const rel = relativePose(refCam, cam);
     const R = rel.R;
     const T = rel.T;
-    const img = demosaic(bytes, parsed.modules[id][0], opts);
+    const img = load(parsed.modules[id][0]);
     // gains that match this camera's colors to the reference's, from the pixels both see (sampled)
     const sumR = [0, 0, 0];
     const sumD = [0, 0, 0];
     const sample = [0, 0, 0];
     const at = (x, y) => {
       const Z = z[y * W + x];
-      const X = ((x + 0.5 - K[2]) / K[0]) * Z;
-      const Y = ((y + 0.5 - K[5]) / K[4]) * Z;
+      const X = (((x + 0.5) * S - K[2]) / K[0]) * Z;
+      const Y = (((y + 0.5) * S - K[5]) / K[4]) * Z;
       const Pz = R[6] * X + R[7] * Y + R[8] * Z + T[2];
       if (Pz <= 1) return false;
       const ix = (cam.K[0] * (R[0] * X + R[1] * Y + R[2] * Z + T[0])) / Pz + cam.K[2];
       const iy = (cam.K[4] * (R[3] * X + R[4] * Y + R[5] * Z + T[1])) / Pz + cam.K[5];
       const [sx, sy] = cam.distort(ix, iy);
-      return bilinear(img.rgb, img.width, img.height, sx, sy, sample);
+      return bilinear(img.rgb, img.width, img.height, sx / S, sy / S, sample);
     };
     for (let y = 8; y < H; y += 23) {
       for (let x = 8; x < W; x += 23) {
