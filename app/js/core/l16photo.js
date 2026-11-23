@@ -91,9 +91,25 @@ export function applyColorMatrix(rgb, m) {
     const t = Math.min(1, Math.max(0, (top - 0.5) / 0.4));
     const k = t * t * (3 - 2 * t);
     const Y = 0.2126 * R + 0.7152 * G + 0.0722 * B;
-    rgb[i] = Math.max(0, R + (Y - R) * k);
-    rgb[i + 1] = Math.max(0, G + (Y - G) * k);
-    rgb[i + 2] = Math.max(0, B + (Y - B) * k);
+    let r2 = R + (Y - R) * k;
+    let g2 = G + (Y - G) * k;
+    let b2 = B + (Y - B) * k;
+    // A color the matrix puts below zero (an edge's color fringe, which it strengthens) is moved toward gray until it is not, instead of cutting the channel (which leaves dark lines).
+    const low = Math.min(r2, g2, b2);
+    if (low < 0) {
+      const y2 = 0.2126 * r2 + 0.7152 * g2 + 0.0722 * b2;
+      if (y2 > 0) {
+        const t = y2 / (y2 - low);
+        r2 = y2 + (r2 - y2) * t;
+        g2 = y2 + (g2 - y2) * t;
+        b2 = y2 + (b2 - y2) * t;
+      } else {
+        r2 = g2 = b2 = 0;
+      }
+    }
+    rgb[i] = Math.max(0, r2);
+    rgb[i + 1] = Math.max(0, g2);
+    rgb[i + 2] = Math.max(0, b2);
   }
   return rgb;
 }

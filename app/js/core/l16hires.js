@@ -158,6 +158,29 @@ function bilinear(img, w, h, sx, sy, o) {
   return true;
 }
 
+// Per channel minimum and maximum of a picture (3 per pixel) within `r` pixels (a square window), as two pictures.
+function localBounds(a, W, H, r) {
+  const pass = (src, w, h, horizontal, isMin) => {
+    const out = new Float32Array(src.length);
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        for (let c = 0; c < 3; c++) {
+          let best = isMin ? Infinity : -Infinity;
+          for (let d = -r; d <= r; d++) {
+            const xx = horizontal ? Math.min(w - 1, Math.max(0, x + d)) : x;
+            const yy = horizontal ? y : Math.min(h - 1, Math.max(0, y + d));
+            const v = src[3 * (yy * w + xx) + c];
+            if (isMin ? v < best : v > best) best = v;
+          }
+          out[3 * (y * w + x) + c] = best;
+        }
+      }
+    }
+    return out;
+  };
+  return { min: pass(pass(a, W, H, true, true), W, H, false, true), max: pass(pass(a, W, H, true, false), W, H, false, false) };
+}
+
 // The cameras that add resolution: those whose focal length is `ratio` (range [lo, hi]) times the reference's.
 export function telephotoModules(parsed, refId, [lo, hi]) {
   const f0 = cameraModel(parsed.header, parsed.modules[refId][0]).K[0];
@@ -220,6 +243,8 @@ export function renderRegion(bytes, parsed, depth, wide, { x0, y0, w, h, scale, 
   const weight = new Float32Array(W * H).fill(0.04); // the wide picture's share where no telephoto camera helps
   const details = []; // each camera's high frequency detail (3 per pixel, NaN where it has none or disagrees)
   const wsum = new Float32Array(W * H);
+  const nhave = new Float32Array(W * H); // how many cameras cover the pixel
+  const wall = new Float32Array(W * H); // their agreement, all of them
   let used = 0;
   for (const id of modules) {
     onProgress('Adding telephoto detail', used / Math.max(1, modules.length));
@@ -334,6 +359,8 @@ export function renderRegion(bytes, parsed, depth, wide, { x0, y0, w, h, scale, 
       const sig = 0.015 + 0.08 * Math.sqrt(Math.max(lu, 0)) * 0.35;
       const d = (ll - lu) / sig;
       const wgt = Math.exp(-0.5 * d * d);
+      nhave[i] += 1;
+      wall[i] += wgt;
       if (wgt < 0.05) continue;
       for (let c = 0; c < 3; c++) det[3 * i + c] = samp[3 * i + c] - low[3 * i + c];
       wsum[i] += wgt;
@@ -341,6 +368,10 @@ export function renderRegion(bytes, parsed, depth, wide, { x0, y0, w, h, scale, 
     details.push(det);
     used++;
   }
+  // What the wide picture itself holds round each pixel (its smallest and largest value within about 1.5 of its pixels): detail that takes a pixel far outside that is a camera that sees an
+  // edge a little off (parallax, a misregistration), and it would draw a dark or bright outline, so it is held to a little beyond it.
+  const rr = Math.max(2, Math.round(scale * 1.5));
+  const bounds = localBounds(up, W, H, rr);
   // The detail at each pixel: the median over the cameras that agree there (a camera that is a little out of register, or sees an edge another does not, is outvoted; with two, the
   // mean), and the weak part of it, which is mostly noise, taken down.
   let covered = 0;
@@ -360,7 +391,14 @@ export function renderRegion(bytes, parsed, depth, wide, { x0, y0, w, h, scale, 
       let m = vals.length % 2 ? vals[vals.length >> 1] : (vals[vals.length / 2 - 1] + vals[vals.length / 2]) / 2;
       const a = Math.abs(m);
       m = a <= noise ? m * (a / noise) : Math.sign(m) * (a - noise * 0.5);
-      out[3 * i + c] = Math.max(0, up[3 * i + c] + m);
+      // Where the cameras' low frequencies fit the wide picture only roughly (an edge a little off in one of them), the detail is a ringing, not detail: it counts as much as they agree.
+      const agree = wall[i] / Math.max(1, nhave[i]);
+      const t = Math.min(1, Math.max(0, (agree - 0.2) / 0.6));
+      m *= t * t * (3 - 2 * t);
+      const lo = bounds.min[3 * i + c];
+      const hi = bounds.max[3 * i + c];
+      // (held to a little beyond the wide picture's own range there, in proportion: a dark pixel stays dark, not black)
+      out[3 * i + c] = Math.max(0, Math.min(hi * 1.2 + 0.004, Math.max(lo * 0.75, up[3 * i + c] + m)));
     }
     covered++;
   }
