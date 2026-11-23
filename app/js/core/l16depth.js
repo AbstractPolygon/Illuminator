@@ -267,6 +267,28 @@ export function measureDepth(bytes, parsed, options = {}, onProgress = () => {})
     invZ[i] = invMin + ((invMax - invMin) * pos) / (NZ - 1);
     confidence[i] = second > 0 ? Math.max(0, Math.min(1, 1 - bc / second)) : 0;
   }
+  // The border band is not measured well (the other cameras see less of it there): it takes the depth of the pixel BORDER inside; then a 3 x 3 median removes single bad steps.
+  const BORDER = Math.max(4, Math.round(48 / S));
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      if (x >= BORDER && x < w - BORDER && y >= BORDER && y < h - BORDER) continue;
+      const ix = Math.min(w - 1 - BORDER, Math.max(BORDER, x));
+      const iy = Math.min(h - 1 - BORDER, Math.max(BORDER, y));
+      invZ[y * w + x] = invZ[iy * w + ix];
+      confidence[y * w + x] = 0;
+    }
+  }
+  const median = new Float32Array(w * h);
+  const win = new Float32Array(9);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      let n = 0;
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) win[n++] = invZ[Math.min(h - 1, Math.max(0, y + dy)) * w + Math.min(w - 1, Math.max(0, x + dx))];
+      win.sort();
+      median[y * w + x] = win[4];
+    }
+  }
+  invZ.set(median);
   onProgress('Depth measured', 1);
   return { width: w, height: h, scale: S, ref: refId, modules: group, focalPx: K[0], K, invZ, confidence, steps: NZ, near, far };
 }
