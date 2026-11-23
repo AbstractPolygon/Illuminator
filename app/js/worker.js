@@ -1619,6 +1619,7 @@ async function l16Detail({ id, job, gx0, gy0, gw, gh, zs, u = 0, v = 0, alpha = 
     grid: 2,
     window: { x: Math.round(gx0 * zs), y: Math.round(gy0 * zs), w: Math.max(1, Math.round(gw * zs)), h: Math.max(1, Math.round(gh * zs)) },
     tile: 512,
+    onProgress: (stage, p) => post({ id, type: 'progress', stage, progress: p }),
     cancelled: () => state.jobs.detail !== job,
     renderTile: ({ data, width, height, lambda }) => {
       const tile = new ProcessedPicture({ kind: 'single', source: 'l16', images: [{ width, height, data }], depth: { width, height, lambda }, pitchRatio: { x: 1, y: 1 } });

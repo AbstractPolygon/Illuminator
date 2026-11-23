@@ -3807,7 +3807,12 @@ async function runDetail() {
   const token = ++detailToken;
   detailRunning = true;
   try {
-    const { promise } = engine.job('l16Detail', 'detail', { ...cameraParams({ live: true }), gx0: x0 * k, gy0: y0 * k, gw, gh, zs });
+    // (the frame label says what is being made: the first time it includes lining the cameras up)
+    const { promise } = engine.job('l16Detail', 'detail', { ...cameraParams({ live: true }), gx0: x0 * k, gy0: y0 * k, gw, gh, zs }, {
+      onProgress: (stage, p) => {
+        if (token === detailToken) $('frame-label').textContent = `${stage === 'Rendering' ? 'Adding detail' : stage} ${Math.round((p ?? 0) * 100)}%`;
+      },
+    });
     const msg = await promise;
     if (token !== detailToken || !msg || !(msg.pixels || msg.bitmap)) return;
     const img = toImageData(msg);
@@ -3822,7 +3827,10 @@ async function runDetail() {
   } catch (err) {
     console.warn('Zoomed-in detail failed', err);
   } finally {
-    if (token === detailToken) detailRunning = false;
+    if (token === detailToken) {
+      detailRunning = false;
+      if (/%$/.test($('frame-label').textContent)) $('frame-label').textContent = `${canvas.width}×${canvas.height}`;
+    }
   }
 }
 
