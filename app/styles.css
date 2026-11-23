@@ -992,5 +992,10 @@ label.lut-amount { margin-top: 14px; }
 .bokeh-image-row { margin: 4px 0 6px; }
 /* Camera > Bokeh > Bokeh character: a group of its own. */
 .bokeh-group { margin: 6px 0; }
-.bokeh-group > summary { cursor: pointer; font-size: 12px; letter-spacing: .04em; color: var(--muted); padding: 2px 0; }
+/* The same chevron as the subsections': right when closed, down when open (the browser's own triangle is off). */
+.bokeh-group > summary { list-style: none; display: flex; align-items: center; gap: 8px; cursor: pointer; user-select: none; font-size: 12px; letter-spacing: .04em; color: var(--muted); padding: 2px 0; }
+.bokeh-group > summary::-webkit-details-marker { display: none; }
+.bokeh-group > summary::before { content: ''; flex: none; width: 5px; height: 5px; margin: 0 2.5px 0 1.5px; border-right: 1.5px solid var(--muted); border-bottom: 1.5px solid var(--muted); transform: translateY(-2px) rotate(45deg); transition: transform 0.12s; }
+.bokeh-group:not([open]) > summary::before { transform: rotate(-45deg); }
+.bokeh-group > summary:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
 .bokeh-group[open] > summary { margin-bottom: 4px; }
