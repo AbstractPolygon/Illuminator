@@ -9,7 +9,7 @@
 
 import { parsePoints } from './core/curve.js';
 
-export const TONES = ['contrast', 'highlights', 'shadows', 'whites', 'blacks'];
+export const TONES = ['contrast', 'highlights', 'shadows', 'whites', 'blacks', 'recovery'];
 // Texture, Clarity and Dehaze (core/localtone.js): in the Tone section too, applied after the Details pass.
 export const LOCAL_TONES = ['texture', 'clarity', 'dehaze'];
 export const HUE_SLIDERS = ['red', 'yellow', 'green', 'cyan', 'blue', 'magenta'];

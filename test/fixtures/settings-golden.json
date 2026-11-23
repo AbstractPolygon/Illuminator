@@ -136,7 +136,8 @@
     "highlights": 0,
     "shadows": 0,
     "texture": 0,
-    "whites": 0
+    "whites": 0,
+    "recovery": 0
    },
    "useCcm": true,
    "wb": {
@@ -351,7 +352,8 @@
    "view-fill": false,
    "view-reach": "100",
    "wb-temperature": "5500",
-   "wb-tint": "0"
+   "wb-tint": "0",
+   "tone-recovery": "0"
   }
  },
  {
@@ -499,7 +501,8 @@
     "highlights": 0.47,
     "shadows": 0.55,
     "texture": -0.75,
-    "whites": -0.93
+    "whites": -0.93,
+    "recovery": 0
    },
    "useCcm": false,
    "wb": {
@@ -714,7 +717,8 @@
    "view-fill": true,
    "view-reach": "130",
    "wb-temperature": "5150",
-   "wb-tint": "-6"
+   "wb-tint": "-6",
+   "tone-recovery": "0"
   }
  },
  {
@@ -862,7 +866,8 @@
     "highlights": 0.73,
     "shadows": 0.67,
     "texture": -0.84,
-    "whites": -0.35
+    "whites": -0.35,
+    "recovery": 0
    },
    "useCcm": true,
    "wb": {
@@ -1077,7 +1082,8 @@
    "view-fill": false,
    "view-reach": "200",
    "wb-temperature": "3200",
-   "wb-tint": "76"
+   "wb-tint": "76",
+   "tone-recovery": "0"
   }
  },
  {
@@ -1225,7 +1231,8 @@
     "highlights": 0.99,
     "shadows": 0.8,
     "texture": -0.94,
-    "whites": 0.24
+    "whites": 0.24,
+    "recovery": 0
    },
    "useCcm": false,
    "wb": {
@@ -1440,7 +1447,8 @@
    "view-fill": true,
    "view-reach": "260",
    "wb-temperature": "9250",
-   "wb-tint": "-142"
+   "wb-tint": "-142",
+   "tone-recovery": "0"
   }
  },
  {
@@ -1598,7 +1606,8 @@
     "highlights": -0.04,
     "shadows": -0.82,
     "texture": -0.28,
-    "whites": 0.5
+    "whites": 0.5,
+    "recovery": 0
    },
    "useCcm": true,
    "wb": {
@@ -1813,7 +1822,8 @@
    "view-fill": true,
    "view-reach": "270",
    "wb-temperature": "8250",
-   "wb-tint": "-25"
+   "wb-tint": "-25",
+   "tone-recovery": "0"
   }
  }
 ]

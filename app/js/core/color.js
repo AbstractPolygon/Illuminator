@@ -85,6 +85,7 @@ export function makeLook(settings = {}) {
     shadows: tone.shadows || 0,
     whites: tone.whites || 0,
     blacks: tone.blacks || 0,
+    recovery: tone.recovery || 0,
     vibrance: sat.vibrance || 0,
     hues: HUES.map((h) => sat[h] || 0),
     // Tone curve table (core/curve.js), or null.
@@ -92,7 +93,7 @@ export function makeLook(settings = {}) {
     // Color grading with the three tone wheels (core/grade.js), or null.
     grade: gradeParams(settings.grade),
   };
-  const active = look.contrast || look.highlights || look.shadows || look.whites || look.blacks
+  const active = look.contrast || look.highlights || look.shadows || look.whites || look.blacks || look.recovery
     || look.vibrance || look.hues.some((v) => v) || look.curve || look.grade;
   return active ? look : null;
 }
@@ -153,10 +154,36 @@ export function toneGain(y, look) {
 }
 
 // Adjusts one linear RGB pixel in place in `px` (length 3).
+// Highlight recovery: the light above a knee is folded into the range that is left (a soft shoulder, so bright parts keep their detail where they would have clipped), by one gain on all
+// three channels (the hue stays), and the color of what is at or past the white point is taken out in proportion (a clipped channel only makes a pink or yellow cast). `amount` 0 to 1.
+export function recoverHighlights(r, g, b, amount) {
+  const m = Math.max(r, g, b);
+  const knee = 1 - 0.5 * amount;
+  if (m <= knee) return [r, g, b];
+  const span = 1 - knee;
+  const x = (m - knee) / span;
+  // knee + span * tanh(x): about the same slope as before at the knee, and never past 1
+  const e = Math.exp(-2 * Math.min(x, 20));
+  const folded = knee + span * ((1 - e) / (1 + e));
+  const k = folded / m;
+  r *= k;
+  g *= k;
+  b *= k;
+  const t = amount * Math.min(1, Math.max(0, (m - 0.9) / 0.7));
+  if (t > 0) {
+    const l = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    r += (l - r) * t;
+    g += (l - g) * t;
+    b += (l - b) * t;
+  }
+  return [r, g, b];
+}
+
 export function applyLook(px, look) {
   let r = px[0];
   let g = px[1];
   let b = px[2];
+  if (look.recovery > 0) [r, g, b] = recoverHighlights(r, g, b, look.recovery);
   const y = 0.2126 * r + 0.7152 * g + 0.0722 * b;
   if (y > 1e-6) {
     const k = toneGain(y, look);

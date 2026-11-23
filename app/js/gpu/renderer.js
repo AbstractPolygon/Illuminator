@@ -1728,7 +1728,7 @@ uniform float uLutAmount;    // 0: no LUT
 uniform vec3 uLutMin;
 uniform vec3 uLutMax;
 uniform vec4 uTone;        // contrast, highlights, shadows, whites
-uniform vec2 uTone2;       // blacks, vibrance
+uniform vec3 uTone2;       // blacks, vibrance, highlight recovery
 uniform float uHues[6];    // red, yellow, green, cyan, blue, magenta
 uniform int uCurveOn;
 uniform int uGradeOn;      // color grading with the three tone wheels (core/grade.js)
@@ -1823,7 +1823,23 @@ float toneCurve(float x) {
   return max(x, 0.0);
 }
 
+// Same as recoverHighlights in core/color.js.
+vec3 recoverHighlights(vec3 c, float amount) {
+  float m = max(c.r, max(c.g, c.b));
+  float knee = 1.0 - 0.5 * amount;
+  if (m <= knee) return c;
+  float span = 1.0 - knee;
+  float x = min((m - knee) / span, 20.0);
+  float e = exp(-2.0 * x);
+  float folded = knee + span * ((1.0 - e) / (1.0 + e));
+  c *= folded / m;
+  float t = amount * clamp((m - 0.9) / 0.7, 0.0, 1.0);
+  float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
+  return c + (vec3(l) - c) * t;
+}
+
 vec3 applyLook(vec3 c) {
+  if (uTone2.z > 0.0) c = recoverHighlights(c, uTone2.z);
   float y = dot(c, vec3(0.2126, 0.7152, 0.0722));
   if (y > 1e-6) c *= pow(toneCurve(pow(y, 1.0 / 2.2)), 2.2) / y;
   if (uGradeOn == 1) {
@@ -5555,7 +5571,7 @@ export class GpuRenderer {
     gl.uniform1i(P.u.uLookOn, look ? 1 : 0);
     if (look) {
       gl.uniform4f(P.u.uTone, look.contrast, look.highlights, look.shadows, look.whites);
-      gl.uniform2f(P.u.uTone2, look.blacks, look.vibrance);
+      gl.uniform3f(P.u.uTone2, look.blacks, look.vibrance, look.recovery || 0);
       gl.uniform1fv(P.u.uHues, Float32Array.from(look.hues));
       gl.uniform1i(P.u.uCurveOn, look.curve ? 1 : 0);
       if (look.curve) gl.uniform1fv(P.u.uCurve, look.curve);
