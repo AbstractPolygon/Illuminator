@@ -159,3 +159,99 @@ export function fillFromBackground(view, w, h) {
   }
   return view;
 }
+
+// ----- filling from the other cameras
+
+// The depth of the picture with its holes filled by the farther neighbour (the background that comes into view), for looking the holes up in other cameras.
+export function backgroundDepth(z, hole, w, h) {
+  const zz = Float32Array.from(z);
+  const hh = Uint8Array.from(hole);
+  fillFromBackground({ rgb: new Float32Array(3 * w * h), z: zz, hole: hh }, w, h);
+  return zz;
+}
+
+// Per channel gains that give a donor the reference's colors: the ratio of mean colors over the pixels both see (the donor is looked up at the reference's depth).
+function colorGains(ref, donorAt, w, h) {
+  const sumR = [0, 0, 0];
+  const sumD = [0, 0, 0];
+  for (let y = 4; y < h; y += 7) {
+    for (let x = 4; x < w; x += 7) {
+      const d = donorAt(x, y);
+      if (!d) continue;
+      const i = 3 * (y * w + x);
+      for (let c = 0; c < 3; c++) {
+        sumR[c] += ref[i + c];
+        sumD[c] += d[c];
+      }
+    }
+  }
+  return sumD.map((v, c) => (v > 1e-6 ? sumR[c] / v : 1));
+}
+
+// Fills the holes of `view` from donor cameras. `ref` = { rgb, width, height, z (depth in mm at the reference), K (the reference camera's 3x3 at the sensor's size),
+// scale (sensor pixels per picture pixel, 2) }, `donors` = [{ cam (core/l16geometry cameraModel), rel ({R, T} of the donor relative to the reference), color ({width, height, rgb}) }],
+// (tx, ty) the virtual camera's offset from the reference in mm, `zBack` the depth to look each hole up at. A hole takes the first donor, nearest to the virtual camera first,
+// whose picture covers the place. Returns how many pixels were filled.
+export function fillFromDonors(view, ref, donors, tx, ty, zBack) {
+  const { width: w, height: h } = ref;
+  const K = ref.K;
+  const S = ref.scale;
+  const prepared = donors
+    .map((d) => {
+      // the donor's centre relative to the reference, in image axes: C = -R^T T
+      const c = [-(d.rel.R[0] * d.rel.T[0] + d.rel.R[3] * d.rel.T[1] + d.rel.R[6] * d.rel.T[2]), -(d.rel.R[1] * d.rel.T[0] + d.rel.R[4] * d.rel.T[1] + d.rel.R[7] * d.rel.T[2])];
+      return { ...d, dist: Math.hypot(c[0] - tx, c[1] - ty) };
+    })
+    .sort((a, b) => a.dist - b.dist);
+  const sample = (d, X, Y, Z) => {
+    const R = d.rel.R;
+    const T = d.rel.T;
+    const Pz = R[6] * X + R[7] * Y + R[8] * Z + T[2];
+    if (Pz <= 1) return null;
+    const ix = (d.cam.K[0] * (R[0] * X + R[1] * Y + R[2] * Z + T[0])) / Pz + d.cam.K[2];
+    const iy = (d.cam.K[4] * (R[3] * X + R[4] * Y + R[5] * Z + T[1])) / Pz + d.cam.K[5];
+    const [sx, sy] = d.cam.distort(ix, iy);
+    const px = sx / 2 - 0.5;
+    const py = sy / 2 - 0.5;
+    const { width: dw, height: dh, rgb } = d.color;
+    if (px < 0 || py < 0 || px >= dw - 1 || py >= dh - 1) return null;
+    const x0 = px | 0;
+    const y0 = py | 0;
+    const fx = px - x0;
+    const fy = py - y0;
+    const o = 3 * (y0 * dw + x0);
+    const out = [0, 0, 0];
+    for (let c = 0; c < 3; c++) out[c] = (rgb[o + c] * (1 - fx) + rgb[o + 3 + c] * fx) * (1 - fy) + (rgb[o + 3 * dw + c] * (1 - fx) + rgb[o + 3 * dw + 3 + c] * fx) * fy;
+    return out;
+  };
+  // gains from the reference's own pixels
+  for (const d of prepared) {
+    d.gains = colorGains(ref.rgb, (x, y) => {
+      const Z = ref.z[y * w + x];
+      return sample(d, ((((x + 0.5) * S - K[2]) / K[0]) * Z), ((((y + 0.5) * S - K[5]) / K[4]) * Z), Z);
+    }, w, h);
+  }
+  let filled = 0;
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const i = y * w + x;
+      if (!view.hole[i]) continue;
+      const Z = zBack[i];
+      // the point the hole shows: along the virtual camera's ray at the background depth
+      const X = (((x + 0.5) * S - K[2]) / K[0]) * Z + tx;
+      const Y = (((y + 0.5) * S - K[5]) / K[4]) * Z + ty;
+      for (const d of prepared) {
+        const c = sample(d, X, Y, Z);
+        if (!c) continue;
+        view.rgb[3 * i] = c[0] * d.gains[0];
+        view.rgb[3 * i + 1] = c[1] * d.gains[1];
+        view.rgb[3 * i + 2] = c[2] * d.gains[2];
+        view.z[i] = Z;
+        view.hole[i] = 0;
+        filled++;
+        break;
+      }
+    }
+  }
+  return filled;
+}

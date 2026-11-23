@@ -5,7 +5,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { parseLri } from '../../app/js/core/lri.js';
 import { measureDepth } from '../../app/js/core/l16depth.js';
-import { superpixelColor, depthAtSize, synthesize, fillFromBackground } from '../../app/js/core/l16view.js';
+import { superpixelColor, depthAtSize, synthesize, fillFromBackground, backgroundDepth, fillFromDonors } from '../../app/js/core/l16view.js';
+import { cameraModel } from '../../app/js/core/l16geometry.js';
+import { relativePose } from '../../app/js/core/l16depth.js';
 import { encodePng } from '../png.mjs';
 
 const [file, outDir, ...rest] = process.argv.slice(2);
@@ -37,11 +39,25 @@ const toPng = (rgb, w, h) => {
   }
   return encodePng(w, h, out);
 };
+// donors: the other colour cameras of the group
+const refCam = cameraModel(parsed.header, parsed.modules[depth.ref][0]);
+const donors = depth.modules
+  .filter((id) => ((parsed.modules[id][0].module.sensor_bayer_red_override || { x: 0 }).x >= 0))
+  .map((id) => {
+    const cam = cameraModel(parsed.header, parsed.modules[id][0]);
+    return { id, cam, rel: relativePose(refCam, cam), color: superpixelColor(bytes, parsed.modules[id][0], { black: sd.black_level, white: sd.white_level, gains: [awb.r || 1, awb.gr || 1, awb.b || 1] }) };
+  });
+console.log('donors', donors.map((d) => d.id).join(','));
+const refInfo = { rgb: color.rgb, width: color.width, height: color.height, z, K: depth.K, scale: 2 };
+const useDonors = process.env.NODONORS !== '1';
 for (const tx of txs) {
   const t1 = Date.now();
   const view = synthesize({ rgb: color.rgb, width: color.width, height: color.height, z }, focal, tx, 0, pivot);
   const holes = view.hole.reduce((a, b) => a + b, 0);
+  let donorFilled = 0;
+  if (useDonors) donorFilled = fillFromDonors(view, refInfo, donors, tx, 0, backgroundDepth(view.z, view.hole, color.width, color.height));
+  const left = view.hole.reduce((a, b) => a + b, 0);
   fillFromBackground(view, color.width, color.height);
   fs.writeFileSync(path.join(outDir, `view_${tx}.png`), toPng(view.rgb, color.width, color.height));
-  console.log(`tx ${tx} mm: ${holes} hole pixels (${((100 * holes) / (color.width * color.height)).toFixed(2)}%) in ${Date.now() - t1} ms`);
+  console.log(`tx ${tx} mm: ${holes} hole pixels (${((100 * holes) / (color.width * color.height)).toFixed(2)}%), ${donorFilled} filled from the other cameras, ${left} left to inpaint, ${Date.now() - t1} ms`);
 }
