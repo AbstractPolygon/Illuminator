@@ -5,7 +5,7 @@
 // detail), turned into a small processed picture with the depth at that scale, and put through the same camera render the quick views use (viewpoint, blur, color); the margin
 // is dropped and the tile written into the output.
 import { fuse } from './l16fusion.js';
-import { renderRegion, telephotoModules } from './l16hires.js';
+import { renderRegion, telephotoModules, estimateCorrections } from './l16hires.js';
 import { applyColorMatrix } from './l16photo.js';
 
 const sRGB = (v) => (v <= 0.0031308 ? 12.92 * v : 1.055 * Math.pow(v, 1 / 2.4) - 0.055);
@@ -33,6 +33,12 @@ export async function renderL16Final(l16, { scale, margin, depthLambda, renderTi
   const out = new Uint8ClampedArray(win.w * win.h * 4);
   // every camera with a longer lens than the reference (the 70 mm and the 150 mm ones, which see the middle of the picture)
   const mods = telephotoModules(parsed, depth.ref, [2, Infinity]);
+  // each longer lens camera's registration corrected for this capture (once a photo; from the half size merge)
+  if (!l16.corrections && l16.wide) {
+    onProgress('Aligning the cameras', 0.02);
+    l16.corrections = estimateCorrections(bytes, parsed, depth, l16.wide, 2, mods, opts);
+  }
+  const corrections = l16.corrections || null;
   const rawCache = new Map();
   // `depthLambda` is the depth the quick views use (smoothed), in lambda of the half size picture; at output pixels it is that times 2 * scale (the half size picture's pixel is 2 sensor pixels)
   const sOut = 2 * scale;
@@ -71,7 +77,7 @@ export async function renderL16Final(l16, { scale, margin, depthLambda, renderTi
       const ry1 = Math.min(H, Y0 + th + margin);
       const rw = rx1 - rx0;
       const rh = ry1 - ry0;
-      const region = renderRegion(bytes, parsed, depth, wide, { x0: rx0 / (scale * grid), y0: ry0 / (scale * grid), w: rw / (scale * grid), h: rh / (scale * grid), scale: scale * grid, grid }, mods, opts, () => {}, rawCache);
+      const region = renderRegion(bytes, parsed, depth, wide, { x0: rx0 / (scale * grid), y0: ry0 / (scale * grid), w: rw / (scale * grid), h: rh / (scale * grid), scale: scale * grid, grid, corrections }, mods, opts, () => {}, rawCache);
       applyColorMatrix(region.rgb, colorMatrix);
       const data = new Uint8ClampedArray(rw * rh * 4);
       for (let i = 0; i < rw * rh; i++) {
