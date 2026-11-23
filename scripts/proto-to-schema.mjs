@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Turns the Light L16 message definitions (.proto files, proto2) into app/js/core/lri-schema.js, the table the small reader in core/protobuf.js decodes with.
-//   node scripts/proto-to-schema.mjs PROTO_DIR   (the Protos folder of the Lux project's engine)
+//   node scripts/proto-to-schema.mjs PROTO_DIR   (a folder of the L16 message definitions)
 // Only the messages a .lri file carries are kept (google_protobuf_descriptor.proto is skipped). Re-run it when the definitions change.
 import fs from 'node:fs';
 import path from 'node:path';

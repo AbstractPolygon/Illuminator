@@ -1,7 +1,7 @@
 // Light L16 photo files (.lri): a chain of blocks, each a 32 byte header (the letters LELR, u64 block length, u64 message offset, u32 message length, u8 type, padding)
 // followed by a protobuf message (core/lri-schema.js, read by core/protobuf.js) and, in the blocks that carry them, the raw frames of the camera modules.
 // Type 0 messages are (partial) LightHeaders that merge into one; type 1 is ViewPreferences, type 2 GPSData. A module's frame sits at blockStart + surface.data_offset.
-// The layout is the one the Lux project (github.com/mprovenz/lux) documents for this format.
+// The layout follows the format as the L16 community has documented it.
 import { LRI_SCHEMA } from './lri-schema.js';
 import { decodeMessage, mergeMessage } from './protobuf.js';
 
