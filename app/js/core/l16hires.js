@@ -41,6 +41,109 @@ const gauss = (src, w, h, sigma) => {
 
 const luma = (r, g, b) => 0.3 * r + 0.55 * g + 0.15 * b;
 
+// Local corrections to a telephoto camera's registration (the calibration and the depth are good to about a pixel of the wide picture; the original software refines each telephoto
+// camera against the wide one with dense optical flow). Both pictures are the low frequencies at the output grid (luma, `a` the wide picture's, `b` the camera's); they are reduced by
+// `ds`, and for each block the shift of `b` that best matches `a` is searched (+-R reduced pixels, refined between steps), where the block has texture. Returns a function giving the
+// shift (output pixels, to be added to where the camera is looked up) at an output pixel.
+function flowOffsets(a, b, W, H, ds = 4, block = 6, R = 2) {
+  const w = Math.floor(W / ds);
+  const h = Math.floor(H / ds);
+  const reduce = (src) => {
+    const out = new Float32Array(w * h);
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      let sum = 0;
+      for (let dy = 0; dy < ds; dy++) for (let dx = 0; dx < ds; dx++) sum += src[(y * ds + dy) * W + x * ds + dx];
+      out[y * w + x] = sum / (ds * ds);
+    }
+    return out;
+  };
+  const A = reduce(a);
+  const B = reduce(b);
+  const bw = Math.max(1, Math.floor(w / block));
+  const bh = Math.max(1, Math.floor(h / block));
+  const ox = new Float32Array(bw * bh);
+  const oy = new Float32Array(bw * bh);
+  const side = 2 * R + 1;
+  const cost = new Float32Array(side * side);
+  for (let by = 0; by < bh; by++) {
+    for (let bx = 0; bx < bw; bx++) {
+      const x0 = bx * block;
+      const y0 = by * block;
+      let mean = 0;
+      let n = 0;
+      for (let y = y0; y < Math.min(h, y0 + block); y++) for (let x = x0; x < Math.min(w, x0 + block); x++) { mean += A[y * w + x]; n++; }
+      mean /= n;
+      let variance = 0;
+      for (let y = y0; y < Math.min(h, y0 + block); y++) for (let x = x0; x < Math.min(w, x0 + block); x++) variance += (A[y * w + x] - mean) ** 2;
+      variance /= n;
+      if (variance < 1e-6 + 0.0004 * mean * mean) continue; // no texture to match: no correction
+      let best = Infinity;
+      let bi = R * side + R;
+      for (let dy = -R; dy <= R; dy++) {
+        for (let dx = -R; dx <= R; dx++) {
+          let sad = 0;
+          for (let y = y0; y < Math.min(h, y0 + block); y++) {
+            const yy = Math.min(h - 1, Math.max(0, y + dy));
+            for (let x = x0; x < Math.min(w, x0 + block); x++) sad += Math.abs(A[y * w + x] - B[yy * w + Math.min(w - 1, Math.max(0, x + dx))]);
+          }
+          cost[(dy + R) * side + dx + R] = sad;
+          if (sad < best) {
+            best = sad;
+            bi = (dy + R) * side + dx + R;
+          }
+        }
+      }
+      let sx = (bi % side) - R;
+      let sy = Math.floor(bi / side) - R;
+      // between steps: a parabola through the neighbours
+      const c = (x, y) => cost[(y + R) * side + x + R];
+      if (sx > -R && sx < R) {
+        const l = c(sx - 1, sy);
+        const m = c(sx, sy);
+        const r = c(sx + 1, sy);
+        const den = l - 2 * m + r;
+        if (den > 0) sx += Math.max(-0.5, Math.min(0.5, (l - r) / (2 * den)));
+      }
+      if (sy > -R && sy < R) {
+        const u = c(Math.round(sx), sy - 1);
+        const m = c(Math.round(sx), sy);
+        const d = c(Math.round(sx), sy + 1);
+        const den = u - 2 * m + d;
+        if (den > 0) sy += Math.max(-0.5, Math.min(0.5, (u - d) / (2 * den)));
+      }
+      ox[by * bw + bx] = sx * ds;
+      oy[by * bw + bx] = sy * ds;
+    }
+  }
+  // a 3 x 3 median of the shifts (a wrong match among good ones is outvoted)
+  const med = (src) => {
+    const out = new Float32Array(src.length);
+    const win = new Float32Array(9);
+    for (let y = 0; y < bh; y++) for (let x = 0; x < bw; x++) {
+      let k = 0;
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) win[k++] = src[Math.min(bh - 1, Math.max(0, y + dy)) * bw + Math.min(bw - 1, Math.max(0, x + dx))];
+      win.sort();
+      out[y * bw + x] = win[4];
+    }
+    return out;
+  };
+  const mx = med(ox);
+  const my = med(oy);
+  const cellX = (block * ds);
+  return (X, Y) => {
+    // bilinear between block centers
+    const fx = Math.min(bw - 1.001, Math.max(0, (X - cellX / 2) / cellX));
+    const fy = Math.min(bh - 1.001, Math.max(0, (Y - cellX / 2) / cellX));
+    const ix = fx | 0;
+    const iy = fy | 0;
+    const tx = fx - ix;
+    const ty = fy - iy;
+    const g = (arr) => (arr[iy * bw + ix] * (1 - tx) + arr[iy * bw + ix + 1] * tx) * (1 - ty) + (arr[(iy + 1) * bw + ix] * (1 - tx) + arr[(iy + 1) * bw + ix + 1] * tx) * ty;
+    return [g(mx), g(my)];
+  };
+}
+
+
 // The wide picture (`wide`: { width, height, rgb } on the reference grid, as fuse() returns it) as a bilinear sampler at ideal pixel position (x, y).
 function bilinear(img, w, h, sx, sy, o) {
   const x = sx - 0.5;
@@ -182,7 +285,45 @@ export function renderRegion(bytes, parsed, depth, wide, { x0, y0, w, h, scale }
       samp[3 * i + 1] *= g[1];
       samp[3 * i + 2] *= g[2];
     }
-    const low = gauss(samp, W, H, sigma);
+    let low = gauss(samp, W, H, sigma);
+    // refine the registration against the wide picture, then look the camera up again with the corrections
+    if (opts.flow !== false && W >= 64 && H >= 64) {
+      const lumaOf = (arr) => {
+        const o = new Float32Array(W * H);
+        for (let i = 0; i < W * H; i++) o[i] = luma(arr[3 * i], arr[3 * i + 1], arr[3 * i + 2]);
+        return o;
+      };
+      const shiftAt = flowOffsets(lumaOf(upLow), lumaOf(low), W, H, 4, 6, 2);
+      let moved = 0;
+      for (let Y = 0; Y < H; Y++) {
+        for (let X = 0; X < W; X++) {
+          const i = Y * W + X;
+          if (sxs[i] !== sxs[i]) continue;
+          const [ox, oy] = shiftAt(X, Y);
+          if (ox === 0 && oy === 0) continue;
+          // the sensor's shift for an output shift: from how the lookup moves between neighbouring output pixels
+          const nx = X + 1 < W && sxs[i + 1] === sxs[i + 1] ? i + 1 : i - 1;
+          const ny = Y + 1 < H && sxs[i + W] === sxs[i + W] ? i + W : i - W;
+          const sgx = nx > i ? 1 : -1;
+          const sgy = ny > i ? 1 : -1;
+          if (nx < 0 || ny < 0 || nx >= W * H || ny >= W * H || sxs[nx] !== sxs[nx] || sxs[ny] !== sxs[ny]) continue;
+          const dxx = (sxs[nx] - sxs[i]) * sgx;
+          const dyx = (sys[nx] - sys[i]) * sgx;
+          const dxy = (sxs[ny] - sxs[i]) * sgy;
+          const dyy = (sys[ny] - sys[i]) * sgy;
+          // the camera at output pixel i is looked up where the wide picture's content is: the shift tells where the camera's content sits relative to it
+          const fsx = sxs[i] + ox * dxx + oy * dxy;
+          const fsy = sys[i] + ox * dyx + oy * dyy;
+          if (bilinear(img.rgb, img.width, img.height, fsx - img.x0, fsy - img.y0, s3)) {
+            samp[3 * i] = s3[0] * g[0];
+            samp[3 * i + 1] = s3[1] * g[1];
+            samp[3 * i + 2] = s3[2] * g[2];
+            moved++;
+          }
+        }
+      }
+      if (moved) low = gauss(samp, W, H, sigma);
+    }
     const det = new Float32Array(3 * W * H).fill(NaN);
     for (let i = 0; i < W * H; i++) {
       if (!have[i]) continue;
