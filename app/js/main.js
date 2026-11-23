@@ -366,8 +366,8 @@ function saveThumbnail() {
 }
 
 const EMPTY_LIBRARY = CAMERA_IMPORT
-  ? 'Open .LFR / .LFP files, drop them here, or import from a camera or Lytro Desktop.'
-  : 'Open .LFR / .LFP files, drop them here, or import from Lytro Desktop.';
+  ? 'Open .LFR / .LFP / .LRI files, drop them here, or import from a camera or Lytro Desktop.'
+  : 'Open .LFR / .LFP / .LRI files, drop them here, or import from Lytro Desktop.';
 
 // The Camera section's state (see setCameraSection).
 const cameraThumbs = new Map();
@@ -1527,7 +1527,7 @@ function closePhoto() {
   showPhotoNav();
   canvas.classList.add('hidden');
   $('placeholder').hidden = false;
-  $('placeholder').innerHTML = '<p>Drop a Lytro <code>.LFR</code> or <code>.LFP</code> file here.</p>';
+  $('placeholder').innerHTML = '<p>Drop a Lytro <code>.LFR</code> or <code>.LFP</code> file, or a Light L16 <code>.LRI</code> file, here.</p>';
   $('info').replaceChildren();
   $('speed').hidden = true;
   if (queueUi) setTimeout(() => queueUi.render(), 0);
@@ -6241,7 +6241,7 @@ document.addEventListener('drop', (e) => {
   const files = [...(e.dataTransfer ? e.dataTransfer.files : [])];
   if (!files.length) return;
   if (!files.some((f) => isLightFieldName(f.name))) {
-    showError(new Error(`${files[0].name} is not a Lytro file. Drop an .LFR, .LFP or .RAW file.`));
+    showError(new Error(`${files[0].name} is not a Lytro or Light L16 file. Drop an .LFR, .LFP, .LRI or .RAW file.`));
     return;
   }
   openPicked(files);

@@ -2,7 +2,7 @@
 // provide `window.lytroNative` to replace these with native dialogs and USB
 // camera access.
 
-const LF_FILE = /\.(lfr|lfp|raw)$/i;
+const LF_FILE = /\.(lfr|lfp|raw|lri)$/i;
 
 
 // Lytro, Inc.'s USB vendor ID (as electron/camera.cjs).
@@ -89,8 +89,8 @@ export async function openCalibrationFile() {
   return (await pickWithInput(document.getElementById('cal-input')))[0] || null;
 }
 
-const PHOTO_FILE = /\.(lfr|lfp)$/i;
-const FOLDER_FILE = /\.(lfr|lfp|raw|jpe?g|png)$/i;
+const PHOTO_FILE = /\.(lfr|lfp|lri)$/i;
+const FOLDER_FILE = /\.(lfr|lfp|raw|lri|jpe?g|png)$/i;
 const CALIBRATION_FILE = /\.(json|bin|txt|gct|hst|raw)$/i;
 
 async function walkDirectory(handle, prefix, out, wanted = PHOTO_FILE) {
@@ -122,7 +122,7 @@ export async function pickCameraFolder() {
   const files = await pickWithInput(document.getElementById('dir-input'));
   return {
     source: files.length ? files[0].webkitRelativePath.split('/')[0] : '',
-    files: files.filter((f) => /\.(lfr|lfp)$/i.test(f.name)).map((f) => ({ name: f.name, path: f.webkitRelativePath, size: f.size, file: f })),
+    files: files.filter((f) => /\.(lfr|lfp|lri)$/i.test(f.name)).map((f) => ({ name: f.name, path: f.webkitRelativePath, size: f.size, file: f })),
   };
 }
 

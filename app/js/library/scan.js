@@ -13,7 +13,7 @@
 // Lytro Desktop computed, kept as `stack` beside raw.lfp. Everywhere else photos are IMG_0001.LFR files, optionally with
 // an IMG_0001.LFP exported next to them.
 
-const LIGHT_FIELD = /\.(lfr|lfp|raw)$/i;
+const LIGHT_FIELD = /\.(lfr|lfp|raw|lri)$/i;
 const VIEW = /(^|\.)view\.lfp$/i;
 const THUMB = /thumb.*\.(jpe?g|png)$/i;
 const DEPTH_MAP = /userdepthmap(\.(png|jpe?g|tiff?|bmp))?$/i;

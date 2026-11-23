@@ -36,7 +36,7 @@ const LOOKS = 'Looks';
 import { PROCESSED_FILE } from '../core/processed-cache.js';
 import { STILL_INDEX_FILE, stillFileName, touchIndex, KEPT_INDEX_FILE, KEPT_PICTURES, keptFileName } from '../core/still-cache.js';
 
-const LIGHT_FIELD = /\.(lfr|lfp|raw)$/i;
+const LIGHT_FIELD = /\.(lfr|lfp|raw|lri)$/i;
 // A virtual copy's folder holds only its own edits and caches, and this note of which photo it is a copy of: its light field files are the master's.
 export const VIRTUAL_FILE = 'virtual.illuminator.json';
 

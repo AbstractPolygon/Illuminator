@@ -1000,7 +1000,7 @@ async function open({ id, bytes, synthetic, userDepth = null, depthCache = null,
   // The grid the photo opens with (the metadata's, or the calibrated one): depth and the pictures made from it are keyed on the grid only when it later differs (gridTag).
   state.openGrid = decoded.grid ? JSON.stringify(decoded.grid) : null;
   lap('decode');
-  if (!state.lf.raw && state.lf.stacks.length) {
+  if (!state.lf.raw && (state.lf.stacks.length || state.lf.l16)) {
     onProgress('Decoding images', 0.5);
     const built = await buildProcessed(state.lf);
     checkOpen();
@@ -3686,6 +3686,11 @@ async function loadDepth(desc) {
 // first (viewpoint and focus both work), then perspective, then focus
 // stacks, then a single image.
 async function buildProcessed(lf) {
+  // a Light L16 photo: the developed picture and the depth map measured between its cameras
+  if (lf.l16) {
+    const { picture, depth } = lf.l16;
+    return new ProcessedPicture({ kind: 'single', source: 'l16', images: [{ width: picture.width, height: picture.height, data: picture.data }], depth, pitchRatio: { x: 1, y: 1 } });
+  }
   const rank = (s) => {
     const depth = !!(s.depth || lf.frameDepth);
     if (s.block) return -1; // H.264 blocks are not decoded yet

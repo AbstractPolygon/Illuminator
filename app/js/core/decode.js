@@ -2,12 +2,19 @@
 
 import { parseHotPixels } from './calibration.js';
 import { bufferReader, isLfp, readLightFieldPicture, photoIdOf, LfpError } from './lfp.js';
+import { isLri } from './lri.js';
+import { decodeL16, l16PhotoId } from './l16photo.js';
 import { cameraInfo, guessRawLayout, packedSize, unpackRaw } from './raw.js';
 import { findRecipe } from './recipe.js';
 import { gridFromCamera, calibrateGrid, measureGrid, normalizeGrid } from './lenslet.js';
 
 export async function decodeLightField(bytes, { onProgress = () => {}, calibrate = true } = {}) {
   onProgress('Reading file', 0);
+  // A Light L16 photo: a picture and a depth map measured between its camera modules, shown as a processed photo (core/l16photo.js).
+  if (isLri(bytes)) {
+    const l16 = decodeL16(bytes, onProgress);
+    return { metadata: null, privateMetadata: null, geometryRef: null, stacks: [], frameDepth: null, photoId: l16PhotoId(l16.header), thumbnails: [], recipe: null, readSection: async () => null, rayWarpBytes: null, geometryBytes: null, cam: null, raw: null, l16 };
+  }
   let picture = null;
   let rawBytes = null;
   let layout = null;
