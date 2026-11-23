@@ -114,6 +114,42 @@ export function depthGroup(parsed, refId) {
 
 // options: { ref (module id, default the header's reference), scale (sensor pixels per depth pixel, default 4), steps (depth steps, 48), near, far (mm) }
 // Returns { width, height, scale, ref, modules, focalPx (of the reference at full size, K), invZ: Float32Array (1 / mm), steps, near, far, confidence: Float32Array 0..1 }.
+const UNSURE = 0.05;
+// Replaces the depth of the pixels whose confidence is under `threshold` by the confidence weighted mean of the pixels within `radius` that are over it (where there are none, it stays).
+export function fillUnsure(invZ, confidence, w, h, radius, threshold) {
+  const W1 = w + 1;
+  const sumV = new Float64Array(W1 * (h + 1));
+  const sumW = new Float64Array(W1 * (h + 1));
+  for (let y = 0; y < h; y++) {
+    let rv = 0;
+    let rw = 0;
+    for (let x = 0; x < w; x++) {
+      const i = y * w + x;
+      const c = confidence[i] >= threshold ? confidence[i] : 0;
+      rv += c * invZ[i];
+      rw += c;
+      sumV[(y + 1) * W1 + x + 1] = sumV[y * W1 + x + 1] + rv;
+      sumW[(y + 1) * W1 + x + 1] = sumW[y * W1 + x + 1] + rw;
+    }
+  }
+  const out = new Float32Array(invZ);
+  for (let y = 0; y < h; y++) {
+    const y0 = Math.max(0, y - radius);
+    const y1 = Math.min(h, y + radius + 1);
+    for (let x = 0; x < w; x++) {
+      const i = y * w + x;
+      if (confidence[i] >= threshold) continue;
+      const x0 = Math.max(0, x - radius);
+      const x1 = Math.min(w, x + radius + 1);
+      const sw = sumW[y1 * W1 + x1] - sumW[y0 * W1 + x1] - sumW[y1 * W1 + x0] + sumW[y0 * W1 + x0];
+      if (sw < 1e-6) continue;
+      const sv = sumV[y1 * W1 + x1] - sumV[y0 * W1 + x1] - sumV[y1 * W1 + x0] + sumV[y0 * W1 + x0];
+      out[i] = sv / sw;
+    }
+  }
+  invZ.set(out);
+}
+
 export function measureDepth(bytes, parsed, options = {}, onProgress = () => {}) {
   const refId = options.ref || parsed.header.image_reference_camera;
   const S = options.scale || 4;
@@ -267,17 +303,33 @@ export function measureDepth(bytes, parsed, options = {}, onProgress = () => {})
     invZ[i] = invMin + ((invMax - invMin) * pos) / (NZ - 1);
     confidence[i] = second > 0 ? Math.max(0, Math.min(1, 1 - bc / second)) : 0;
   }
+  // Where the match is no better than its runner up (dark or flat areas), the depth is a guess: it is taken from the surer pixels round it (the mean of their depth, by confidence, over a
+  // window), and a pixel that is sure keeps its own.
+  fillUnsure(invZ, confidence, w, h, Math.max(3, Math.round(40 / S)), UNSURE);
   // The border band is not measured well (the other cameras see less of it there): it takes the depth of the pixel BORDER inside; then a 3 x 3 median removes single bad steps.
+  // (the median of a window round that pixel, not the one value: one noisy pixel would otherwise be spread out as a stripe to the edge of the picture)
   const BORDER = Math.max(4, Math.round(48 / S));
+  const filled = new Float32Array(invZ);
+  const around = [];
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
       if (x >= BORDER && x < w - BORDER && y >= BORDER && y < h - BORDER) continue;
       const ix = Math.min(w - 1 - BORDER, Math.max(BORDER, x));
       const iy = Math.min(h - 1 - BORDER, Math.max(BORDER, y));
-      invZ[y * w + x] = invZ[iy * w + ix];
+      around.length = 0;
+      for (let dy = -6; dy <= 6; dy += 2) {
+        for (let dx = -6; dx <= 6; dx += 2) {
+          const sx = Math.min(w - 1 - BORDER, Math.max(BORDER, ix + dx));
+          const sy = Math.min(h - 1 - BORDER, Math.max(BORDER, iy + dy));
+          around.push(invZ[sy * w + sx]);
+        }
+      }
+      around.sort((a, b) => a - b);
+      filled[y * w + x] = around[around.length >> 1];
       confidence[y * w + x] = 0;
     }
   }
+  invZ.set(filled);
   const median = new Float32Array(w * h);
   const win = new Float32Array(9);
   for (let y = 0; y < h; y++) {
