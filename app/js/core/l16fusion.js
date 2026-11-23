@@ -164,8 +164,7 @@ function depthGrid(invZ, dw, dh, w, h) {
 
 const luma = (r, g, b) => 0.3 * r + 0.55 * g + 0.15 * b;
 
-// Merges the cameras. `depth` is core/l16depth.js measureDepth's result for the reference; the cameras merged are the reference and depth.modules (the monochrome one left out:
-// its picture has no color to share). Returns { width, height, rgb (linear, white balanced), used: how many cameras, merged: per camera id the share of pixels that agreed }.
+// Merges the cameras. `depth` is core/l16depth.js measureDepth's result for the reference; the cameras merged are the reference and all of depth.modules (the monochrome one adds brightness, its color is the reference's). Returns { width, height, rgb (linear, white balanced), used: how many cameras, merged: per camera id the share of pixels that agreed }.
 // `grid` 1 merges at full size (every sensor pixel demosaiced); 2 at half size (each 2 x 2 sensor cell is one pixel: a quarter of the work and memory, for the quick views).
 export function fuse(bytes, parsed, depth, { black = 42, white = 1023, gains = [1, 1, 1] } = {}, onProgress = () => {}, { grid = 1 } = {}) {
   const refId = depth.ref;
@@ -216,7 +215,9 @@ export function fuse(bytes, parsed, depth, { black = 42, white = 1023, gains = [
     out[3 * i + 2] = refUnd[3 * i + 2];
     weight[i] = valid[i];
   }
-  const donors = depth.modules.filter((id) => ((parsed.modules[id][0].module.sensor_bayer_red_override || { x: 0 }).x >= 0));
+  // every camera of the group, the monochrome one too (it adds brightness only: its color is the reference's)
+  const donors = depth.modules;
+  const isMono = (id) => (parsed.modules[id][0].module.sensor_bayer_red_override || { x: 0 }).x < 0;
   const merged = {};
   let n = 0;
   for (const id of donors) {
@@ -227,6 +228,7 @@ export function fuse(bytes, parsed, depth, { black = 42, white = 1023, gains = [
     const R = rel.R;
     const T = rel.T;
     const img = load(parsed.modules[id][0]);
+    const mono = isMono(id);
     // gains that match this camera's colors to the reference's, from the pixels both see (sampled)
     const sumR = [0, 0, 0];
     const sumD = [0, 0, 0];
@@ -253,15 +255,19 @@ export function fuse(bytes, parsed, depth, { black = 42, white = 1023, gains = [
       }
     }
     const g = sumD.map((v, c) => (v > 1e-6 ? sumR[c] / v : 1));
+    // the monochrome camera: one brightness gain, from the reference's brightness over its own
+    const mg = mono ? luma(sumR[0], sumR[1], sumR[2]) / Math.max(1e-9, sumD[1]) : 1;
     let agreed = 0;
     for (let y = 0; y < H; y++) {
       for (let x = 0; x < W; x++) {
         const i = y * W + x;
         if (!valid[i] || !at(x, y)) continue;
-        const r = sample[0] * g[0];
-        const gr = sample[1] * g[1];
-        const b = sample[2] * g[2];
         const rl = luma(refUnd[3 * i], refUnd[3 * i + 1], refUnd[3 * i + 2]);
+        // (the monochrome camera's brightness on the reference's color)
+        const q = mono ? (sample[1] * mg) / Math.max(1e-4, rl) : 0;
+        const r = mono ? refUnd[3 * i] * q : sample[0] * g[0];
+        const gr = mono ? refUnd[3 * i + 1] * q : sample[1] * g[1];
+        const b = mono ? refUnd[3 * i + 2] * q : sample[2] * g[2];
         const dl = luma(r, gr, b);
         // agree: the difference is within what noise (growing with brightness) and a small misregistration allow
         const sigma = 0.012 + 0.07 * Math.sqrt(Math.max(rl, 0)) * 0.35;

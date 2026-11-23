@@ -24,7 +24,8 @@ export async function renderL16Final(l16, { scale, margin, depthLambda, renderTi
   const wide = fuse(bytes, parsed, depth, opts, (stage, p) => onProgress(stage, 0.1 * p), { grid: 1 });
   const { width: W, height: H } = finalSize(l16, scale);
   const out = new Uint8ClampedArray(W * H * 4);
-  const mods = telephotoModules(parsed, depth.ref, [2, 3.2]);
+  // every camera with a longer lens than the reference (the 70 mm and the 150 mm ones, which see the middle of the picture)
+  const mods = telephotoModules(parsed, depth.ref, [2, Infinity]);
   const rawCache = new Map();
   // `depthLambda` is the depth the quick views use (smoothed), in lambda of the half size picture; at output pixels it is that times 2 * scale (the half size picture's pixel is 2 sensor pixels)
   const sOut = 2 * scale;
