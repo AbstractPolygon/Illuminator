@@ -23,6 +23,22 @@ export function l16PhotoId(header) {
 }
 
 // Reads the whole file: { header, picture: { width, height, data (RGBA bytes) }, depth: { width, height, lambda }, ref, modules, near, far, pivotZ, focalPx }.
+// What the capture says about the camera and the exposure (the reference camera's frame carries the exposure: nanoseconds, and the gain as a multiple of base ISO 100).
+export function cameraInfoOf(parsed, ref) {
+  const h = parsed.header;
+  const frame = parsed.modules[ref] && parsed.modules[ref][0] && parsed.modules[ref][0].module;
+  const t = h.image_time_stamp;
+  const capture = {};
+  if (t && t.year) {
+    // (local time as the camera wrote it: shown as that wall clock time)
+    capture.time = new Date(t.year, (t.month || 1) - 1, t.day || 1, t.hour || 0, t.minute || 0, t.second || 0).getTime();
+  }
+  if (frame && frame.sensor_exposure) capture.exposure = frame.sensor_exposure * 1e-9;
+  if (frame && frame.sensor_analog_gain) capture.iso = Math.round(100 * frame.sensor_analog_gain * (frame.sensor_digital_gain || 1));
+  if (h.image_focal_length) capture.focalLength = h.image_focal_length / 1000;
+  return { make: 'Light', model: h.device_model_name || 'L16', capture };
+}
+
 export function decodeL16(bytes, onProgress = () => {}) {
   onProgress('Reading the camera pictures', 0.02);
   const parsed = parseLri(bytes);
@@ -68,6 +84,8 @@ export function decodeL16(bytes, onProgress = () => {}) {
     focalPx: f,
     stackFrames: parsed.stackFrames,
     cameras: color.used,
+    // for the Info panel: { model, make, capture: { time (ms), exposure (s), iso, focalLength (m, 35 mm equivalent) } }
+    camera: cameraInfoOf(parsed, ref),
     // what the final render (core/l16render.js) works from
     bytes,
     parsed,

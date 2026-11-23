@@ -3456,7 +3456,14 @@ function renderInfo() {
     const p = info.processed;
     const kinds = { warp: 'All-in-focus image', single: 'Single image', focus: 'Focus stack', perspective: 'Perspective views' };
     if (info.cam) rows.push(['Camera', `${info.cam.make || ''} ${info.cam.model || ''}`.trim()]);
-    if (info.cam && info.cam.capture && info.cam.capture.time) rows.push(['Taken', new Date(info.cam.capture.time).toLocaleString()]);
+    const c = (info.cam && info.cam.capture) || {};
+    if (c.time) rows.push(['Taken', new Date(c.time).toLocaleString()]);
+    // (a Light L16 photo: the exposure of its reference camera, and the 35 mm equivalent focal length)
+    if (p.source === 'l16') {
+      if (c.exposure) rows.push(['Shutter', c.exposure >= 1 ? `${fmt(c.exposure, 1)} s` : `1/${Math.round(1 / c.exposure)} s`]);
+      if (c.focalLength) rows.push(['Focal length', `${fmt(c.focalLength * 1000, 0)} mm (35 mm equivalent)`]);
+      if (c.iso) rows.push(['ISO', c.iso]);
+    }
     rows.push(['Content', `${kinds[p.kind] || p.kind}${p.count > 1 ? ` (${p.count})` : ''}${p.hasDepth ? ' with depth map' : ''}`]);
     rows.push(['Size', `${info.width}×${info.height}`]);
   }

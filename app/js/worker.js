@@ -885,6 +885,7 @@ function summary() {
     try {
       const c = lf.metadata ? cameraInfo(lf.metadata) : null;
       if (c) cam = { model: c.model, make: c.make, capture: c.capture };
+      else if (lf.l16 && lf.l16.camera) cam = lf.l16.camera;
     } catch {
       // Not every processed file keeps the camera metadata.
     }
