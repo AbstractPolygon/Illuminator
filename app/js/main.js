@@ -4018,7 +4018,12 @@ $('depth-blend').oninput = () => {
 showDepthBlend();
 // Object edges work on their own: with or without the high quality depth map.
 const showObjectSoft = () => { $('depth-objects-soft-row').hidden = !$('depth-objects').checked; };
-$('depth-objects').onchange = () => { showObjectSoft(); applySettingsSoon(); };
+$('depth-objects').onchange = () => {
+  showObjectSoft();
+  // (the depth is measured again with or without the object outlines: the depth map on show changes when that is done)
+  if (canRender()) noteBusy($('depth-objects').checked ? 'Finding objects and measuring the depth…' : 'Measuring the depth without object edges…');
+  applySettingsSoon();
+};
 $('depth-objects-soft').oninput = () => {
   showSliderValue($('depth-objects-soft'));
   applySettingsSoon();
