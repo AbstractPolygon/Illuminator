@@ -3821,10 +3821,6 @@ async function applyFocusAt(x, y, opening) {
   $('focus').value = res.alpha.toFixed(2);
   showSliderValue($('focus'));
   lastClick = { x, y, value: $('focus').value, again: depth && !res.final };
-  if (opening && fNumber() > 4) {
-    $('fstop').value = F_STOPS.indexOf(2.8);
-    showFNumber();
-  }
   cameraChanged({ final: true });
 }
 
