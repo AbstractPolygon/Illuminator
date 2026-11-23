@@ -110,9 +110,10 @@ export function decodeL16(bytes, onProgress = () => {}) {
   const depth = measureDepth(bytes, parsed, { ref }, (stage, p) => onProgress(stage, 0.05 + 0.8 * p));
   const color = fuse(bytes, parsed, depth, { black, white, gains: [awb.r || 1, awb.gr || 1, awb.b || 1] }, (stage, p) => onProgress(stage, 0.85 + 0.12 * p), { grid: 2 });
   onProgress('Developing the picture', 0.97);
-  const { width: w, height: h, rgb } = color;
+  const { width: w, height: h } = color;
   const colorMatrix = colorMatrixOf(parsed, ref);
-  applyColorMatrix(rgb, colorMatrix);
+  // (the merged picture itself stays as the cameras recorded it, the zoomed-in views are made from it; the color matrix is applied to a copy for the picture shown)
+  const rgb = applyColorMatrix(Float32Array.from(color.rgb), colorMatrix);
   // exposure: the 99th percentile of green goes to 0.9, then the sRGB curve
   const greens = new Float32Array(w * h);
   for (let i = 0; i < greens.length; i++) greens[i] = rgb[3 * i + 1];
@@ -154,6 +155,7 @@ export function decodeL16(bytes, onProgress = () => {}) {
     colorOptions: { black, white, gains: [awb.r || 1, awb.gr || 1, awb.b || 1] },
     gain,
     colorMatrix,
+    wide: color,  // the half size merge (float, white balanced, before the color matrix)
     k,
     inv0,
   };

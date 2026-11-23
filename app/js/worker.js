@@ -1525,6 +1525,40 @@ async function l16Still({ id, job, scale = 1, u = 0, v = 0, alpha = 0, dof = 0, 
 }
 
 
+// A Light L16 photo zoomed in: only the part of the picture on the screen, made at the zoom's resolution (output pixels per pixel of the quick picture: zs) from the half size merge with
+// the longer lens cameras' detail added through the depth (core/l16render.js), with the viewpoint, blur and color of the camera view. `window` is in picture pixels (the quick picture's).
+async function l16Detail({ id, job, gx0, gy0, gw, gh, zs, u = 0, v = 0, alpha = 0, dof = 0, bokeh, color = null }) {
+  state.jobs.detail = job;
+  const l16 = state.lf && state.lf.l16;
+  const top = state.pp;
+  if (!l16 || !top) return { none: true };
+  const params = { u, v, alpha, aperture: 0, dof, bokeh, color };
+  const blur = processedBlur(params);
+  const scale = zs / 2;
+  const span = Math.max(Math.abs(top.lambdaRange[0]), Math.abs(top.lambdaRange[1])) * zs;
+  const fullSpan = (top.lambdaRange[1] - top.lambdaRange[0]) * zs;
+  const margin = Math.min(480, Math.ceil(span * Math.max(Math.abs(u), Math.abs(v)) + (blur > 0 ? blur * (bokeh && bokeh.size != null ? bokeh.size : 1) * 0.5 * fullSpan : 0) + 8));
+  const res = await renderL16Final(l16, {
+    scale,
+    margin,
+    depthLambda: top.depth,
+    wide: l16.wide,
+    grid: 2,
+    window: { x: Math.round(gx0 * zs), y: Math.round(gy0 * zs), w: Math.max(1, Math.round(gw * zs)), h: Math.max(1, Math.round(gh * zs)) },
+    tile: 512,
+    cancelled: () => state.jobs.detail !== job,
+    renderTile: ({ data, width, height, lambda }) => {
+      const tile = new ProcessedPicture({ kind: 'single', source: 'l16', images: [{ width, height, data }], depth: { width, height, lambda }, pitchRatio: { x: 1, y: 1 } });
+      tile.lambdaRange = top.lambdaRange.map((x) => x * zs);
+      const rgb = tile.render({ u, v, alpha, blur, bokeh: bokeh || {} });
+      return toPixels(rgb, width, height, undefined, colorState(color));
+    },
+  });
+  if (!res) return { cancelled: true };
+  post({ id, type: 'result', width: res.width, height: res.height, pixels: res.pixels.buffer }, [res.pixels.buffer]);
+  return undefined;
+}
+
 async function superRes({ id, job, alpha = 0, scale, u = 0, v = 0, aperture = 0, dof = 0, bokeh, passes = 0, masks = null, color = null, quiet = false, label = 'Rendering from the full sensor' }) {
   // a Light L16 photo: the final render, in tiles, with the telephoto cameras' detail
   if (state.lf && state.lf.l16) return l16Still({ id, job, scale, u, v, alpha, dof, bokeh, color });
@@ -3968,7 +4002,7 @@ async function loseGpu() {
   return { lost: !!ext };
 }
 
-const handlers = { release, releaseDepthModel: async ({ model }) => { await releaseDepthSession(model); return {}; }, loseGpu, stillStore, stillData, memoryLimits: (limits) => { setMemoryLimits(limits); return {}; }, setLut, setCalibrations, measureWhite: measureWhiteImage, open, frames, refocusFrames, superRes, lytroEdof, superResPreview, view, focusAt, depthMap, spreadMask, depthHistogram, speedFacts, whiteBalanceAt, prepare, settings, setGrid, rawCrop, outputToSensor, readSection,
+const handlers = { l16Detail, release, releaseDepthModel: async ({ model }) => { await releaseDepthSession(model); return {}; }, loseGpu, stillStore, stillData, memoryLimits: (limits) => { setMemoryLimits(limits); return {}; }, setLut, setCalibrations, measureWhite: measureWhiteImage, open, frames, refocusFrames, superRes, lytroEdof, superResPreview, view, focusAt, depthMap, spreadMask, depthHistogram, speedFacts, whiteBalanceAt, prepare, settings, setGrid, rawCrop, outputToSensor, readSection,
   cancel: async ({ kind }) => { state.jobs[kind] = null; return {}; } };
 
 self.onmessage = async (event) => {

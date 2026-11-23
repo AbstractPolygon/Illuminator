@@ -19,12 +19,18 @@ export function finalSize(l16, scale) {
 
 // Renders the picture. `renderTile({ data (RGBA8 sRGB), width, height, lambda (depth in output pixels of shift per unit of viewpoint) })` returns the finished RGBA8 pixels of a tile
 // (the worker's camera render); `margin` (output pixels) is what a tile needs around it. `cancelled()` stops the render. Returns { width, height, pixels: Uint8ClampedArray }.
-export async function renderL16Final(l16, { scale, margin, depthLambda, renderTile, onProgress = () => {}, cancelled = () => false, tile = 768 }) {
+// `wide` (the merged wide picture, float, as core/l16fusion.js makes it) and `grid` (sensor pixels per pixel of it) can be given, for a picture made from the half size merge; `window` ({ x, y, w, h },
+// output pixels) makes only that part of the picture (what is returned is the window).
+export async function renderL16Final(l16, { scale, margin, depthLambda, renderTile, onProgress = () => {}, cancelled = () => false, tile = 768, wide: givenWide = null, grid = 1, window = null }) {
   const { bytes, parsed, measured: depth, colorOptions: opts, gain, colorMatrix } = l16;
-  onProgress('Merging the cameras at full size', 0);
-  const wide = fuse(bytes, parsed, depth, opts, (stage, p) => onProgress(stage, 0.1 * p), { grid: 1 });
+  let wide = givenWide;
+  if (!wide) {
+    onProgress('Merging the cameras at full size', 0);
+    wide = fuse(bytes, parsed, depth, opts, (stage, p) => onProgress(stage, 0.1 * p), { grid: 1 });
+  }
   const { width: W, height: H } = finalSize(l16, scale);
-  const out = new Uint8ClampedArray(W * H * 4);
+  const win = window || { x: 0, y: 0, w: W, h: H };
+  const out = new Uint8ClampedArray(win.w * win.h * 4);
   // every camera with a longer lens than the reference (the 70 mm and the 150 mm ones, which see the middle of the picture)
   const mods = telephotoModules(parsed, depth.ref, [2, Infinity]);
   const rawCache = new Map();
@@ -48,24 +54,24 @@ export async function renderL16Final(l16, { scale, margin, depthLambda, renderTi
     }
     return lam;
   };
-  const tilesX = Math.ceil(W / tile);
-  const tilesY = Math.ceil(H / tile);
+  const tilesX = Math.ceil(win.w / tile);
+  const tilesY = Math.ceil(win.h / tile);
   let done = 0;
   for (let ty = 0; ty < tilesY; ty++) {
     for (let tx = 0; tx < tilesX; tx++) {
       if (cancelled()) return null;
       onProgress('Rendering', 0.1 + (0.9 * done) / (tilesX * tilesY));
-      const X0 = tx * tile;
-      const Y0 = ty * tile;
-      const tw = Math.min(tile, W - X0);
-      const th = Math.min(tile, H - Y0);
+      const X0 = win.x + tx * tile;
+      const Y0 = win.y + ty * tile;
+      const tw = Math.min(tile, win.x + win.w - X0);
+      const th = Math.min(tile, win.y + win.h - Y0);
       const rx0 = Math.max(0, X0 - margin);
       const ry0 = Math.max(0, Y0 - margin);
       const rx1 = Math.min(W, X0 + tw + margin);
       const ry1 = Math.min(H, Y0 + th + margin);
       const rw = rx1 - rx0;
       const rh = ry1 - ry0;
-      const region = renderRegion(bytes, parsed, depth, wide, { x0: rx0 / scale, y0: ry0 / scale, w: rw / scale, h: rh / scale, scale }, mods, opts, () => {}, rawCache);
+      const region = renderRegion(bytes, parsed, depth, wide, { x0: rx0 / (scale * grid), y0: ry0 / (scale * grid), w: rw / (scale * grid), h: rh / (scale * grid), scale: scale * grid, grid }, mods, opts, () => {}, rawCache);
       applyColorMatrix(region.rgb, colorMatrix);
       const data = new Uint8ClampedArray(rw * rh * 4);
       for (let i = 0; i < rw * rh; i++) {
@@ -77,12 +83,12 @@ export async function renderL16Final(l16, { scale, margin, depthLambda, renderTi
       const rwp = region.width;
       for (let y = 0; y < th; y++) {
         const src = 4 * ((Y0 - ry0 + y) * rwp + (X0 - rx0));
-        out.set(finished.subarray(src, src + 4 * tw), 4 * ((Y0 + y) * W + X0));
+        out.set(finished.subarray(src, src + 4 * tw), 4 * ((Y0 - win.y + y) * win.w + (X0 - win.x)));
       }
       done++;
       // let the worker's messages (cancel, other requests) through between tiles
       await new Promise((r) => setTimeout(r, 0));
     }
   }
-  return { width: W, height: H, pixels: out };
+  return { width: win.w, height: win.h, pixels: out };
 }

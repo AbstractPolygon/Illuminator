@@ -177,7 +177,8 @@ export function telephotoModules(parsed, refId, [lo, hi]) {
 
 // Renders the region { x0, y0, w, h } (pixels of the wide reference's grid) at `scale` (output pixels per wide pixel). `wide` is the merged wide picture, `depth` the measured depth
 // (core/l16depth.js), `modules` the telephoto cameras to use. Returns { width, height, rgb, covered: the share of output pixels that a telephoto camera supplied }.
-export function renderRegion(bytes, parsed, depth, wide, { x0, y0, w, h, scale }, modules, opts, onProgress = () => {}, rawCache = null) {
+// (`grid`: sensor pixels per pixel of the wide picture's grid, 1 for the full size merge and 2 for the half size one; the region is in that grid's pixels and `scale` is output pixels per grid pixel.)
+export function renderRegion(bytes, parsed, depth, wide, { x0, y0, w, h, scale, grid = 1 }, modules, opts, onProgress = () => {}, rawCache = null) {
   const W = Math.round(w * scale);
   const H = Math.round(h * scale);
   const refCam = cameraModel(parsed.header, parsed.modules[depth.ref][0]);
@@ -234,10 +235,10 @@ export function renderRegion(bytes, parsed, depth, wide, { x0, y0, w, h, scale }
     let maxX = -Infinity;
     let maxY = -Infinity;
     for (let Y = 0; Y < H; Y++) {
-      const py = y0 + (Y + 0.5) / scale;
+      const py = (y0 + (Y + 0.5) / scale) * grid;
       for (let X = 0; X < W; X++) {
         const i = Y * W + X;
-        const px = x0 + (X + 0.5) / scale;
+        const px = (x0 + (X + 0.5) / scale) * grid;
         const Z = z[i];
         const Xr = ((px - K[2]) / K[0]) * Z;
         const Yr = ((py - K[5]) / K[4]) * Z;

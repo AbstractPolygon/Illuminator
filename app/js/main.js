@@ -1632,6 +1632,7 @@ function draw(img, gen = openSeq.current()) {
   else ctx.drawImage(img, 0, 0);
   if (cropState.editing) positionCropBox();
   canvas.classList.remove('hidden');
+  scheduleDetail();
   // What the app shows is enlarged with the Upscaling settings too, as it will be saved or exported (not while dragging, nor the depth map).
   if (!drag.on && !state.depthShown && !state.skipEnlarge && state.mode === 'camera') showAtPhotoSize(shownScale(w, h));
   scheduleHistogram();
@@ -3648,6 +3649,83 @@ function watchLevel() {
   }, 250);
 }
 
+// ---------------------------------------------------------------- zoomed in on a Light L16 photo
+
+// Past the quick picture's own pixels, the part of the picture on the screen is made again at the zoom's resolution (the half size merge with the longer lens cameras' detail added through
+// the depth: the worker's l16Detail), and laid over the picture. Any change (zoom, pan, viewpoint, focus) takes it away until things settle. (not in automated runs, which take the full size)
+const detailLayer = $('detail-layer');
+let detailTimer = 0;
+let detailToken = 0;
+let detailRunning = false;
+const DETAIL_DELAY = 700;
+const DETAIL_MAX_SCALE = 6;
+const DETAIL_MAX_PIXELS = 9e6;
+function detailWanted() {
+  return !!(state.info && state.info.processed && state.info.processed.hires && state.info.processed.levelWidths && (!navigator.webdriver || window.__forceDetail)
+    && showsCamera() && !state.geom && state.lastImage && !state.lastImage.pair && canvas.width > 0);
+}
+function hideDetail() {
+  detailToken++;
+  detailLayer.hidden = true;
+  if (detailRunning) {
+    detailRunning = false;
+    engine.cancel('detail').catch(() => {});
+  }
+}
+function scheduleDetail() {
+  hideDetail();
+  clearTimeout(detailTimer);
+  detailTimer = 0;
+  if (!detailWanted()) return;
+  detailTimer = setTimeout(runDetail, DETAIL_DELAY);
+}
+async function runDetail() {
+  detailTimer = 0;
+  if (!detailWanted()) return;
+  if (drag.on || state.view.busy || state.view.pending) {
+    detailTimer = setTimeout(runDetail, DETAIL_DELAY);
+    return;
+  }
+  const full = Math.max(...state.info.processed.levelWidths);
+  const k = full / canvas.width;
+  const scale = fitScale() * view.k;
+  let zs = (scale * (window.devicePixelRatio || 1)) / k;
+  if (zs <= 1.05) return;
+  const left = parseFloat(canvas.style.left) || 0;
+  const top = parseFloat(canvas.style.top) || 0;
+  const vw = viewer.clientWidth;
+  const vh = viewer.clientHeight;
+  const x0 = Math.max(0, -left / scale);
+  const y0 = Math.max(0, -top / scale);
+  const x1 = Math.min(canvas.width, (vw - left) / scale);
+  const y1 = Math.min(canvas.height, (vh - top) / scale);
+  if (!(x1 > x0 && y1 > y0)) return;
+  // (in the quick picture's pixels, at the largest level's size)
+  const gw = (x1 - x0) * k;
+  const gh = (y1 - y0) * k;
+  zs = Math.min(DETAIL_MAX_SCALE, zs, Math.sqrt(DETAIL_MAX_PIXELS / (gw * gh)));
+  const token = ++detailToken;
+  detailRunning = true;
+  try {
+    const { promise } = engine.job('l16Detail', 'detail', { ...cameraParams({ live: true }), gx0: x0 * k, gy0: y0 * k, gw, gh, zs });
+    const msg = await promise;
+    if (token !== detailToken || !msg || !(msg.pixels || msg.bitmap)) return;
+    const img = toImageData(msg);
+    detailLayer.width = img.width;
+    detailLayer.height = img.height;
+    detailLayer.getContext('2d').putImageData(img, 0, 0);
+    detailLayer.style.left = `${left + x0 * scale}px`;
+    detailLayer.style.top = `${top + y0 * scale}px`;
+    detailLayer.style.width = `${(x1 - x0) * scale}px`;
+    detailLayer.style.height = `${(y1 - y0) * scale}px`;
+    detailLayer.hidden = false;
+  } catch (err) {
+    console.warn('Zoomed-in detail failed', err);
+  } finally {
+    if (token === detailToken) detailRunning = false;
+  }
+}
+
 function layoutCanvas() {
   const fit = fitScale();
   view.k = Math.min(MAX_SCALE / fit, Math.max(1, view.k));
@@ -3671,6 +3749,7 @@ function layoutCanvas() {
   $('zoom-out').disabled = view.k <= 1;
   $('zoom-in').disabled = scale >= MAX_SCALE - 1e-6;
   watchLevel();
+  scheduleDetail();
 }
 
 // Zooms by `factor`, keeping the image point under (mx, my) (viewer
