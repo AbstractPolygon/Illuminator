@@ -6298,7 +6298,7 @@ const redo = () => stepHistory(false);
 // Text fields keep their own undo.
 const typing = (el) => el && (el.isContentEditable || el.tagName === 'TEXTAREA' || (el.tagName === 'INPUT' && /^(text|search|number|email|url|password)$/.test(el.type)));
 marks = initMarks({ $, state, renderLibrary: () => renderLibrary(), typing });
-looks = initLooks({ $, state, showMenu: (...a) => showMenu(...a), editName: (...a) => editName(...a), confirmInMenu: (...a) => confirmInMenu(...a), currentEdits: () => currentEdits(), flushSave: () => flushSave(), applyEdits: (...a) => applyEdits(...a), scheduleSave: () => scheduleSave(), showNotice: (...a) => showNotice(...a), showError: (...a) => showError(...a), download: (...a) => download(...a) });
+looks = initLooks({ $, state, defaultEdits: () => DEFAULT_EDITS, showMenu: (...a) => showMenu(...a), editName: (...a) => editName(...a), confirmInMenu: (...a) => confirmInMenu(...a), currentEdits: () => currentEdits(), flushSave: () => flushSave(), applyEdits: (...a) => applyEdits(...a), scheduleSave: () => scheduleSave(), showNotice: (...a) => showNotice(...a), showError: (...a) => showError(...a), download: (...a) => download(...a) });
 renderLibrary();
 let lastHistoryKey = 0;
 document.addEventListener('keydown', (e) => {

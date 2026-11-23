@@ -26,3 +26,9 @@ export const L16_LOOKS = [
     details: { 'nr-luminance': 0, 'nr-color': 25 },
   },
 ];
+
+// The looks that come with the app for a Lytro raw photo: the base look, which was a separate choice under Tone (Lytro Desktop's contrast and color, or flat).
+export const BASE_LOOKS = [
+  { id: 'builtin:desktop-classic', format: 'illuminator-look', version: 1, name: 'Desktop Classic', process: { 'base-look': 'lytro' } },
+  { id: 'builtin:flat', format: 'illuminator-look', version: 1, name: 'Flat', process: { 'base-look': 'flat' } },
+];

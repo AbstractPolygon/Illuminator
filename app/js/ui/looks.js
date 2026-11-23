@@ -2,11 +2,14 @@
 // file to share, rename and delete. They are kept in the library (library/library.js).
 
 import { makeLook, parseLook, applyLookToEdits, describeLook, lookFileName } from '../core/looks.js';
-import { L16_LOOKS } from '../core/l16looks.js';
+import { L16_LOOKS, BASE_LOOKS } from '../core/l16looks.js';
 import { xmpToLook } from '../core/lightroompreset.js';
 
-export function initLooks({ $, state, showMenu, editName, confirmInMenu, currentEdits, flushSave, applyEdits, scheduleSave, showNotice, showError, download }) {
+export function initLooks({ $, state, defaultEdits = () => null, showMenu, editName, confirmInMenu, currentEdits, flushSave, applyEdits, scheduleSave, showNotice, showError, download }) {
   const hasPhoto = () => !!(state.info && state.current);
+  const NONE = 'none';
+  // The looks that come with the app, for the kind of photo that is open: a Light L16 photo has Light's presets; a Lytro raw photo has Lytro Desktop's contrast and color (and flat).
+  const builtins = () => (isL16() ? L16_LOOKS : state.info && state.info.hasRaw ? BASE_LOOKS : []);
   const isL16 = () => !!(state.info && state.info.processed && state.info.processed.source === 'l16');
 
   // The looks are a dropdown (choosing one puts it on the open photo); the ••• button beside it acts on the look shown.
@@ -15,27 +18,34 @@ export function initLooks({ $, state, showMenu, editName, confirmInMenu, current
     const row = $('look-row');
     const looks = state.lib ? state.lib.looks : [];
     $('look-save').disabled = !hasPhoto();
-    if (!looks.some((l) => l.id === shown) && !(isL16() && L16_LOOKS.some((l) => l.id === shown))) shown = '';
+    if (shown !== NONE && !looks.some((l) => l.id === shown) && !builtins().some((l) => l.id === shown)) shown = '';
     const select = Object.assign(document.createElement('select'), { title: 'Choose a look to put on the open photo' });
     select.setAttribute('aria-label', 'Look');
-    select.append(new Option(looks.length ? 'Choose a look…' : 'No looks yet', ''));
-    for (const entry of looks) select.append(new Option(entry.name, entry.id));
-    // (a Light L16 photo: the looks that come with the app for it)
-    const builtin = isL16() ? L16_LOOKS : [];
+    select.append(new Option('Choose a look…', ''));
+    // None puts the photo's tone, color and details back to their start (the white balance stays); then the looks that come with the app for this kind of photo, then the saved ones
+    select.append(new Option('None', NONE));
+    const builtin = builtins();
     for (const entry of builtin) select.append(new Option(entry.name, entry.id));
-    if (select.options.length > 1 && !looks.length) select.options[0].textContent = 'Choose a look…';
+    for (const entry of looks) select.append(new Option(entry.name, entry.id));
     select.value = shown;
-    select.disabled = !looks.length && !builtin.length;
+    select.disabled = !hasPhoto();
     select.onchange = () => {
       shown = select.value;
-      more.disabled = !shown || shown.startsWith('builtin:');
+      more.disabled = !shown || shown === NONE || shown.startsWith('builtin:');
       if (shown) apply(shown);
     };
-    const more = Object.assign(document.createElement('button'), { type: 'button', className: 'more', textContent: '•••', title: 'Apply, save as a file, rename, delete the look shown', disabled: !shown || shown.startsWith('builtin:') });
+    const more = Object.assign(document.createElement('button'), { type: 'button', className: 'more', textContent: '•••', title: 'Apply, save as a file, rename, delete the look shown', disabled: !shown || shown === NONE || shown.startsWith('builtin:') });
     more.setAttribute('aria-label', 'Actions for the look shown');
     more.setAttribute('aria-haspopup', 'menu');
     more.onclick = () => menu(shown, row, more);
     row.replaceChildren(select, more);
+  }
+
+  // "None": the start values of the tone, color and details (everything a look holds but the white balance and the camera's own settings)
+  function noneLook() {
+    const start = defaultEdits();
+    if (!start) throw new Error('The start settings are not known');
+    return makeLook(start, 'None', { whiteBalance: false, local: false, details: true });
   }
 
   // Puts a look on the open photo: its settings over the photo's, as one undo step, saved like any change.
@@ -46,7 +56,7 @@ export function initLooks({ $, state, showMenu, editName, confirmInMenu, current
         return;
       }
       const photoBefore = state.current;
-      const look = id.startsWith('builtin:') ? L16_LOOKS.find((l) => l.id === id) : await state.lib.loadLook(id);
+      const look = id === NONE ? noneLook() : id.startsWith('builtin:') ? builtins().find((l) => l.id === id) : await state.lib.loadLook(id);
       if (!look) throw new Error('This look could not be read');
       // The photo may have been closed, or another opened, while the look loaded.
       if (!hasPhoto() || state.current !== photoBefore) {
@@ -55,7 +65,9 @@ export function initLooks({ $, state, showMenu, editName, confirmInMenu, current
       }
       await flushSave();
       if (!hasPhoto() || state.current !== photoBefore) return;
-      await applyEdits(state.info, applyLookToEdits(currentEdits(), look));
+      const edits = applyLookToEdits(currentEdits(), look);
+      if (id === NONE) edits.local = {};
+      await applyEdits(state.info, edits);
       scheduleSave();
     } catch (err) {
       showError(err);
