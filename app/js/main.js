@@ -402,7 +402,7 @@ function renderLibrary() {
       return kept.el;
     }
     const li = document.createElement('li');
-    li.className = photo === current ? 'current' : '';
+    li.className = (photo === current ? 'current' : '') + (selection.has(photo.id) ? ' selected' : '');
     li.dataset.photoId = photo.id;
     li.tabIndex = 0;
     li.setAttribute('role', 'button');
@@ -689,7 +689,7 @@ function renderFilmstrip(photos, current) {
     }
     // (an item holds the thumbnail button, which opens the photo, and the pick box and stars over it: ui/marks.js)
     const item = document.createElement('div');
-    item.className = photo === current ? 'film current' : 'film';
+    item.className = (photo === current ? 'film current' : 'film') + (selection.has(photo.id) ? ' selected' : '');
     item.dataset.photoId = photo.id;
     item.title = photo.master ? `${photo.name} (virtual copy)` : photo.name;
     item.setAttribute('role', 'listitem');
@@ -890,6 +890,9 @@ function tileClick(e, photo) {
 function showSelection() {
   const grid = $('photo-grid');
   for (const tile of grid.children) tile.classList.toggle('selected', selection.has(tile.dataset.id));
+  // (the sidebar list and the film strip show the same selection)
+  for (const row of $('library-list').children) row.classList.toggle('selected', selection.has(row.dataset.photoId));
+  for (const item of $('filmstrip-list').children) item.classList.toggle('selected', selection.has(item.dataset.photoId));
   grid.classList.toggle('selecting', selectMode || selection.size > 0);
   $('grid-select').setAttribute('aria-pressed', String(selectMode));
   $('grid-selection').hidden = !(selectMode || selection.size > 0);
@@ -912,8 +915,10 @@ $('grid-select-all').onclick = () => {
 };
 $('grid-delete').onclick = () => deleteSelected();
 document.addEventListener('keydown', (e) => {
-  if ($('grid-view').hidden || document.querySelector('dialog[open]')) return;
   const t = e.target;
+  // (the selection's keys work in the grid, and in the sidebar list and the film strip when one of them has the focus)
+  const inList = !!(t && t.closest && t.closest('#library-list, #filmstrip-list'));
+  if (document.querySelector('dialog[open]') || ($('grid-view').hidden && !inList)) return;
   if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
   if (menuEl && !menuEl.hidden && menuEl.contains(document.activeElement)) return;
   if ((e.key === 'Delete' || e.key === 'Backspace') && selection.size) {
@@ -921,9 +926,9 @@ document.addEventListener('keydown', (e) => {
     deleteSelected();
   } else if (e.key === 'Escape' && (selection.size || selectMode)) {
     setSelectMode(false);
-  } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a' && t && t.closest && t.closest('#photo-grid')) {
+  } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a' && t && t.closest && (t.closest('#photo-grid') || inList)) {
     e.preventDefault();
-    selection.selectAll(gridOrder);
+    selection.selectAll(inList ? (state.listedPhotos || []).map((p) => p.id) : gridOrder);
     showSelection();
   }
 });
@@ -941,7 +946,8 @@ function deleteSelected() {
   if (!photos.length) return;
   const n = photos.length;
   const label = state.lib.persistent ? `Delete ${n}` : `Remove ${n}`;
-  showMenu($('grid-delete'), []);
+  const anchorEl = !$('grid-view').hidden ? $('grid-delete') : document.activeElement && document.activeElement.closest && document.activeElement.closest('#library-list li, #filmstrip-list .film') || $('library-list');
+  showMenu(anchorEl, []);
   confirmInMenu(
     `${state.lib.persistent ? 'Delete' : 'Remove'} ${n} photo${n === 1 ? '' : 's'} from the library? ${state.lib.persistent ? deletionWhere() : 'They go from the list; their files are not touched.'}`,
     label,
@@ -1194,6 +1200,11 @@ async function createVirtualCopy(photo) {
 }
 
 function photoMenu(photo, button, at = null) {
+  // ••• on one of several picked photos acts on all of them
+  if (selection.size > 1 && selection.has(photo.id)) {
+    const group = state.lib.photos.filter((p) => selection.has(p.id));
+    if (group.length > 1) return photoGroupMenu(group, button, at);
+  }
   const items = [];
   items.push({ label: 'Rename…', action: () => renamePhoto(photo) });
   // Settings first, so they stay in view however many albums there are.
@@ -1242,6 +1253,52 @@ function photoMenu(photo, button, at = null) {
       const copies = state.lib.photos.filter((p) => p.master === photo.id).length;
       const withCopies = copies ? ` Its ${copies === 1 ? 'virtual copy is' : `${copies} virtual copies are`} deleted too.` : '';
       return confirmInMenu(`Delete ${photo.name} from the library? ${where}${withCopies}`, 'Delete', remove);
+    },
+  });
+  showMenu(button, items, at);
+}
+
+// The ••• menu for several picked photos: paste or reset their settings, put them in an album or take them out, delete them.
+function photoGroupMenu(group, button, at = null) {
+  const n = group.length;
+  const ids = group.map((p) => p.id);
+  const items = [{ heading: `${n} photos` }];
+  items.push({
+    label: copiedSettings ? `Paste settings from ${copiedSettings.name}…` : 'Paste settings',
+    disabled: !copiedSettings,
+    action: () => confirmInMenu(`Replace the settings of ${n} photos with those copied from ${copiedSettings.name}?`, 'Paste', async () => {
+      for (const p of group) if (p.id !== copiedSettings.id) await pasteSettings(p);
+    }),
+  });
+  items.push({
+    label: 'Reset settings…',
+    action: () => confirmInMenu(`Reset every setting of ${n} photos? Their adjustments, keyframes and local adjustments go back to how a newly opened photo starts.`, 'Reset', async () => {
+      for (const p of group) await resetPhotoSettings(p);
+    }),
+  });
+  items.push('-');
+  items.push({ heading: 'Albums' });
+  for (const a of state.lib.albums) {
+    const all = ids.every((id) => a.photos.includes(id));
+    items.push({
+      label: a.name,
+      checked: all,
+      action: async () => {
+        if (all) await state.lib.removeFromAlbum(a.id, ids);
+        else await state.lib.addToAlbum(a.id, ids.filter((id) => !a.photos.includes(id)));
+        renderLibrary();
+      },
+    });
+  }
+  items.push({ label: 'New album…', action: () => newAlbum(ids) });
+  items.push('-');
+  items.push({
+    label: state.lib.persistent ? `Delete ${n} from library…` : `Remove ${n} from list`,
+    danger: true,
+    action: () => {
+      const remove = () => removePhotos(group);
+      if (!state.lib.persistent) return remove();
+      return confirmInMenu(`Delete ${n} photos from the library? ${deletionWhere()}`, 'Delete', remove);
     },
   });
   showMenu(button, items, at);
@@ -1311,8 +1368,29 @@ async function importPhotos(entries, { album = state.album, replace = false } = 
 // ---------------------------------------------------------------- opening
 
 // With the Render Queue view open, Ctrl/Command-click and Shift-click choose several photos to add (ui/queue.js).
+// A click on a photo in the sidebar list or the film strip: it opens the photo, or (Ctrl/Cmd: one more or one less; Shift: all from the last one picked to this one) picks it, with the same
+// selection the grid has (Delete takes the picked photos out, and ••• on a picked photo acts on all of them where it can).
 function chooseListedPhoto(photo, e) {
-  if (!(queueUi && queueUi.pick(photo, e))) openItem(photo);
+  if (queueUi && queueUi.pick(photo, e)) return;
+  const order = (state.listedPhotos || []).map((p) => p.id);
+  if (e && e.shiftKey) {
+    // (the open photo is where a range starts when nothing was picked)
+    if (!selection.size && state.current && state.current.photo && order.includes(state.current.photo.id)) selection.toggle(state.current.photo.id);
+    selection.range(order, photo.id);
+    showSelection();
+    return;
+  }
+  if (e && (e.ctrlKey || e.metaKey)) {
+    if (!selection.size && state.current && state.current.photo && state.current.photo.id !== photo.id && order.includes(state.current.photo.id)) selection.toggle(state.current.photo.id);
+    selection.toggle(photo.id);
+    showSelection();
+    return;
+  }
+  if (selection.size) {
+    selection.clear();
+    showSelection();
+  }
+  openItem(photo);
 }
 
 // One click on a photo in the sidebar opens it. A click is only sent when the pointer is released on the element it was pressed on, and the list is rebuilt whenever something

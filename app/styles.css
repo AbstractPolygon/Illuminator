@@ -126,6 +126,7 @@ h2 { font-size: 13px; font-weight: 600; color: var(--heading); margin: 14px 0 8p
 #library-list li { position: relative; }
 #library-list li:hover { background: #22262c; }
 #library-list li.current { border-color: var(--accent); }
+#library-list li.selected { background: rgba(75, 152, 229, 0.16); border-color: var(--accent); }
 #library-list li:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
 #library-list li.picked { background: #26303c; }
 #library-list li.picked:not(.current) { border-color: #4a6a8f; }
@@ -149,6 +150,7 @@ h2 { font-size: 13px; font-weight: 600; color: var(--heading); margin: 14px 0 8p
 .filmstrip-list .film { flex: none; width: 96px; height: 66px; position: relative; border: 2px solid transparent; border-radius: 5px; overflow: hidden; background: #2a2e35; }
 .filmstrip-list .film:hover { border-color: var(--line); }
 .filmstrip-list .film.current { border-color: var(--accent); }
+.filmstrip-list .film.selected { border-color: var(--accent); box-shadow: inset 0 0 0 2px rgba(75, 152, 229, 0.7); }
 .filmstrip-list .film-open { position: absolute; inset: 0; width: 100%; height: 100%; padding: 0; border: 0; background: none; cursor: pointer; }
 .filmstrip-list .film-open img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .filmstrip-list .film-open:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
