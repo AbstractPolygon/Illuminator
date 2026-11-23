@@ -114,7 +114,7 @@ export function renderRegion(bytes, parsed, depth, wide, { x0, y0, w, h, scale }
   const upLow = gauss(up, W, H, sigma);
   const out = Float32Array.from(up);
   const weight = new Float32Array(W * H).fill(0.04); // the wide picture's share where no telephoto camera helps
-  const detail = new Float32Array(3 * W * H); // the sum of weighted telephoto detail (high frequency) over the cameras
+  const details = []; // each camera's high frequency detail (3 per pixel, NaN where it has none or disagrees)
   const wsum = new Float32Array(W * H);
   let used = 0;
   for (const id of modules) {
@@ -166,6 +166,7 @@ export function renderRegion(bytes, parsed, depth, wide, { x0, y0, w, h, scale }
       samp[3 * i + 2] *= g[2];
     }
     const low = gauss(samp, W, H, sigma);
+    const det = new Float32Array(3 * W * H).fill(NaN);
     for (let i = 0; i < W * H; i++) {
       if (!have[i]) continue;
       // agree: the telephoto's low frequencies match the wide picture's within noise and a small misregistration
@@ -174,21 +175,35 @@ export function renderRegion(bytes, parsed, depth, wide, { x0, y0, w, h, scale }
       const sig = 0.015 + 0.08 * Math.sqrt(Math.max(lu, 0)) * 0.35;
       const d = (ll - lu) / sig;
       const wgt = Math.exp(-0.5 * d * d);
-      if (wgt < 0.02) continue;
-      for (let c = 0; c < 3; c++) detail[3 * i + c] += wgt * (samp[3 * i + c] - low[3 * i + c]);
+      if (wgt < 0.05) continue;
+      for (let c = 0; c < 3; c++) det[3 * i + c] = samp[3 * i + c] - low[3 * i + c];
       wsum[i] += wgt;
     }
+    details.push(det);
     used++;
   }
+  // The detail at each pixel: the median over the cameras that agree there (a camera that is a little out of register, or sees an edge another does not, is outvoted; with two, the
+  // mean), and the weak part of it, which is mostly noise, taken down.
   let covered = 0;
+  const vals = [];
   for (let i = 0; i < W * H; i++) {
-    const ws = wsum[i];
-    if (ws > 0) {
-      // mean detail of the agreeing cameras, scaled down when they are few or weakly agreeing
-      const k = ws / (ws + weight[i] * 0 + 0.3);
-      for (let c = 0; c < 3; c++) out[3 * i + c] = Math.max(0, up[3 * i + c] + (k * detail[3 * i + c]) / ws);
-      if (ws > 0.3) covered++;
+    if (!(wsum[i] > 0.05)) continue;
+    const lumaOf = up[3 * i + 1];
+    const noise = 0.004 + 0.02 * Math.sqrt(Math.max(lumaOf, 0)) * 0.35;
+    for (let c = 0; c < 3; c++) {
+      vals.length = 0;
+      for (const d of details) {
+        const v = d[3 * i + c];
+        if (v === v) vals.push(v);
+      }
+      if (!vals.length) continue;
+      vals.sort((a, b) => a - b);
+      let m = vals.length % 2 ? vals[vals.length >> 1] : (vals[vals.length / 2 - 1] + vals[vals.length / 2]) / 2;
+      const a = Math.abs(m);
+      m = a <= noise ? m * (a / noise) : Math.sign(m) * (a - noise * 0.5);
+      out[3 * i + c] = Math.max(0, up[3 * i + c] + m);
     }
+    covered++;
   }
   return { width: W, height: H, rgb: out, covered: covered / (W * H), wide: up };
 }
