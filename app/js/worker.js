@@ -896,7 +896,7 @@ function summary() {
     return {
       ...base,
       cam,
-      processed: { kind: pp.kind, source: pp.source, count: pp.images.length, hasDepth: pp.hasDepth, canDrag: pp.canDrag, ...(pp.source === 'l16' ? { hires: true } : {}), ...(pp.levels ? { levelWidths: pp.levels.map((l) => l.width) } : {}) },
+      processed: { kind: pp.kind, source: pp.source, count: pp.images.length, hasDepth: pp.hasDepth, canDrag: pp.canDrag, ...(pp.source === 'l16' ? { hires: true, native: [pp.width * 2, pp.height * 2] } : {}), ...(pp.levels ? { levelWidths: pp.levels.map((l) => l.width) } : {}) },
       width: pp.width,
       height: pp.height,
       sizes: { 1: [pp.width, pp.height], 1.5: [pp.width, pp.height], 2: [pp.width, pp.height] },

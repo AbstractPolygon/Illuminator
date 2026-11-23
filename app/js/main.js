@@ -2892,6 +2892,7 @@ async function renderStill() {
 // Render works for any raw photo in the camera view: at the Photo Size with the chosen Upscaling (a downloaded model enlarges the picture here), or, with Full
 // sensor on, as the full sensor still.
 // Full resolution: raw photos (the full sensor render) and Light L16 photos (the final render with the telephoto cameras' detail).
+const isL16 = () => !!(state.info && state.info.processed && state.info.processed.hires);
 const fullResCapable = () => !!(state.info && (state.info.hasRaw || (state.info.processed && state.info.processed.hires)));
 // A Light L16 photo's Render scale is in multiples of the camera's size (the quick views are half that); a raw photo's is in multiples of its lens grid.
 function showStillScales() {
@@ -2907,7 +2908,7 @@ function showStillScales() {
   }
   sel.dataset.kind = l16 ? 'l16' : 'raw';
   sel.innerHTML = l16
-    ? '<option value="1">1× camera size</option><option value="1.5">1.5×</option><option value="2" selected>2×</option><option value="2.5">2.5× (telephoto detail)</option>'
+    ? '<option value="1">1× camera size</option><option value="1.5">1.5×</option><option value="2" selected>2×</option><option value="2.5">2.5×</option><option value="3">3×</option><option value="4">4×</option>'
     : '<option value="2">2× lens grid</option><option value="3" selected>3× lens grid</option><option value="4">4× lens grid</option>';
   if (l16) $('l16-resolution').value = sel.value;
 }
@@ -2924,7 +2925,9 @@ function setFullResMode(on) {
   if (on && !(fullResCapable() && state.mode === 'camera')) on = false;
   state.fullResMode = on;
   $('fullres-on').checked = on;
-  $('fullres-panel').hidden = !on;
+  // (a Light L16 photo has no Full sensor choice: its Render is always the full render, and its size is the Resolution under Quality)
+  $('fullres-panel').hidden = !on || isL16();
+  $('auto-render-row').hidden = isL16();
   updateRenderButton();
   $('auto-render').disabled = !on;
   showPhotoSizes();
@@ -2940,7 +2943,8 @@ let autoRenderTimer = 0;
 function scheduleAutoRender(delay = AUTO_RENDER_DELAY) {
   clearTimeout(autoRenderTimer);
   autoRenderTimer = 0;
-  if (!$('auto-render').checked || !state.fullResMode || state.fullRes) return;
+  // (a Light L16 photo is rendered when Render is pressed: the render takes minutes)
+  if (!$('auto-render').checked || !state.fullResMode || state.fullRes || isL16()) return;
   autoRenderTimer = setTimeout(() => {
     autoRenderTimer = 0;
     if (drag.on) return scheduleAutoRender();
@@ -3353,7 +3357,11 @@ function setMode(mode) {
   const depthTools = hasDepth() && camera;
   const stack = !!(state.info && state.info.processed && state.info.processed.kind === 'focus');
   $('fullres-on').disabled = !raw || !camera;
-  if (!raw || !camera) setFullResMode(false);
+  // The Full sensor choice is only for raw photos (it means nothing for the others); a Light L16 photo always renders in full.
+  $('fullres-on').closest('label').hidden = !raw;
+  if (isL16() && camera) {
+    if (!state.fullResMode) setFullResMode(true);
+  } else if (!raw || !camera) setFullResMode(false);
   for (const id of ['depth-btn', 'depth-grey', 'depth-contrast', 'depth-contrast-persp', 'spread-show', 'depth-smooth', 'depth-hq', 'depth-style', 'depth-blend', 'depth-model-blend', 'depth-objects', 'depth-objects-soft', 'depth-model-smooth', 'depth-model-curve', 'lytro-depth']) $(id).disabled = !depthTools;
   // Grayscale only changes the depth map's picture: it can be used while the map is shown.
   $('depth-grey').disabled = !depthTools || !state.depthShown;
@@ -3401,6 +3409,7 @@ function fmt(v, digits = 2) {
 // Resolution and Scale options show the picture size they give for this
 // photo.
 const RESOLUTION_NAMES = { 1: '1× (fast)', 1.5: '1.5×', 2: '2×' };
+const L16_SCALE_NAMES = { 1: '1× camera size', 1.5: '1.5×', 2: '2×', 2.5: '2.5×', 3: '3×', 4: '4×' };
 const SCALE_NAMES = { 2: '2× lens grid', 3: '3× lens grid', 4: '4× lens grid' };
 function showResolutionSizes() {
   const label = (select, names, sizes) => {
@@ -3411,6 +3420,12 @@ function showResolutionSizes() {
   };
   label($('detail'), RESOLUTION_NAMES, state.info && state.info.sizes);
   label($('still-scale'), SCALE_NAMES, state.info && state.info.stillSizes);
+  // A Light L16 photo's sizes: the camera's size (4160 x 3120) times each
+  const native = state.info && state.info.processed && state.info.processed.native;
+  for (const o of $('l16-resolution').options) {
+    const k = +o.value;
+    o.textContent = `${L16_SCALE_NAMES[o.value]}${native ? ` — ${Math.round(native[0] * k)}×${Math.round(native[1] * k)} px` : ''}`;
+  }
   showPhotoSizes();
 }
 
@@ -3589,6 +3604,12 @@ for (const b of document.querySelectorAll('#modes button')) b.addEventListener('
 const view = { k: 1, cx: 0.5, cy: 0.5 };
 const viewer = $('drop-zone');
 const MAX_SCALE = 16;
+
+// How many of a Light L16 photo's real pixels one pixel of the picture on the canvas stands for (2 for the quick picture, which is half the camera's size); 1 for any other photo.
+function nativeFactor() {
+  const native = state.info && state.info.processed && state.info.processed.native;
+  return native && canvas.width ? native[0] / canvas.width : 1;
+}
 
 function fitScale() {
   // While cropping, leave room around the picture for the frame's handles.
@@ -3799,7 +3820,8 @@ function layoutCanvas() {
   for (const k of ['width', 'height', 'left', 'top']) $('peaking-overlay').style[k] = canvas.style[k];
   if (retouchUi) retouchUi.drawOverlay();
   canvas.classList.toggle('pannable', view.k > 1 && state.mode !== 'camera');
-  $('zoom-label').textContent = view.k === 1 ? 'Fit' : `${Math.round(scale * 100)}%`;
+  // (a Light L16 photo's zoom is in its real pixels: its quick picture is half the camera's size, so 100% is two screen pixels to one canvas pixel)
+  $('zoom-label').textContent = view.k === 1 ? 'Fit' : `${Math.round((scale / nativeFactor()) * 100)}%`;
   positionCropBox();
   $('zoom-out').disabled = view.k <= 1;
   $('zoom-in').disabled = scale >= MAX_SCALE - 1e-6;
@@ -3832,7 +3854,7 @@ function zoomFit() {
 }
 
 function zoomActual() {
-  view.k = 1 / fitScale();
+  view.k = nativeFactor() / fitScale();
   layoutCanvas();
 }
 
