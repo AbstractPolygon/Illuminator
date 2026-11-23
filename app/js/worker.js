@@ -58,6 +58,10 @@ import { parseMasks, activeMasks, packMasks, resolveMasks, hasSpatial, applySpat
 import { parseSpots, resolveSpots, packSpots, applySpots } from './core/retouch.js';
 import { GpuRenderer } from './gpu/renderer.js';
 import { renderL16Final } from './core/l16render.js';
+import { superpixelColor, depthAtSize, synthesize, fillFromBackground, backgroundDepth, fillFromDonors } from './core/l16view.js';
+import { RIG_RADIUS_MM, applyColorMatrix } from './core/l16photo.js';
+import { cameraModel as l16CameraModel } from './core/l16geometry.js';
+import { relativePose as l16RelativePose } from './core/l16depth.js';
 import { lytroSplatGpu } from './gpu/lytroengine.js';
 import { debugFlags, hook, setHook } from './core/debugflags.js';
 import { withExtension, depthRange, searchSteps, reachProfile, reachToward, uncoveredMask } from './core/viewextend.js';
@@ -1524,6 +1528,75 @@ async function l16Still({ id, job, scale = 1, u = 0, v = 0, alpha = 0, dof = 0, 
   return undefined;
 }
 
+
+// A Light L16 photo with the viewpoint moved: what the nearer things uncover is taken from the other cameras' own pictures (they saw it from where they stand) instead of being the
+// background stretched over it. The view is made again from the reference's picture and the depth by splatting, the holes it leaves are looked up in the other color cameras through
+// the calibration (background depth, nearest camera to the viewpoint first), what none saw is filled from its farther neighbours, and the result goes through the same camera render as the
+// picture (focus, blur, color). Returns the whole picture, opaque only where the live view shows an uncovered place (and a few pixels round it), or { none: true } with no such place.
+async function l16Holes({ id, job, u = 0, v = 0, alpha = 0, dof = 0, bokeh, color = null }) {
+  state.jobs.holes = job;
+  const l16 = state.lf && state.lf.l16;
+  const top = state.pp;
+  if (!l16 || !top) return { none: true };
+  const mask = top.holes(u, v);
+  let count = 0;
+  if (mask) for (let i = 0; i < mask.length; i++) count += mask[i];
+  if (!mask || count < 50) return { none: true };
+  const { wide, measured: depth, parsed, bytes, colorOptions: opts } = l16;
+  const w = wide.width;
+  const h = wide.height;
+  const z = depthAtSize(depth.invZ, depth.width, depth.height, w, h);
+  const focal = depth.K[0] / 2;
+  const tx = 2 * RIG_RADIUS_MM * u;
+  const ty = 2 * RIG_RADIUS_MM * v;
+  const view = synthesize({ rgb: wide.rgb, width: w, height: h, z }, focal, tx, ty, l16.pivotZ);
+  if (state.jobs.holes !== job) return { cancelled: true };
+  const refCam = l16CameraModel(parsed.header, parsed.modules[depth.ref][0]);
+  const donors = depth.modules
+    .filter((m) => (parsed.modules[m][0].module.sensor_bayer_red_override || { x: 0 }).x >= 0)
+    .map((m) => {
+      const cam = l16CameraModel(parsed.header, parsed.modules[m][0]);
+      return { id: m, cam, rel: l16RelativePose(refCam, cam), color: superpixelColor(bytes, parsed.modules[m][0], opts) };
+    });
+  await tick();
+  if (state.jobs.holes !== job) return { cancelled: true };
+  // (where the splatted view itself has a gap: the places that are both a gap here and uncovered in the live view are the ones replaced)
+  const gap = Uint8Array.from(view.hole);
+  fillFromDonors(view, { rgb: wide.rgb, width: w, height: h, z, K: depth.K, scale: 2 }, donors, tx, ty, backgroundDepth(view.z, view.hole, w, h));
+  fillFromBackground(view, w, h);
+  applyColorMatrix(view.rgb, l16.colorMatrix);
+  const data = new Uint8ClampedArray(w * h * 4);
+  const lambda = new Float32Array(w * h);
+  for (let i = 0; i < w * h; i++) {
+    for (let c = 0; c < 3; c++) data[4 * i + c] = Math.round(255 * srgbOf(Math.min(1, view.rgb[3 * i + c] * l16.gain)));
+    data[4 * i + 3] = 255;
+    lambda[i] = Number.isFinite(view.z[i]) ? l16.k * (1 / view.z[i] - l16.inv0) : 0;
+  }
+  const blur = processedBlur({ u: 0, v: 0, alpha, aperture: 0, dof, bokeh, color });
+  const tile = new ProcessedPicture({ kind: 'single', source: 'l16', images: [{ width: w, height: h, data }], depth: { width: w, height: h, lambda }, pitchRatio: { x: 1, y: 1 } });
+  tile.lambdaRange = top.lambdaRange;
+  const pixels = toPixels(tile.render({ u: 0, v: 0, alpha, blur, bokeh: bokeh || {} }), w, h, undefined, colorState(color));
+  // opaque on the uncovered places (and a pixel round them)
+  const near = new Uint8Array(w * h);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      if (!mask[y * w + x] || !gap[y * w + x]) continue;
+      for (let dy = -1; dy <= 1; dy++) {
+        const yy = y + dy;
+        if (yy < 0 || yy >= h) continue;
+        for (let dx = -1; dx <= 1; dx++) {
+          const xx = x + dx;
+          if (xx >= 0 && xx < w) near[yy * w + xx] = 1;
+        }
+      }
+    }
+  }
+  for (let i = 0; i < w * h; i++) pixels[4 * i + 3] = near[i] ? 255 : 0;
+  if (state.jobs.holes !== job) return { cancelled: true };
+  post({ id, type: 'result', width: w, height: h, pixels: pixels.buffer }, [pixels.buffer]);
+  return undefined;
+}
+const srgbOf = (x) => (x <= 0.0031308 ? 12.92 * x : 1.055 * Math.pow(x, 1 / 2.4) - 0.055);
 
 // A Light L16 photo zoomed in: only the part of the picture on the screen, made at the zoom's resolution (output pixels per pixel of the quick picture: zs) from the half size merge with
 // the longer lens cameras' detail added through the depth (core/l16render.js), with the viewpoint, blur and color of the camera view. `window` is in picture pixels (the quick picture's).
@@ -4002,7 +4075,7 @@ async function loseGpu() {
   return { lost: !!ext };
 }
 
-const handlers = { l16Detail, release, releaseDepthModel: async ({ model }) => { await releaseDepthSession(model); return {}; }, loseGpu, stillStore, stillData, memoryLimits: (limits) => { setMemoryLimits(limits); return {}; }, setLut, setCalibrations, measureWhite: measureWhiteImage, open, frames, refocusFrames, superRes, lytroEdof, superResPreview, view, focusAt, depthMap, spreadMask, depthHistogram, speedFacts, whiteBalanceAt, prepare, settings, setGrid, rawCrop, outputToSensor, readSection,
+const handlers = { l16Holes, l16Detail, release, releaseDepthModel: async ({ model }) => { await releaseDepthSession(model); return {}; }, loseGpu, stillStore, stillData, memoryLimits: (limits) => { setMemoryLimits(limits); return {}; }, setLut, setCalibrations, measureWhite: measureWhiteImage, open, frames, refocusFrames, superRes, lytroEdof, superResPreview, view, focusAt, depthMap, spreadMask, depthHistogram, speedFacts, whiteBalanceAt, prepare, settings, setGrid, rawCrop, outputToSensor, readSection,
   cancel: async ({ kind }) => { state.jobs[kind] = null; return {}; } };
 
 self.onmessage = async (event) => {

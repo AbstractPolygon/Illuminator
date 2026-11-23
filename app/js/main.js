@@ -1633,6 +1633,7 @@ function draw(img, gen = openSeq.current()) {
   if (cropState.editing) positionCropBox();
   canvas.classList.remove('hidden');
   scheduleDetail();
+  scheduleHoles();
   // What the app shows is enlarged with the Upscaling settings too, as it will be saved or exported (not while dragging, nor the depth map).
   if (!drag.on && !state.depthShown && !state.skipEnlarge && state.mode === 'camera') showAtPhotoSize(shownScale(w, h));
   scheduleHistogram();
@@ -3726,6 +3727,60 @@ async function runDetail() {
   }
 }
 
+// A Light L16 photo with the viewpoint moved, once things settle: what the nearer things uncover is filled from the other cameras' own pictures (the worker's l16Holes), laid over the
+// stretched background the live view shows there. Any change takes it away.
+const holesLayer = $('holes-layer');
+let holesTimer = 0;
+let holesToken = 0;
+let holesRunning = false;
+function holesWanted() {
+  return !!(state.info && state.info.processed && state.info.processed.hires && (!navigator.webdriver || window.__forceDetail) && showsCamera() && !state.geom
+    && state.lastImage && !state.lastImage.pair && (state.camera.u || state.camera.v));
+}
+function hideHoles() {
+  holesToken++;
+  holesLayer.hidden = true;
+  if (holesRunning) {
+    holesRunning = false;
+    engine.cancel('holes').catch(() => {});
+  }
+}
+function scheduleHoles() {
+  hideHoles();
+  clearTimeout(holesTimer);
+  holesTimer = 0;
+  if (!holesWanted()) return;
+  holesTimer = setTimeout(runHoles, DETAIL_DELAY);
+}
+function placeHoles() {
+  for (const k of ['width', 'height', 'left', 'top']) holesLayer.style[k] = canvas.style[k];
+}
+async function runHoles() {
+  holesTimer = 0;
+  if (!holesWanted()) return;
+  if (drag.on || state.view.busy || state.view.pending) {
+    holesTimer = setTimeout(runHoles, DETAIL_DELAY);
+    return;
+  }
+  const token = ++holesToken;
+  holesRunning = true;
+  try {
+    const { promise } = engine.job('l16Holes', 'holes', { ...cameraParams({ live: true }) });
+    const msg = await promise;
+    if (token !== holesToken || !msg || !(msg.pixels || msg.bitmap)) return;
+    const img = toImageData(msg);
+    holesLayer.width = img.width;
+    holesLayer.height = img.height;
+    holesLayer.getContext('2d').putImageData(img, 0, 0);
+    placeHoles();
+    holesLayer.hidden = false;
+  } catch (err) {
+    console.warn('Filling from the other cameras failed', err);
+  } finally {
+    if (token === holesToken) holesRunning = false;
+  }
+}
+
 function layoutCanvas() {
   const fit = fitScale();
   view.k = Math.min(MAX_SCALE / fit, Math.max(1, view.k));
@@ -3750,6 +3805,7 @@ function layoutCanvas() {
   $('zoom-in').disabled = scale >= MAX_SCALE - 1e-6;
   watchLevel();
   scheduleDetail();
+  scheduleHoles();
 }
 
 // Zooms by `factor`, keeping the image point under (mx, my) (viewer
