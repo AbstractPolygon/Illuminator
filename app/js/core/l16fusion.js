@@ -24,6 +24,31 @@ export function demosaic(bytes, frame, { black = 42, white = 1023, gains = [1, 1
   return demosaicRaw(decoded, frame, { black, white, gains });
 }
 
+// Hot and dead pixels: a pixel far brighter than every neighbour of its own color (or far darker than all of them) is replaced by their mean. `step` is the distance to the neighbours of the same
+// color (2 on a Bayer mosaic, 1 on the monochrome sensor). Without this a hot pixel becomes a colored square after the demosaic, and the telephoto detail would copy it into the picture.
+function removeSpecks(px, W, H, step) {
+  const out = [];
+  const at = (x, y) => px[Math.min(H - 1, Math.max(0, y)) * W + Math.min(W - 1, Math.max(0, x))];
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      const v = px[y * W + x];
+      const a = at(x - step, y);
+      const b = at(x + step, y);
+      const c = at(x, y - step);
+      const d = at(x, y + step);
+      const e = at(x - step, y - step);
+      const f = at(x + step, y - step);
+      const g = at(x - step, y + step);
+      const h = at(x + step, y + step);
+      const hi = Math.max(a, b, c, d, e, f, g, h);
+      const lo = Math.min(a, b, c, d, e, f, g, h);
+      if (v > hi * 1.5 + 0.03 || (lo > 0.12 && v < lo * 0.3)) out.push(y * W + x, (a + b + c + d) / 4);
+    }
+  }
+  // (replaced after the search, so one pixel's fix is not another's neighbour)
+  for (let i = 0; i < out.length; i += 2) px[out[i]] = out[i + 1];
+}
+
 // The demosaic of an unpacked frame (the whole frame, or a window of it cut out with the pattern's phase kept).
 function demosaicRaw(decoded, frame, { black, white, gains }) {
   const { width: W, height: H, data } = decoded;
@@ -32,14 +57,15 @@ function demosaicRaw(decoded, frame, { black, white, gains }) {
   const scale = 1 / (white - black);
   if (o.x < 0) {
     // the monochrome module: one value for all three
-    for (let i = 0; i < W * H; i++) {
-      const v = Math.max(0, (data[i] - black) * scale);
-      rgb[3 * i] = rgb[3 * i + 1] = rgb[3 * i + 2] = v;
-    }
+    const mv = new Float32Array(W * H);
+    for (let i = 0; i < W * H; i++) mv[i] = Math.max(0, (data[i] - black) * scale);
+    removeSpecks(mv, W, H, 1);
+    for (let i = 0; i < W * H; i++) rgb[3 * i] = rgb[3 * i + 1] = rgb[3 * i + 2] = mv[i];
     return { width: W, height: H, rgb };
   }
   const px = new Float32Array(W * H);
   for (let i = 0; i < px.length; i++) px[i] = Math.max(0, (data[i] - black) * scale);
+  removeSpecks(px, W, H, 2);
   const at = (x, y) => px[Math.min(H - 1, Math.max(0, y)) * W + Math.min(W - 1, Math.max(0, x))];
   const rx = o.x;
   const ry = o.y;
@@ -127,9 +153,13 @@ export function halfSize(bytes, frame, { black = 42, white = 1023, gains = [1, 1
   const h = H >> 1;
   const rgb = new Float32Array(3 * w * h);
   const scale = 1 / (white - black);
+  // (hot and dead pixels out first: binned, one would be a bright dot in the picture)
+  const plane = new Float32Array(W * H);
+  for (let i = 0; i < W * H; i++) plane[i] = Math.max(0, (data[i] - black) * scale);
+  removeSpecks(plane, W, H, mono ? 1 : 2);
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
-      const at = (dx, dy) => Math.max(0, (data[(2 * y + dy) * W + 2 * x + dx] - black) * scale);
+      const at = (dx, dy) => plane[(2 * y + dy) * W + 2 * x + dx];
       const i = 3 * (y * w + x);
       if (mono) {
         rgb[i] = rgb[i + 1] = rgb[i + 2] = ((at(0, 0) + at(1, 0) + at(0, 1) + at(1, 1)) / 4);
