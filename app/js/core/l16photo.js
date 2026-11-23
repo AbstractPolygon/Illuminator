@@ -39,6 +39,65 @@ export function cameraInfoOf(parsed, ref) {
   return { make: 'Light', model: h.device_model_name || 'L16', capture };
 }
 
+const XYZ_D50_TO_SRGB = [3.1338561, -1.6168667, -0.4906146, -0.9787684, 1.9161415, 0.0334540, 0.0719453, -0.2289914, 1.4052427];
+const mul3 = (a, b) => {
+  const o = new Array(9).fill(0);
+  for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) for (let k = 0; k < 3; k++) o[3 * i + j] += a[3 * i + k] * b[3 * k + j];
+  return o;
+};
+
+// The matrix from the white balanced camera color to linear sRGB, from the reference camera's color calibration: each calibrated light (D65, A, F11) has a forward matrix (white balanced
+// camera to XYZ D50), and the one for this capture's light is the mix of them by how near each light's red/green and blue/green ratios are to the capture's (the white balance gains
+// say what the scene's neutral looks like to the camera). Null when the capture has no color calibration for the camera.
+export function colorMatrixOf(parsed, ref) {
+  const h = parsed.header;
+  const gains = (h.view_preferences && h.view_preferences.awb_gains) || {};
+  if (!(gains.r > 0) || !(gains.b > 0)) return null;
+  const rg = 1 / gains.r;
+  const bg = 1 / gains.b;
+  const entries = [];
+  for (const m of h.module_calibration || []) {
+    if (m.camera_id !== ref) continue;
+    for (const c of m.color || []) if (c.forward_matrix && c.rg_ratio > 0 && c.bg_ratio > 0) entries.push(c);
+  }
+  if (!entries.length) return null;
+  const mat = new Array(9).fill(0);
+  let total = 0;
+  for (const c of entries) {
+    const d2 = (c.rg_ratio - rg) ** 2 + (c.bg_ratio - bg) ** 2;
+    const w = 1 / (d2 + 1e-4);
+    const f = c.forward_matrix;
+    const v = [f.x00, f.x01, f.x02, f.x10, f.x11, f.x12, f.x20, f.x21, f.x22].map((x) => x || 0);
+    for (let i = 0; i < 9; i++) mat[i] += w * v[i];
+    total += w;
+  }
+  return mul3(XYZ_D50_TO_SRGB, mat.map((x) => x / total));
+}
+
+// The color matrix applied to linear rgb (3 per pixel), in place; what falls below zero is cut.
+export function applyColorMatrix(rgb, m) {
+  if (!m) return rgb;
+  for (let i = 0; i < rgb.length; i += 3) {
+    // (a channel past the sensor's white level, which the white balance gains lift above 1 in red and blue, is cut at it)
+    const r = Math.min(1, rgb[i]);
+    const g = Math.min(1, rgb[i + 1]);
+    const b = Math.min(1, rgb[i + 2]);
+    const R = m[0] * r + m[1] * g + m[2] * b;
+    const G = m[3] * r + m[4] * g + m[5] * b;
+    const B = m[6] * r + m[7] * g + m[8] * b;
+    // Near the sensor's white level the channels are cut or bent unevenly, and the matrix turns that into a color cast (blown sky goes lavender): the color is taken out as the
+    // brightest channel nears it.
+    const top = Math.max(r, g, b);
+    const t = Math.min(1, Math.max(0, (top - 0.5) / 0.4));
+    const k = t * t * (3 - 2 * t);
+    const Y = 0.2126 * R + 0.7152 * G + 0.0722 * B;
+    rgb[i] = Math.max(0, R + (Y - R) * k);
+    rgb[i + 1] = Math.max(0, G + (Y - G) * k);
+    rgb[i + 2] = Math.max(0, B + (Y - B) * k);
+  }
+  return rgb;
+}
+
 export function decodeL16(bytes, onProgress = () => {}) {
   onProgress('Reading the camera pictures', 0.02);
   const parsed = parseLri(bytes);
@@ -52,6 +111,8 @@ export function decodeL16(bytes, onProgress = () => {}) {
   const color = fuse(bytes, parsed, depth, { black, white, gains: [awb.r || 1, awb.gr || 1, awb.b || 1] }, (stage, p) => onProgress(stage, 0.85 + 0.12 * p), { grid: 2 });
   onProgress('Developing the picture', 0.97);
   const { width: w, height: h, rgb } = color;
+  const colorMatrix = colorMatrixOf(parsed, ref);
+  applyColorMatrix(rgb, colorMatrix);
   // exposure: the 99th percentile of green goes to 0.9, then the sRGB curve
   const greens = new Float32Array(w * h);
   for (let i = 0; i < greens.length; i++) greens[i] = rgb[3 * i + 1];
@@ -92,6 +153,7 @@ export function decodeL16(bytes, onProgress = () => {}) {
     measured: depth,
     colorOptions: { black, white, gains: [awb.r || 1, awb.gr || 1, awb.b || 1] },
     gain,
+    colorMatrix,
     k,
     inv0,
   };

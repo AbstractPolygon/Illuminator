@@ -6,6 +6,7 @@
 // is dropped and the tile written into the output.
 import { fuse } from './l16fusion.js';
 import { renderRegion, telephotoModules } from './l16hires.js';
+import { applyColorMatrix } from './l16photo.js';
 
 const sRGB = (v) => (v <= 0.0031308 ? 12.92 * v : 1.055 * Math.pow(v, 1 / 2.4) - 0.055);
 
@@ -19,7 +20,7 @@ export function finalSize(l16, scale) {
 // Renders the picture. `renderTile({ data (RGBA8 sRGB), width, height, lambda (depth in output pixels of shift per unit of viewpoint) })` returns the finished RGBA8 pixels of a tile
 // (the worker's camera render); `margin` (output pixels) is what a tile needs around it. `cancelled()` stops the render. Returns { width, height, pixels: Uint8ClampedArray }.
 export async function renderL16Final(l16, { scale, margin, depthLambda, renderTile, onProgress = () => {}, cancelled = () => false, tile = 768 }) {
-  const { bytes, parsed, measured: depth, colorOptions: opts, gain } = l16;
+  const { bytes, parsed, measured: depth, colorOptions: opts, gain, colorMatrix } = l16;
   onProgress('Merging the cameras at full size', 0);
   const wide = fuse(bytes, parsed, depth, opts, (stage, p) => onProgress(stage, 0.1 * p), { grid: 1 });
   const { width: W, height: H } = finalSize(l16, scale);
@@ -65,6 +66,7 @@ export async function renderL16Final(l16, { scale, margin, depthLambda, renderTi
       const rw = rx1 - rx0;
       const rh = ry1 - ry0;
       const region = renderRegion(bytes, parsed, depth, wide, { x0: rx0 / scale, y0: ry0 / scale, w: rw / scale, h: rh / scale, scale }, mods, opts, () => {}, rawCache);
+      applyColorMatrix(region.rgb, colorMatrix);
       const data = new Uint8ClampedArray(rw * rh * 4);
       for (let i = 0; i < rw * rh; i++) {
         for (let c = 0; c < 3; c++) data[4 * i + c] = Math.round(255 * sRGB(Math.min(1, region.rgb[3 * i + c] * gain)));
