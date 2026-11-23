@@ -84,6 +84,7 @@ Read with `debugFlags().name`. In the worker, a harness usually prepends a line 
 | `rasterFinish` | tuning value | app/js/worker.js |  |
 | `rawModulation` | tuning value | app/js/worker.js |  |
 | `reachLimit` | tuning value | app/js/worker.js |  |
+| `regionKeep` | tuning value | app/js/core/depth.js |  |
 | `rwOpts` | tuning value | app/js/worker.js |  |
 | `shiftConst` | tuning value | app/js/worker.js |  |
 | `splat` | tuning value | app/js/worker.js |  |
@@ -116,7 +117,7 @@ Read with `hook('name')`, published with `setHook('name', value)`.
 | `depthOnly` | harness value | app/js/worker.js |  |
 | `depthOverride` | override | app/js/worker.js |  |
 | `depthProbe` | callback: receives a stage's result | app/js/core/superres.js |  |
-| `depthStage` | harness value | app/js/core/depth.js |  |
+| `depthStage` | harness value | app/js/core/depth.js, app/js/core/segments.js |  |
 | `diagBins` | harness value | app/js/core/lytroedof.js |  |
 | `disStats` | callback: receives a stage's result | app/js/core/superres.js |  |
 | `dmDump` | callback: receives a stage's result | app/js/core/lytroedof.js | debugging aid: the demosaiced, saturation-recovered image at the entry of the blend stage |

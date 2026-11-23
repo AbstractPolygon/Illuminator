@@ -229,10 +229,15 @@ export function segmentDepth(alpha, confidence, rgb, w, h, { count = 2500, compa
     // like colored neighbours, twice so the border straightens, then
     // gradual changes are smoothed.
     let d = out;
+    const stage = (name, a) => { const f = hook('depthStage'); if (f) f(name, a, w, h); };
+    stage('regions', d);
     // the per-pixel filters run on the graphics card when `gpu` (gpu/regions.js) has them, else here
     d = (gpu && gpu.layerSnap(d, lab, w, h)) || layerSnap(d, lab, w, h);
+    stage('layersnap', d);
     for (let i = 0; i < snapPasses; i++) d = (gpu && gpu.colorMedian(d, lab, w, h)) || colorMedian(d, lab, w, h);
+    stage('colormedian', d);
     d = (gpu && gpu.smoothRamps(d, lab, w, h, edge)) || smoothRamps(d, lab, w, h, edge);
+    stage('ramps', d);
     return guide ? guidedFilter(d, lab, w, h, guide.radius, guide.eps) : d;
   }
   // With objects known, an outline (not the size of a step) is what keeps

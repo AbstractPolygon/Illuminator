@@ -411,7 +411,7 @@ const fillSettings = () => ({ ...DEPTH_FILL, ...(debugFlags().depthFill || {}) }
 export const DEPTH_FILL = { reach: 0.2, edge: 0.12, trust: 2, glint: 3, lift: 0.07 };
 
 // Region cleanup of high quality depth maps (core/segments.js).
-export const DEPTH_REGIONS = { on: true, count: 2500, compactness: 8, strength: 1, colorSigma: 8 };
+export const DEPTH_REGIONS = { on: true, count: 2500, compactness: 8, strength: 1, colorSigma: 8, keep: 4 };
 
 // View visibility (off unless `on`). Given a first depth, each view is asked
 // where it cannot see a pixel because a nearer surface is in the way. The
@@ -1469,7 +1469,17 @@ export function finishDepth({ alpha, cost, meanCost }, width, height, guide, { r
   // (the cleanup's flat regions and smoothed ramps made the Normal quality depth splotchy: soft blobs across surfaces that are not flat; it runs with High quality only)
   const flat = !!(color && DEPTH_REGIONS.on && !debugFlags().noRegions && ((refine && regions) || DEPTH_REGIONS.objects));
   if (flat) {
+    const measuredDepth = result;
     result = segmentDepth(result, confidence, color, width, height, { ...DEPTH_REGIONS, ...(debugFlags().depthRegions || {}) });
+    // Where the match was sure, its own depth is kept (in proportion to the confidence, times `keep`); the cleanup's flat regions and smoothed ramps take over where it was
+    // not (dark or blank parts, the blotches the cleanup is for). With the cleanup alone the High quality depth lost its detail into soft blobs.
+    const keep = debugFlags().regionKeep ?? DEPTH_REGIONS.keep;
+    if (keep) {
+      for (let i = 0; i < n; i++) {
+        const c = Math.min(1, confidence[i] * keep);
+        result[i] = c * measuredDepth[i] + (1 - c) * result[i];
+      }
+    }
   }
   // Normal quality: no region cleanup, but the edges still follow the picture's.
   else if (color && DEPTH_REGIONS.guide !== false) {
