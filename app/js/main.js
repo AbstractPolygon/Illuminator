@@ -2895,12 +2895,24 @@ const fullResCapable = () => !!(state.info && (state.info.hasRaw || (state.info.
 function showStillScales() {
   const sel = $('still-scale');
   const l16 = !!(state.info && state.info.processed && state.info.processed.hires);
-  if (sel.dataset.kind === (l16 ? 'l16' : 'raw')) return;
+  // A Light L16 photo's resolution is set under Quality (its own list, the same setting as the Render scale); a raw photo's Resolution is the lens picture's size.
+  $('l16-resolution-row').hidden = !l16;
+  $('detail').closest('label').hidden = l16;
+  $('still-scale-row').hidden = l16;
+  if (sel.dataset.kind === (l16 ? 'l16' : 'raw')) {
+    if (l16) $('l16-resolution').value = sel.value;
+    return;
+  }
   sel.dataset.kind = l16 ? 'l16' : 'raw';
   sel.innerHTML = l16
     ? '<option value="1">1× camera size</option><option value="1.5">1.5×</option><option value="2" selected>2×</option><option value="2.5">2.5× (telephoto detail)</option>'
     : '<option value="2">2× lens grid</option><option value="3" selected>3× lens grid</option><option value="4">4× lens grid</option>';
+  if (l16) $('l16-resolution').value = sel.value;
 }
+$('l16-resolution').onchange = () => {
+  $('still-scale').value = $('l16-resolution').value;
+  $('still-scale').dispatchEvent(new Event('change', { bubbles: true }));
+};
 function updateRenderButton() {
   showStillScales();
   $('render-btn').disabled = !(fullResCapable() && state.mode === 'camera');
