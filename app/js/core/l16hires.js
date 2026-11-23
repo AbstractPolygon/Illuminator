@@ -576,8 +576,12 @@ export function renderRegion(bytes, parsed, depth, wide, { x0, y0, w, h, scale, 
     const det = new Float32Array(3 * W * H).fill(NaN);
     let camW = 0;
     let camN = 0;
+    // (near the sensor's white level a channel is cut, at a different level in each camera: there is no detail to add there, only the difference in where each one clipped)
+    const wb = opts.gains || [1, 1, 1];
+    const clipped = (arr, i, k) => Math.max(arr[3 * i] / (wb[0] * k[0]), arr[3 * i + 1] / (wb[1] * k[1]), arr[3 * i + 2] / (wb[2] * k[2])) > 0.9;
     for (let i = 0; i < W * H; i++) {
       if (!have[i]) continue;
+      if (clipped(up, i, [1, 1, 1]) || clipped(samp, i, g)) continue;
       // agree: the telephoto's low frequencies match the wide picture's within noise and a small misregistration
       const ll = luma(low[3 * i], low[3 * i + 1], low[3 * i + 2]);
       const lu = luma(upLow[3 * i], upLow[3 * i + 1], upLow[3 * i + 2]);
