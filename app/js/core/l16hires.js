@@ -214,8 +214,12 @@ export function estimateCorrections(bytes, parsed, depth, wide, grid, modules, o
     const a = new Float32Array(n * n);
     const sxs = new Float32Array(n * n);
     const sys = new Float32Array(n * n);
-    for (let ty = T; ty + T <= H - T; ty += T) {
-      for (let tx = T; tx + T <= W - T; tx += T) {
+    // (at most about 300 patches a camera, spread over the frame: enough for the fit, and quick)
+    const cols = Math.floor((W - 2 * T) / T);
+    const rows = Math.floor((H - 2 * T) / T);
+    const stride = Math.max(1, Math.ceil(Math.sqrt((cols * rows) / 300)));
+    for (let ty = T; ty + T <= H - T; ty += T * stride) {
+      for (let tx = T; tx + T <= W - T; tx += T * stride) {
         // the wide patch and where its samples land on the camera's sensor
         let k = 0;
         let ok = true;

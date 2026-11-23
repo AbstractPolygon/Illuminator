@@ -196,7 +196,8 @@ const luma = (r, g, b) => 0.3 * r + 0.55 * g + 0.15 * b;
 
 // Merges the cameras. `depth` is core/l16depth.js measureDepth's result for the reference; the cameras merged are the reference and all of depth.modules (the monochrome one adds brightness, its color is the reference's). Returns { width, height, rgb (linear, white balanced), used: how many cameras, merged: per camera id the share of pixels that agreed }.
 // `grid` 1 merges at full size (every sensor pixel demosaiced); 2 at half size (each 2 x 2 sensor cell is one pixel: a quarter of the work and memory, for the quick views).
-export function fuse(bytes, parsed, depth, { black = 42, white = 1023, gains = [1, 1, 1] } = {}, onProgress = () => {}, { grid = 1 } = {}) {
+// `corrections`: each camera's registration corrected for the capture (core/l16hires.js estimateCorrections), or null.
+export function fuse(bytes, parsed, depth, { black = 42, white = 1023, gains = [1, 1, 1] } = {}, onProgress = () => {}, { grid = 1, corrections = null } = {}) {
   const refId = depth.ref;
   const refFrame = parsed.modules[refId][0];
   const refCam = cameraModel(parsed.header, refFrame);
@@ -255,6 +256,7 @@ export function fuse(bytes, parsed, depth, { black = 42, white = 1023, gains = [
     n++;
     const cam = cameraModel(parsed.header, parsed.modules[id][0]);
     const rel = relativePose(refCam, cam);
+    const corr = corrections && corrections[id];
     const R = rel.R;
     const T = rel.T;
     const img = load(parsed.modules[id][0]);
@@ -271,7 +273,13 @@ export function fuse(bytes, parsed, depth, { black = 42, white = 1023, gains = [
       if (Pz <= 1) return false;
       const ix = (cam.K[0] * (R[0] * X + R[1] * Y + R[2] * Z + T[0])) / Pz + cam.K[2];
       const iy = (cam.K[4] * (R[3] * X + R[4] * Y + R[5] * Z + T[1])) / Pz + cam.K[5];
-      const [sx, sy] = cam.distort(ix, iy);
+      let [sx, sy] = cam.distort(ix, iy);
+      if (corr) {
+        const u = sx / 4160;
+        const v = sy / 3120;
+        sx += corr.ax[0] + corr.ax[1] * u + corr.ax[2] * v;
+        sy += corr.ay[0] + corr.ay[1] * u + corr.ay[2] * v;
+      }
       return bilinear(img.rgb, img.width, img.height, sx / S, sy / S, sample);
     };
     for (let y = 8; y < H; y += 23) {

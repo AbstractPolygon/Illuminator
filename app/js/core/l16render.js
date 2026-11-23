@@ -23,22 +23,22 @@ export function finalSize(l16, scale) {
 // output pixels) makes only that part of the picture (what is returned is the window).
 export async function renderL16Final(l16, { scale, margin, depthLambda, renderTile, onProgress = () => {}, cancelled = () => false, tile = 768, wide: givenWide = null, grid = 1, window = null }) {
   const { bytes, parsed, measured: depth, colorOptions: opts, gain, colorMatrix } = l16;
+  const mods = telephotoModules(parsed, depth.ref, [2, Infinity]);
+  // each camera's registration corrected for this capture (once a photo; measured on the half size merge): the wide cameras for the full size merge, the longer lens ones for the detail
+  if (!l16.corrections && l16.wide) {
+    onProgress('Aligning the cameras', 0.01);
+    l16.corrections = estimateCorrections(bytes, parsed, depth, l16.wide, 2, [...depth.modules, ...mods], opts);
+  }
+  const corrections = l16.corrections || null;
   let wide = givenWide;
   if (!wide) {
-    onProgress('Merging the cameras at full size', 0);
-    wide = fuse(bytes, parsed, depth, opts, (stage, p) => onProgress(stage, 0.1 * p), { grid: 1 });
+    onProgress('Merging the cameras at full size', 0.03);
+    wide = fuse(bytes, parsed, depth, opts, (stage, p) => onProgress(stage, 0.03 + 0.07 * p), { grid: 1, corrections });
   }
   const { width: W, height: H } = finalSize(l16, scale);
   const win = window || { x: 0, y: 0, w: W, h: H };
   const out = new Uint8ClampedArray(win.w * win.h * 4);
   // every camera with a longer lens than the reference (the 70 mm and the 150 mm ones, which see the middle of the picture)
-  const mods = telephotoModules(parsed, depth.ref, [2, Infinity]);
-  // each longer lens camera's registration corrected for this capture (once a photo; from the half size merge)
-  if (!l16.corrections && l16.wide) {
-    onProgress('Aligning the cameras', 0.02);
-    l16.corrections = estimateCorrections(bytes, parsed, depth, l16.wide, 2, mods, opts);
-  }
-  const corrections = l16.corrections || null;
   const rawCache = new Map();
   // `depthLambda` is the depth the quick views use (smoothed), in lambda of the half size picture; at output pixels it is that times 2 * scale (the half size picture's pixel is 2 sensor pixels)
   const sOut = 2 * scale;
