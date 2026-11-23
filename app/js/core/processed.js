@@ -130,7 +130,17 @@ export class ProcessedPicture {
 
   // Edge-aware smoothing of the file's depth map (Depth > Smoothing), guided
   // by the picture scaled to the depth map's size.
+  // The picture at the smallest size that still has `maxWidth` pixels across (a Light L16 photo keeps smaller copies, `levels`, for the quick views: zoomed out, or while the
+  // viewpoint is dragged, a smaller picture is as sharp on the screen and much quicker to make). The full size one when none is wide enough or none is asked for.
+  levelFor(maxWidth) {
+    if (!this.levels || !(maxWidth > 0)) return this;
+    let best = this;
+    for (const l of this.levels) if (l.width >= maxWidth && l.width < best.width) best = l;
+    return best;
+  }
+
   setSmoothing(amount) {
+    if (this.levels) for (const l of this.levels) if (l !== this) l.setSmoothing(amount);
     if (!this.depth) return;
     if (!this.depthOriginal) this.depthOriginal = this.depth;
     if (this.smoothing === amount) return;

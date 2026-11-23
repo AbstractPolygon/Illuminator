@@ -857,7 +857,7 @@ function summary() {
     return {
       ...base,
       cam,
-      processed: { kind: pp.kind, source: pp.source, count: pp.images.length, hasDepth: pp.hasDepth, canDrag: pp.canDrag },
+      processed: { kind: pp.kind, source: pp.source, count: pp.images.length, hasDepth: pp.hasDepth, canDrag: pp.canDrag, ...(pp.levels ? { levelWidths: pp.levels.map((l) => l.width) } : {}) },
       width: pp.width,
       height: pp.height,
       sizes: { 1: [pp.width, pp.height], 1.5: [pp.width, pp.height], 2: [pp.width, pp.height] },
@@ -1992,8 +1992,8 @@ function schedulePrefetch() {
   }, 1500);
 }
 
-async function view({ id, u, v, alpha = 0, aperture = 0, dof = 0, bokeh, draft = false, deferNr = false, final = false, holes = false }) {
-  if (state.pp) return processedView({ id, u, v, alpha, aperture, dof, bokeh, holes });
+async function view({ id, u, v, alpha = 0, aperture = 0, dof = 0, bokeh, draft = false, deferNr = false, final = false, holes = false, maxWidth = 0 }) {
+  if (state.pp) return processedView({ id, u, v, alpha, aperture, dof, bokeh, holes, maxWidth });
   requireRaw();
   // (past the lens edge: rendered at the edge, then moved on by the depth)
   const asked = [u, v];
@@ -3685,11 +3685,37 @@ async function loadDepth(desc) {
 // Picks the most capable content of the file: images with a depth map
 // first (viewpoint and focus both work), then perspective, then focus
 // stacks, then a single image.
+// An 8 bit RGBA picture at half the size (the mean of each 2 x 2 block).
+function halvePicture({ width: w, height: h, data }) {
+  const w2 = w >> 1;
+  const h2 = h >> 1;
+  const out = new Uint8ClampedArray(w2 * h2 * 4);
+  for (let y = 0; y < h2; y++) {
+    for (let x = 0; x < w2; x++) {
+      const a = 4 * (2 * y * w + 2 * x);
+      const b = a + 4 * w;
+      const o = 4 * (y * w2 + x);
+      for (let c = 0; c < 4; c++) out[o + c] = (data[a + c] + data[a + 4 + c] + data[b + c] + data[b + 4 + c] + 2) >> 2;
+    }
+  }
+  return { width: w2, height: h2, data: out };
+}
+
 async function buildProcessed(lf) {
   // a Light L16 photo: the developed picture and the depth map measured between its cameras
   if (lf.l16) {
-    const { picture, depth } = lf.l16;
-    return new ProcessedPicture({ kind: 'single', source: 'l16', images: [{ width: picture.width, height: picture.height, data: picture.data }], depth, pitchRatio: { x: 1, y: 1 } });
+    // the full size picture and, for the quick views, half and quarter size ones (the depth in lambda scales with the picture's size)
+    const { depth } = lf.l16;
+    let picture = lf.l16.picture;
+    let lambda = depth.lambda;
+    const levels = [];
+    for (let n = 0; n < 3; n++) {
+      levels.push(new ProcessedPicture({ kind: 'single', source: 'l16', images: [{ width: picture.width, height: picture.height, data: picture.data }], depth: { width: depth.width, height: depth.height, lambda }, pitchRatio: { x: 1, y: 1 } }));
+      picture = halvePicture(picture);
+      lambda = lambda.map((v) => v / 2);
+    }
+    levels[0].levels = levels;
+    return levels[0];
   }
   const rank = (s) => {
     const depth = !!(s.depth || lf.frameDepth);
@@ -3777,7 +3803,8 @@ function processedBlur({ aperture = 0, dof = 0 }) {
 let processedBuilt = null;
 
 function processedPixels(params, { reuse = false } = {}) {
-  const pp = state.pp;
+  // (a Light L16 photo: the size that the zoom needs, params.maxWidth)
+  const pp = state.pp.levelFor(params.maxWidth);
   let rgb;
   const key = reuse ? JSON.stringify(params) : null;
   if (reuse && processedBuilt && processedBuilt.pp === pp && processedBuilt.key === key) rgb = processedBuilt.rgb;
@@ -3785,13 +3812,16 @@ function processedPixels(params, { reuse = false } = {}) {
     rgb = pp.render({ ...params, blur: processedBlur(params) });
     processedBuilt = reuse ? { pp, key, rgb } : null;
   }
-  return toPixels(rgb, pp.width, pp.height, undefined, colorState(params.color));
+  const pixels = toPixels(rgb, pp.width, pp.height, undefined, colorState(params.color));
+  pixels.level = pp;
+  return pixels;
 }
 
 async function processedView({ id, holes, ...params }) {
   const pixels = processedPixels(params, { reuse: true });
-  const unseen = holes ? state.pp.holes(params.u || 0, params.v || 0) : null;
-  post({ id, type: 'result', width: state.pp.width, height: state.pp.height, pixels: pixels.buffer, ...(unseen ? { holes: unseen } : {}) }, [pixels.buffer]);
+  const pp = pixels.level;
+  const unseen = holes ? pp.holes(params.u || 0, params.v || 0) : null;
+  post({ id, type: 'result', width: pp.width, height: pp.height, pixels: pixels.buffer, ...(unseen ? { holes: unseen } : {}) }, [pixels.buffer]);
   return undefined;
 }
 
@@ -3800,8 +3830,9 @@ async function processedFrames({ id, job, list, kind, holes = false }) {
   for (let i = 0; i < list.length; i++) {
     if (state.jobs[kind] !== job) return { cancelled: true };
     const pixels = processedPixels(list[i]);
-    const unseen = holes ? state.pp.holes(list[i].u || 0, list[i].v || 0) : null;
-    post({ id, type: 'frame', index: i, width: state.pp.width, height: state.pp.height, pixels: pixels.buffer, ...(unseen ? { holes: unseen } : {}) }, [pixels.buffer]);
+    const pp = pixels.level;
+    const unseen = holes ? pp.holes(list[i].u || 0, list[i].v || 0) : null;
+    post({ id, type: 'frame', index: i, width: pp.width, height: pp.height, pixels: pixels.buffer, ...(unseen ? { holes: unseen } : {}) }, [pixels.buffer]);
     await tick();
   }
   return { done: true };

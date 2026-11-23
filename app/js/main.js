@@ -2261,7 +2261,7 @@ async function renderCamera({ final = false } = {}) {
       if (!msg) {
         // While the slider or playhead is being moved and the main engine is busy, the second worker makes the quick view.
         const maker = seekSettled() ? engine : previewMirror.quick();
-        msg = await maker.request('view', { ...cameraParams({ live: true }), draft, deferNr: !draft && !final, final: final && !recovery }, {
+        msg = await maker.request('view', { ...cameraParams({ live: true }), draft, deferNr: !draft && !final, final: final && !recovery, ...(levelWidths() ? { maxWidth: wantedWidth(draft) } : {}) }, {
           quick: true,
           onProgress: progressFor(gen),
           // A picture before its noise reduction (a CPU step) is done: shown at once, replaced when the finished one arrives.
@@ -3571,6 +3571,51 @@ function clampView(w, h) {
   view.cy = h <= vh ? 0.5 : Math.min(1 - vh / (2 * h), Math.max(vh / (2 * h), view.cy));
 }
 
+// A Light L16 photo keeps the picture at several sizes (the worker's levelFor): the size that the zoom shows is made, a smaller one while the viewpoint is dragged.
+// `wantedWidth`: how many pixels across the whole picture is on the screen (the zoom, at the screen's pixel density).
+// (not in the command line and automated runs: what they save is the full size)
+const levelWidths = () => (!navigator.webdriver && state.info && state.info.processed && state.info.processed.levelWidths) || null;
+// (set while a save waits for the full size picture)
+let forceFullLevel = false;
+function wantedWidth(draft = false) {
+  if (forceFullLevel) return 1e9;
+  const shown = (parseFloat(canvas.style.width) || canvas.width) * (window.devicePixelRatio || 1);
+  return Math.ceil(shown * (draft ? 0.6 : 1));
+}
+// The level that wantedWidth selects (the smallest that is wide enough), and the level of the picture on the canvas.
+function levelIndexFor(width) {
+  const widths = levelWidths();
+  let best = 0;
+  widths.forEach((w, i) => { if (w >= width && w < widths[best]) best = i; });
+  return best;
+}
+// Before a save: makes sure the picture on the canvas is the full size one (a Light L16 photo shows a smaller one when zoomed out). Resolves when it is, or after a while.
+async function ensureFullLevel() {
+  const widths = levelWidths();
+  if (!widths || !showsCamera() || canvas.width >= Math.max(...widths)) return;
+  forceFullLevel = true;
+  try {
+    cameraChanged({ final: true });
+    const until = Date.now() + 180000;
+    while (canvas.width < Math.max(...widths) && Date.now() < until) await new Promise((r) => setTimeout(r, 100));
+  } finally {
+    forceFullLevel = false;
+  }
+}
+let levelTimer = 0;
+// After a zoom: when the picture on the canvas is not the size the zoom needs, make the right one (once the zoom has stopped).
+function watchLevel() {
+  const widths = levelWidths();
+  if (!widths || !showsCamera()) return;
+  const have = widths.indexOf(canvas.width);
+  if (have < 0 || have === levelIndexFor(wantedWidth())) return;
+  clearTimeout(levelTimer);
+  levelTimer = setTimeout(() => {
+    const widths2 = levelWidths();
+    if (widths2 && showsCamera() && widths2.indexOf(canvas.width) !== levelIndexFor(wantedWidth())) cameraChanged({ final: true });
+  }, 250);
+}
+
 function layoutCanvas() {
   const fit = fitScale();
   view.k = Math.min(MAX_SCALE / fit, Math.max(1, view.k));
@@ -3593,6 +3638,7 @@ function layoutCanvas() {
   positionCropBox();
   $('zoom-out').disabled = view.k <= 1;
   $('zoom-in').disabled = scale >= MAX_SCALE - 1e-6;
+  watchLevel();
 }
 
 // Zooms by `factor`, keeping the image point under (mx, my) (viewer
@@ -5172,7 +5218,7 @@ const { curve } = initToneCurve({ $, applySettingsSoon: (...a) => applySettingsS
 const { setPicking, pickWhiteBalance } = initWhiteBalancePicker({ state, canRender: (...a) => canRender(...a), $, canvas, viewPoint: (...a) => viewPoint(...a), engine, showSliderValue: (...a) => showSliderValue(...a), applySettings: (...a) => applySettings(...a), scheduleSave: (...a) => scheduleSave(...a), showError: (...a) => showError(...a) });
 
 // export: ui/export.js
-const { baseName, shownScale, showAtPhotoSize, savePhoto, showPhotoFormat, savePng, showVideoCodecs, readParams, showUpscaleControls, frameList, frameGeometry, exportVideo } = initExport({ state, $, canvas, ctx, layoutCanvas: (...a) => layoutCanvas(...a), showsCamera: (...a) => showsCamera(...a), stereoShown, showNotice: (...a) => showNotice(...a), engine, cameraParams: (...a) => cameraParams(...a), showProgress: (...a) => showProgress(...a), hideProgress: (...a) => hideProgress(...a), modelUpscaleParams: (...a) => modelUpscaleParams(...a), sharpenParams: (...a) => sharpenParams(...a), finishModelEnlargement: (...a) => finishModelEnlargement(...a), showError: (...a) => showError(...a), showSliderValue: (...a) => showSliderValue(...a), scheduleSave: (...a) => scheduleSave(...a), draw: (...a) => draw(...a), cropValues: (...a) => cropValues(...a), animationRequest: (...a) => animationRequest(...a), eyeOffset, eyeParams, ensureAnimation: (...a) => ensureAnimation(...a), drawGeometry: (...a) => drawGeometry(...a), stereoTag });
+const { baseName, shownScale, showAtPhotoSize, savePhoto, showPhotoFormat, savePng, showVideoCodecs, readParams, showUpscaleControls, frameList, frameGeometry, exportVideo } = initExport({ state, $, canvas, ctx, layoutCanvas: (...a) => layoutCanvas(...a), showsCamera: (...a) => showsCamera(...a), stereoShown, showNotice: (...a) => showNotice(...a), engine, cameraParams: (...a) => cameraParams(...a), showProgress: (...a) => showProgress(...a), hideProgress: (...a) => hideProgress(...a), modelUpscaleParams: (...a) => modelUpscaleParams(...a), sharpenParams: (...a) => sharpenParams(...a), finishModelEnlargement: (...a) => finishModelEnlargement(...a), showError: (...a) => showError(...a), showSliderValue: (...a) => showSliderValue(...a), scheduleSave: (...a) => scheduleSave(...a), draw: (...a) => draw(...a), cropValues: (...a) => cropValues(...a), animationRequest: (...a) => animationRequest(...a), eyeOffset, eyeParams, ensureAnimation: (...a) => ensureAnimation(...a), drawGeometry: (...a) => drawGeometry(...a), stereoTag, ensureFullLevel: () => ensureFullLevel() });
 const lenticular = initLenticular({ $, state, engine, cameraParams: (...a) => cameraParams(...a), eyeParams, withPivotZoom: (...a) => withPivotZoom(...a), pivotFor: (...a) => pivotFor(...a), cropValues: (...a) => cropValues(...a), drawGeometry: (...a) => drawGeometry(...a), animationPlan: (...a) => animationPlan(...a), invalidateAnimation: (...a) => invalidateAnimation(...a), showNotice: (...a) => showNotice(...a), showProgress: (...a) => showProgress(...a), hideProgress: (...a) => hideProgress(...a), showError: (...a) => showError(...a), baseName, showSliderValue: (...a) => showSliderValue(...a) , scheduleSave: (...a) => scheduleSave(...a) });
 
 // camera import: ui/cameraimport.js

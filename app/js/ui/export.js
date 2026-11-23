@@ -13,7 +13,7 @@ import { VIDEO_FORMATS, videoType, VIDEO_CODECS, videoFrame, chooseVideoType, vi
 import { MIN_VIDEO_FRAMES, playOrder, recordFrames, cancelControl } from '../core/videoexport.js';
 import { toImageData } from '../engine.js';
 
-export function initExport({ state, $, canvas, ctx, layoutCanvas, showsCamera, stereoShown, showNotice, engine, cameraParams, showProgress, hideProgress, modelUpscaleParams, sharpenParams, finishModelEnlargement, showError, showSliderValue, scheduleSave, draw, cropValues, animationRequest, eyeOffset, eyeParams, ensureAnimation, drawGeometry, stereoTag }) {
+export function initExport({ ensureFullLevel = async () => {}, state, $, canvas, ctx, layoutCanvas, showsCamera, stereoShown, showNotice, engine, cameraParams, showProgress, hideProgress, modelUpscaleParams, sharpenParams, finishModelEnlargement, showError, showSliderValue, scheduleSave, draw, cropValues, animationRequest, eyeOffset, eyeParams, ensureAnimation, drawGeometry, stereoTag }) {
   function baseName() {
     return state.current ? state.current.name.replace(/\.[^.]+$/, '') : 'lytro';
   }
@@ -106,6 +106,12 @@ export function initExport({ state, $, canvas, ctx, layoutCanvas, showsCamera, s
 
   // Photo > File format: PNG, or JPEG at its quality.
   function savePhoto(source, name) {
+    // A Light L16 photo shows a smaller picture when zoomed out: what is saved is the full size one, made first.
+    const levels = state.info && state.info.processed && state.info.processed.levelWidths;
+    if (source === canvas && levels && canvas.width < Math.max(...levels) && showsCamera()) {
+      ensureFullLevel().then(() => savePhoto(canvas, name)).catch((err) => showError(err));
+      return;
+    }
     const model = methodModel($('upscale-method').value);
     const k = +$('photo-size').value || 1;
     // 16-bit PNG, and enlarging or sharpening with a model, start from the picture made again at 16 bits (below).
