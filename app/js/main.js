@@ -3770,6 +3770,7 @@ function hideDetail() {
   if (detailRunning) {
     detailRunning = false;
     engine.cancel('detail').catch(() => {});
+    hideProgress();
   }
 }
 function scheduleDetail() {
@@ -3807,10 +3808,11 @@ async function runDetail() {
   const token = ++detailToken;
   detailRunning = true;
   try {
-    // (the frame label says what is being made: the first time it includes lining the cameras up)
+    // (the progress shows what is being made, where the camera's other work shows: the first time it includes lining the cameras up)
+    const gen = openSeq.current();
     const { promise } = engine.job('l16Detail', 'detail', { ...cameraParams({ live: true }), gx0: x0 * k, gy0: y0 * k, gw, gh, zs }, {
       onProgress: (stage, p) => {
-        if (token === detailToken) $('frame-label').textContent = `${stage === 'Rendering' ? 'Adding detail' : stage} ${Math.round((p ?? 0) * 100)}%`;
+        if (token === detailToken && !openSeq.superseded(gen)) showProgress(stage === 'Rendering' ? 'Adding detail' : stage, p);
       },
     });
     const msg = await promise;
@@ -3829,7 +3831,7 @@ async function runDetail() {
   } finally {
     if (token === detailToken) {
       detailRunning = false;
-      if (/%$/.test($('frame-label').textContent)) $('frame-label').textContent = `${canvas.width}×${canvas.height}`;
+      hideProgress();
     }
   }
 }
