@@ -59,7 +59,7 @@ import { parseSpots, resolveSpots, packSpots, applySpots } from './core/retouch.
 import { GpuRenderer } from './gpu/renderer.js';
 import { renderL16Final } from './core/l16render.js';
 import { superpixelColor, depthAtSize, synthesize, fillFromBackground, backgroundDepth, fillFromDonors } from './core/l16view.js';
-import { RIG_RADIUS_MM, applyColorMatrix } from './core/l16photo.js';
+import { RIG_RADIUS_MM, applyColorMatrix, developL16 } from './core/l16photo.js';
 import { cameraModel as l16CameraModel } from './core/l16geometry.js';
 import { relativePose as l16RelativePose } from './core/l16depth.js';
 import { lytroSplatGpu } from './gpu/lytroengine.js';
@@ -1033,7 +1033,7 @@ async function open({ id, bytes, synthetic, userDepth = null, depthCache = null,
   };
   state.pp = null;
   processedBuilt = null;
-  const decoded = await decodeLightField(data, { onProgress });
+  const decoded = await decodeLightField(data, { onProgress, hot: state.settings.hotPixels !== false });
   checkOpen();
   state.lf = decoded;
   // The grid the photo opens with (the metadata's, or the calibrated one): depth and the pictures made from it are keyed on the grid only when it later differs (gridTag).
@@ -2506,6 +2506,19 @@ async function settings({ id, settings: s }) {
   // A depth mask needs the depth map.
   if (state.lf && state.lf.raw && !state.depth && parseMasks(s.local && s.local.masks).some((m) => m.kind === 'depth')) await ensureDepth(id);
   if (state.pp) {
+    // Remove hot pixels on a processed photo: a Light L16 photo's cameras are merged again with or without them; another processed photo's pictures are filtered again
+    if (hotChanged && state.lf) {
+      const progress = (stage, p) => post({ id, type: 'progress', stage, progress: p });
+      const l16 = state.lf.l16;
+      if (l16) {
+        l16.colorOptions = { ...l16.colorOptions, hot: s.hotPixels !== false };
+        const d = developL16(l16.bytes, l16.parsed, l16.measured, l16.ref, l16.colorOptions, progress);
+        Object.assign(l16, { picture: d.picture, gain: d.gain, colorMatrix: d.colorMatrix, wide: d.wide, corrections: null });
+      } else progress('Removing hot pixels', null);
+      const built = await buildProcessed(state.lf);
+      state.pp = built;
+      state.pp.setSmoothing(state.settings.depthSmoothing ?? 0.3);
+    }
     updateColor();
     return summary();
   }
@@ -3879,6 +3892,38 @@ function halvePicture({ width: w, height: h, data }) {
   return { width: w2, height: h2, data: out };
 }
 
+// Hot and dead pixels in a developed picture (RGBA, 8 bit), in place: per channel, a pixel more than 48 levels above every one of its 8 neighbours (or below every one of them)
+// takes the median of the 8.
+function removeHotPixelsRgba(d, w, h) {
+  const fix = [];
+  const nb = new Array(8);
+  for (let y = 1; y < h - 1; y++) {
+    for (let x = 1; x < w - 1; x++) {
+      for (let c = 0; c < 3; c++) {
+        const i = 4 * (y * w + x) + c;
+        const v = d[i];
+        let k = 0;
+        let hi = 0;
+        let lo = 255;
+        for (let dy = -1; dy <= 1; dy++) {
+          for (let dx = -1; dx <= 1; dx++) {
+            if (!dx && !dy) continue;
+            const n = d[i + 4 * (dy * w + dx)];
+            nb[k++] = n;
+            if (n > hi) hi = n;
+            if (n < lo) lo = n;
+          }
+        }
+        if (v > hi + 48 || v < lo - 48) {
+          nb.sort((a, b) => a - b);
+          fix.push(i, (nb[3] + nb[4]) >> 1);
+        }
+      }
+    }
+  }
+  for (let j = 0; j < fix.length; j += 2) d[fix[j]] = fix[j + 1];
+}
+
 async function buildProcessed(lf) {
   // a Light L16 photo: the developed picture and the depth map measured between its cameras
   if (lf.l16) {
@@ -3912,6 +3957,8 @@ async function buildProcessed(lf) {
   const images = [];
   for (const img of stack.images) {
     const px = img === stack.images[0] ? first : await decodeImage(img.bytes, img.mime, first.width, first.height);
+    // (Remove hot pixels: on a developed picture, a pixel far brighter or darker than all its neighbours in a channel takes their median)
+    if (state.settings.hotPixels !== false && px.data) removeHotPixelsRgba(px.data, px.width, px.height);
     images.push({ ...px, lambda: img.lambda, u: img.coord ? img.coord.x : 0, v: img.coord ? img.coord.y : 0 });
   }
   const depth = await loadDepth(stack.depth || lf.frameDepth);

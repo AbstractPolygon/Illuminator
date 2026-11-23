@@ -114,23 +114,15 @@ export function applyColorMatrix(rgb, m) {
   return rgb;
 }
 
-export function decodeL16(bytes, onProgress = () => {}) {
-  onProgress('Reading the camera pictures', 0.02);
-  const parsed = parseLri(bytes);
-  const ref = parsed.header.image_reference_camera;
-  if (!parsed.modules[ref]) throw new Error('This photo has no picture from its reference camera');
-  const awb = (parsed.header.view_preferences && parsed.header.view_preferences.awb_gains) || {};
-  const sd = parsed.header.sensor_data && parsed.header.sensor_data[0] && parsed.header.sensor_data[0].data;
-  const black = sd && sd.black_level !== undefined ? sd.black_level : 42;
-  const white = sd && sd.white_level !== undefined ? sd.white_level : 1023;
-  const depth = measureDepth(bytes, parsed, { ref }, (stage, p) => onProgress(stage, 0.05 + 0.8 * p));
-  const color = fuse(bytes, parsed, depth, { black, white, gains: [awb.r || 1, awb.gr || 1, awb.b || 1] }, (stage, p) => onProgress(stage, 0.85 + 0.12 * p), { grid: 2 });
-  onProgress('Developing the picture', 0.97);
+// The picture of the capture from the measured depth: the cameras merged at half size (`wide`, float, white balanced, before the color matrix), and the picture shown (8 bit sRGB,
+// the color matrix and an exposure that puts the 99th percentile of green at 0.9). Made again when a setting that changes the merge changes (Remove hot pixels).
+export function developL16(bytes, parsed, depth, ref, colorOptions, onProgress = () => {}) {
+  const color = fuse(bytes, parsed, depth, colorOptions, (stage, p) => onProgress(stage, 0.9 * p), { grid: 2 });
+  onProgress('Developing the picture', 0.95);
   const { width: w, height: h } = color;
   const colorMatrix = colorMatrixOf(parsed, ref);
   // (the merged picture itself stays as the cameras recorded it, the zoomed-in views are made from it; the color matrix is applied to a copy for the picture shown)
   const rgb = applyColorMatrix(Float32Array.from(color.rgb), colorMatrix);
-  // exposure: the 99th percentile of green goes to 0.9, then the sRGB curve
   const greens = new Float32Array(w * h);
   for (let i = 0; i < greens.length; i++) greens[i] = rgb[3 * i + 1];
   greens.sort();
@@ -140,6 +132,23 @@ export function decodeL16(bytes, onProgress = () => {}) {
     for (let c = 0; c < 3; c++) data[4 * i + c] = Math.round(255 * sRGB(Math.min(1, rgb[3 * i + c] * gain)));
     data[4 * i + 3] = 255;
   }
+  return { picture: { width: w, height: h, data }, gain, colorMatrix, wide: color, used: color.used };
+}
+
+// `hot`: hot and dead pixels taken out of the camera pictures (Remove hot pixels).
+export function decodeL16(bytes, onProgress = () => {}, { hot = true } = {}) {
+  onProgress('Reading the camera pictures', 0.02);
+  const parsed = parseLri(bytes);
+  const ref = parsed.header.image_reference_camera;
+  if (!parsed.modules[ref]) throw new Error('This photo has no picture from its reference camera');
+  const awb = (parsed.header.view_preferences && parsed.header.view_preferences.awb_gains) || {};
+  const sd = parsed.header.sensor_data && parsed.header.sensor_data[0] && parsed.header.sensor_data[0].data;
+  const black = sd && sd.black_level !== undefined ? sd.black_level : 42;
+  const white = sd && sd.white_level !== undefined ? sd.white_level : 1023;
+  const depth = measureDepth(bytes, parsed, { ref }, (stage, p) => onProgress(stage, 0.05 + 0.8 * p));
+  const colorOptions = { black, white, gains: [awb.r || 1, awb.gr || 1, awb.b || 1], hot };
+  const developed = developL16(bytes, parsed, depth, ref, colorOptions, (stage, p) => onProgress(stage, 0.85 + 0.12 * p));
+  const { picture, gain, colorMatrix, wide: color } = developed;
   // depth in lambda: relative to the middle of the scene
   const dw = depth.width;
   const dh = depth.height;
@@ -152,7 +161,7 @@ export function decodeL16(bytes, onProgress = () => {}) {
   onProgress('Done', 1);
   return {
     header: parsed.header,
-    picture: { width: w, height: h, data },
+    picture,
     depth: { width: dw, height: dh, lambda },
     ref,
     modules: depth.modules,
@@ -161,14 +170,14 @@ export function decodeL16(bytes, onProgress = () => {}) {
     pivotZ: inv0 > 0 ? 1 / inv0 : 0,
     focalPx: f,
     stackFrames: parsed.stackFrames,
-    cameras: color.used,
+    cameras: developed.used,
     // for the Info panel: { model, make, capture: { time (ms), exposure (s), iso, focalLength (m, 35 mm equivalent) } }
     camera: cameraInfoOf(parsed, ref),
     // what the final render (core/l16render.js) works from
     bytes,
     parsed,
     measured: depth,
-    colorOptions: { black, white, gains: [awb.r || 1, awb.gr || 1, awb.b || 1] },
+    colorOptions,
     gain,
     colorMatrix,
     wide: color,  // the half size merge (float, white balanced, before the color matrix)

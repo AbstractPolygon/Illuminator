@@ -13,15 +13,15 @@ import { relativePose } from './l16depth.js';
 // Linear 0..1 full size RGB of a module's frame: black level removed, demosaiced, white balance gains applied. Float32Array(3 * w * h).
 // `win` ({ x0, y0, w, h }) limits the work to a window of the frame (returned at that size, from the sensor's pixels around it); `rawCache` (a Map kept by the caller) keeps
 // each module's unpacked frame between calls.
-export function demosaic(bytes, frame, { black = 42, white = 1023, gains = [1, 1, 1] } = {}, win = null, rawCache = null) {
+export function demosaic(bytes, frame, { black = 42, white = 1023, gains = [1, 1, 1], hot = true } = {}, win = null, rawCache = null) {
   const key = frame.module.id;
   let decoded = rawCache && rawCache.get(key);
   if (!decoded) {
     decoded = decodeFrame(bytes, frame);
     if (rawCache) rawCache.set(key, decoded);
   }
-  if (win) return demosaicWindow(decoded, frame, { black, white, gains }, win);
-  return demosaicRaw(decoded, frame, { black, white, gains });
+  if (win) return demosaicWindow(decoded, frame, { black, white, gains, hot }, win);
+  return demosaicRaw(decoded, frame, { black, white, gains, hot });
 }
 
 // Hot and dead pixels: a pixel far brighter than every neighbour of its own color (or far darker than all of them) is replaced by their mean. `step` is the distance to the neighbours of the same
@@ -50,7 +50,7 @@ function removeSpecks(px, W, H, step) {
 }
 
 // The demosaic of an unpacked frame (the whole frame, or a window of it cut out with the pattern's phase kept).
-function demosaicRaw(decoded, frame, { black, white, gains }) {
+function demosaicRaw(decoded, frame, { black, white, gains, hot = true }) {
   const { width: W, height: H, data } = decoded;
   const o = frame.module.sensor_bayer_red_override || { x: 0, y: 0 };
   const rgb = new Float32Array(3 * W * H);
@@ -59,13 +59,13 @@ function demosaicRaw(decoded, frame, { black, white, gains }) {
     // the monochrome module: one value for all three
     const mv = new Float32Array(W * H);
     for (let i = 0; i < W * H; i++) mv[i] = Math.max(0, (data[i] - black) * scale);
-    removeSpecks(mv, W, H, 1);
+    if (hot) removeSpecks(mv, W, H, 1);
     for (let i = 0; i < W * H; i++) rgb[3 * i] = rgb[3 * i + 1] = rgb[3 * i + 2] = mv[i];
     return { width: W, height: H, rgb };
   }
   const px = new Float32Array(W * H);
   for (let i = 0; i < px.length; i++) px[i] = Math.max(0, (data[i] - black) * scale);
-  removeSpecks(px, W, H, 2);
+  if (hot) removeSpecks(px, W, H, 2);
   const at = (x, y) => px[Math.min(H - 1, Math.max(0, y)) * W + Math.min(W - 1, Math.max(0, x))];
   const rx = o.x;
   const ry = o.y;
@@ -139,7 +139,7 @@ function demosaicWindow(decoded, frame, opts, win) {
 }
 
 // Each 2 x 2 sensor cell as one pixel (red, the mean of the greens, blue; the monochrome module's mean for all three): a quarter-size picture, quick to make.
-export function halfSize(bytes, frame, { black = 42, white = 1023, gains = [1, 1, 1] } = {}, rawCache = null) {
+export function halfSize(bytes, frame, { black = 42, white = 1023, gains = [1, 1, 1], hot = true } = {}, rawCache = null) {
   const key = frame.module.id;
   let decoded = rawCache && rawCache.get(key);
   if (!decoded) {
@@ -156,7 +156,7 @@ export function halfSize(bytes, frame, { black = 42, white = 1023, gains = [1, 1
   // (hot and dead pixels out first: binned, one would be a bright dot in the picture)
   const plane = new Float32Array(W * H);
   for (let i = 0; i < W * H; i++) plane[i] = Math.max(0, (data[i] - black) * scale);
-  removeSpecks(plane, W, H, mono ? 1 : 2);
+  if (hot) removeSpecks(plane, W, H, mono ? 1 : 2);
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
       const at = (dx, dy) => plane[(2 * y + dy) * W + 2 * x + dx];
@@ -197,11 +197,11 @@ const luma = (r, g, b) => 0.3 * r + 0.55 * g + 0.15 * b;
 // Merges the cameras. `depth` is core/l16depth.js measureDepth's result for the reference; the cameras merged are the reference and all of depth.modules (the monochrome one adds brightness, its color is the reference's). Returns { width, height, rgb (linear, white balanced), used: how many cameras, merged: per camera id the share of pixels that agreed }.
 // `grid` 1 merges at full size (every sensor pixel demosaiced); 2 at half size (each 2 x 2 sensor cell is one pixel: a quarter of the work and memory, for the quick views).
 // `corrections`: each camera's registration corrected for the capture (core/l16hires.js estimateCorrections), or null.
-export function fuse(bytes, parsed, depth, { black = 42, white = 1023, gains = [1, 1, 1] } = {}, onProgress = () => {}, { grid = 1, corrections = null } = {}) {
+export function fuse(bytes, parsed, depth, { black = 42, white = 1023, gains = [1, 1, 1], hot = true } = {}, onProgress = () => {}, { grid = 1, corrections = null } = {}) {
   const refId = depth.ref;
   const refFrame = parsed.modules[refId][0];
   const refCam = cameraModel(parsed.header, refFrame);
-  const opts = { black, white, gains };
+  const opts = { black, white, gains, hot };
   onProgress('Developing the pictures', 0.02);
   const S = grid;
   const load = (frame) => (S === 1 ? demosaic(bytes, frame, opts) : halfSize(bytes, frame, opts));

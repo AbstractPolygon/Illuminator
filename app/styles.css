@@ -236,6 +236,7 @@ h2 { font-size: 13px; font-weight: 600; color: var(--heading); margin: 14px 0 8p
 }
 .progress .bar { flex: 1; height: 6px; background: #2a2e35; border-radius: 3px; overflow: hidden; }
 #progress-fill { height: 100%; width: 0; background: var(--accent); transition: width 0.15s; }
+.progress-pct { font-variant-numeric: tabular-nums; min-width: 3.2em; text-align: right; }
 
 .modes-row, .transport {
   display: flex; gap: 6px; padding: 8px 12px; align-items: center;

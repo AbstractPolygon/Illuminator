@@ -212,6 +212,9 @@ function showProgress(stage, p) {
   $('progress').classList.toggle('indeterminate', p == null);
   $('progress-text').textContent = stage;
   $('progress-fill').style.width = p == null ? '' : `${Math.round(p * 100)}%`;
+  // (how far along, as a number, when it is known)
+  $('progress-pct').hidden = p == null;
+  $('progress-pct').textContent = p == null ? '' : `${Math.round(Math.min(1, Math.max(0, p)) * 100)}%`;
 }
 
 // A change that is slow to show (another depth method, the high quality depth): its message stays up from the change until the next picture is drawn (draw()),
@@ -3448,7 +3451,11 @@ function setMode(mode) {
   for (const id of ['fstop', 'bokeh', 'dof-depth', 'highlights', 'spread', 'spread-smooth', 'spread-blur', 'tilt-on', 'tilt-preset', 'tilt', 'tilt-rotation', 'tilt-show', ...BOKEH_SHAPE]) $(id).disabled = !depthTools || stack;
   if (!$('tilt-on').checked) for (const id of ['tilt', 'tilt-rotation', 'tilt-show']) $(id).disabled = true;
   $('mv-on').disabled = !raw;
-  $('nr-hot').disabled = !raw;
+  // Multi-view noise reduction merges a raw photo's views: the others have none, so it is not shown for them; Remove hot pixels works on every photo (the sensor of a raw photo,
+  // the cameras of a Light L16 photo, the pictures of a processed one)
+  $('mv-on').closest('label').hidden = !!state.info && !raw;
+  $('mv-blend').closest('label').hidden = !!state.info && !raw;
+  $('nr-hot').disabled = !state.info;
   // Pictures Lytro Desktop finished already have its look.
   $('base-look').disabled = !raw;
   $('detail').disabled = !raw;
