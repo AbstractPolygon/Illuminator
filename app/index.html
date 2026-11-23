@@ -353,6 +353,9 @@
       <details class="panel geometry-panel" data-panel="camera">
         <summary><h2>Crop</h2></summary>
         <div class="row geometry-row">
+          <button id="crop-btn" type="button" class="icon-only" aria-pressed="false" title="Crop: drag the corners or edges of the frame (Enter to finish, Esc to cancel)" aria-label="Crop">
+            <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" d="M6 2v14a2 2 0 0 0 2 2h14M2 6h14a2 2 0 0 1 2 2v14"/></svg>
+          </button>
           <button id="rotate-left" type="button" class="icon-only" title="Rotate left" aria-label="Rotate left">
             <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" d="M4 10V5m0 5h5M4.6 9.5A8 8 0 1 1 6 17"/></svg>
           </button>
@@ -365,8 +368,6 @@
           <button id="flip-v" type="button" class="icon-only" title="Flip vertically" aria-label="Flip vertically">
             <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" d="M3 12h18M7 9 17 3v6zM7 15l10 6v-6z"/></svg>
           </button>
-          <span class="spacer"></span>
-          <button id="crop-btn" type="button" aria-pressed="false" title="Drag the corners or edges of the frame on the picture (Enter to finish, Esc to cancel)">Crop</button>
         </div>
         <label title="Rotates the picture to level the horizon">Straighten <output for="straighten" data-for="straighten">0.0°</output>
           <input id="straighten" type="range" min="-45" max="45" step="0.1" value="0" data-default="0">

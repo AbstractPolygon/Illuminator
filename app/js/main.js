@@ -5294,7 +5294,9 @@ function startCrop() {
   cropState.saved = cropValues();
   cropState.rect = cropValues();
   $('crop-btn').setAttribute('aria-pressed', 'true');
-  $('crop-btn').textContent = 'Done';
+  // (the crop icon stays; pressed, it finishes the crop)
+  $('crop-btn').title = 'Finish cropping (Enter); Esc cancels';
+  $('crop-btn').setAttribute('aria-label', 'Finish cropping');
   viewer.classList.add('cropping');
   $('crop-box').hidden = false;
   if (state.lastImage) draw(state.lastImage);
@@ -5306,7 +5308,8 @@ function finishCrop(keep) {
   cropState.editing = false;
   if (keep) setCropValues(cropState.rect);
   $('crop-btn').setAttribute('aria-pressed', 'false');
-  $('crop-btn').textContent = 'Crop';
+  $('crop-btn').title = 'Crop: drag the corners or edges of the frame (Enter to finish, Esc to cancel)';
+  $('crop-btn').setAttribute('aria-label', 'Crop');
   viewer.classList.remove('cropping');
   $('crop-box').hidden = true;
   if (keep) geometryChanged();
