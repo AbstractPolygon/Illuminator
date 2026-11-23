@@ -2,9 +2,12 @@
 // file to share, rename and delete. They are kept in the library (library/library.js).
 
 import { makeLook, parseLook, applyLookToEdits, describeLook, lookFileName } from '../core/looks.js';
+import { L16_LOOKS } from '../core/l16looks.js';
+import { xmpToLook } from '../core/lightroompreset.js';
 
 export function initLooks({ $, state, showMenu, editName, confirmInMenu, currentEdits, flushSave, applyEdits, scheduleSave, showNotice, showError, download }) {
   const hasPhoto = () => !!(state.info && state.current);
+  const isL16 = () => !!(state.info && state.info.processed && state.info.processed.source === 'l16');
 
   // The looks are a dropdown (choosing one puts it on the open photo); the ••• button beside it acts on the look shown.
   let shown = '';
@@ -12,19 +15,23 @@ export function initLooks({ $, state, showMenu, editName, confirmInMenu, current
     const row = $('look-row');
     const looks = state.lib ? state.lib.looks : [];
     $('look-save').disabled = !hasPhoto();
-    if (!looks.some((l) => l.id === shown)) shown = '';
+    if (!looks.some((l) => l.id === shown) && !(isL16() && L16_LOOKS.some((l) => l.id === shown))) shown = '';
     const select = Object.assign(document.createElement('select'), { title: 'Choose a look to put on the open photo' });
     select.setAttribute('aria-label', 'Look');
     select.append(new Option(looks.length ? 'Choose a look…' : 'No looks yet', ''));
     for (const entry of looks) select.append(new Option(entry.name, entry.id));
+    // (a Light L16 photo: the looks that come with the app for it)
+    const builtin = isL16() ? L16_LOOKS : [];
+    for (const entry of builtin) select.append(new Option(entry.name, entry.id));
+    if (select.options.length > 1 && !looks.length) select.options[0].textContent = 'Choose a look…';
     select.value = shown;
-    select.disabled = !looks.length;
+    select.disabled = !looks.length && !builtin.length;
     select.onchange = () => {
       shown = select.value;
-      more.disabled = !shown;
+      more.disabled = !shown || shown.startsWith('builtin:');
       if (shown) apply(shown);
     };
-    const more = Object.assign(document.createElement('button'), { type: 'button', className: 'more', textContent: '•••', title: 'Apply, save as a file, rename, delete the look shown', disabled: !shown });
+    const more = Object.assign(document.createElement('button'), { type: 'button', className: 'more', textContent: '•••', title: 'Apply, save as a file, rename, delete the look shown', disabled: !shown || shown.startsWith('builtin:') });
     more.setAttribute('aria-label', 'Actions for the look shown');
     more.setAttribute('aria-haspopup', 'menu');
     more.onclick = () => menu(shown, row, more);
@@ -39,7 +46,7 @@ export function initLooks({ $, state, showMenu, editName, confirmInMenu, current
         return;
       }
       const photoBefore = state.current;
-      const look = await state.lib.loadLook(id);
+      const look = id.startsWith('builtin:') ? L16_LOOKS.find((l) => l.id === id) : await state.lib.loadLook(id);
       if (!look) throw new Error('This look could not be read');
       // The photo may have been closed, or another opened, while the look loaded.
       if (!hasPhoto() || state.current !== photoBefore) {
@@ -130,8 +137,15 @@ export function initLooks({ $, state, showMenu, editName, confirmInMenu, current
     let added = 0;
     for (const file of files) {
       try {
-        const look = parseLook(await file.text());
-        await state.lib.addLook(look.name || file.name.replace(/\.[^.]+$/, ''), look);
+        const text = await file.text();
+        const baseName = file.name.replace(/\.[^.]+$/, '');
+        // (a Lightroom preset: the settings this app has controls for)
+        let look;
+        let skipped = [];
+        if (/\.xmp$/i.test(file.name)) ({ look, skipped } = xmpToLook(text, baseName));
+        else look = parseLook(text);
+        await state.lib.addLook(look.name || baseName, look);
+        if (skipped.length) showNotice(`${file.name} added`, `Not carried over (no control for it here): ${skipped.join(', ')}.`);
         added++;
       } catch (err) {
         showNotice(`${file.name} was not added`, err.message);
