@@ -1,7 +1,7 @@
 // The semi-global smoothing of the Light L16 depth (core/l16depth.js depthFinish) on the graphics card, in the same integer steps as the processor, so the result is the same
 // to the bit. Each direction's scan is one draw a column (or a row): every line along the scan and every depth step at once, the column before it read from the other of two
-// textures (even and odd columns are kept apart, as a draw cannot read the texture it writes). Each direction's costs are read back and added up on the processor, which
-// keeps the graphics memory needed to about two copies of the cost volume.
+// textures (even and odd columns are kept apart, as a draw cannot read the texture it writes). Each direction's costs are added to a running total on the card, and each
+// pixel's winner found there; only the winners are read back.
 //
 // Layout: the cost volume of w x h pixels and NZ steps is G = ceil(NZ / 4) texels a pixel, four steps each (RGBA16UI): texel column t = x G + g of row y holds steps 4g to
 // 4g + 3. A row longer than the card's textures are wide is wrapped into bands of TW texels (a multiple of G, so no pixel is split), stacked: (t mod TW, (t / TW) R + y).
@@ -80,11 +80,93 @@ void main() {
   outCost = cur;
 }`;
 
-// On `gpu` (a GpuRenderer): a function ({ cost (Uint8Array or Uint16Array, w h NZ), w, h, NZ, P1, edgeX, edgeY (Uint32Array, w h: floor(P2) at each edge), onDirection }) -> Uint16Array
-// total (w h NZ), the four directions' costs added (wrapping at 65536, as the processor's Uint16Array). Throws where the card cannot hold the volume.
+// The directions' costs added up (wrapping at 65536, as the processor's Uint16Array): the total, laid out as the cost volume, plus the costs of the direction just scanned
+// (from its two parities' textures).
+const ADD = `#version 300 es
+precision highp float;
+precision highp int;
+precision highp usampler2D;
+uniform usampler2D uTotal;
+uniform usampler2D uL0;
+uniform usampler2D uL1;
+uniform int uHasTotal;
+uniform int uHorizontal;
+uniform int uG;
+uniform int uW;
+uniform int uH;
+uniform int uTW;     // the total's band width (rows a band: h)
+uniform int uLTW;    // the scan textures' band width
+uniform int uLR;     // and rows a band
+out uvec4 outCost;
+ivec2 place(int t, int r, int tw, int rows) { return ivec2(t % tw, (t / tw) * rows + r); }
+void main() {
+  ivec2 f = ivec2(gl_FragCoord.xy);
+  int t = (f.y / uH) * uTW + f.x;
+  int y = f.y % uH;
+  int x = t / uG;
+  int g = t - x * uG;
+  if (x >= uW) {
+    outCost = uvec4(0u);
+    return;
+  }
+  uvec4 l;
+  if (uHorizontal == 1) {
+    ivec2 q = place((x >> 1) * uG + g, y, uLTW, uLR);
+    l = (x & 1) == 0 ? texelFetch(uL0, q, 0) : texelFetch(uL1, q, 0);
+  } else {
+    ivec2 q = place(x * uG + g, y >> 1, uLTW, uLR);
+    l = (y & 1) == 0 ? texelFetch(uL0, q, 0) : texelFetch(uL1, q, 0);
+  }
+  uvec4 old = uHasTotal == 1 ? texelFetch(uTotal, f, 0) : uvec4(0u);
+  outCost = (old + l) & uvec4(65535u);
+}`;
+
+// Each pixel's winner from the total (core/l16depth.js depthFinish): the first step with the least cost, that cost, the least cost more than one step from it (65535
+// if none), and the costs of the steps either side (a | c << 16; 0 where there is none).
+const WINNER = `#version 300 es
+precision highp float;
+precision highp int;
+precision highp usampler2D;
+uniform usampler2D uTotal;
+uniform int uG;
+uniform int uNZ;
+uniform int uH;
+uniform int uTW;
+out uvec4 outWin;
+uint at(int x, int y, int k) {
+  int t = x * uG + (k >> 2);
+  uvec4 v = texelFetch(uTotal, ivec2(t % uTW, (t / uTW) * uH + y), 0);
+  int c = k & 3;
+  return c == 0 ? v.r : c == 1 ? v.g : c == 2 ? v.b : v.a;
+}
+void main() {
+  ivec2 p = ivec2(gl_FragCoord.xy);
+  int best = 0;
+  uint bc = 65535u;
+  for (int k = 0; k < uNZ; k++) {
+    uint c = at(p.x, p.y, k);
+    if (c < bc) {
+      bc = c;
+      best = k;
+    }
+  }
+  uint second = 65535u;
+  for (int k = 0; k < uNZ; k++) {
+    if (k >= best - 1 && k <= best + 1) continue;
+    second = min(second, at(p.x, p.y, k));
+  }
+  uint a = best > 0 ? at(p.x, p.y, best - 1) : 0u;
+  uint c = best < uNZ - 1 ? at(p.x, p.y, best + 1) : 0u;
+  outWin = uvec4(uint(best), bc, second, a | (c << 16));
+}`;
+
+// On `gpu` (a GpuRenderer): a function ({ cost (Uint8Array or Uint16Array, w h NZ), w, h, NZ, P1, edgeX, edgeY (Uint32Array, w h: floor(P2) at each edge), onDirection }) -> Uint32Array
+// of 4 a pixel: the winner of the four directions' costs added (WINNER above). Throws where the card cannot hold the volume.
 export function l16SgmGpu(gpu) {
   const gl = gpu.gl;
   let prog = null;
+  let addProg = null;
+  let winProg = null;
   return function smooth({ cost, w, h, NZ, P1, edgeX, edgeY, onDirection = () => {} }) {
     const G = Math.ceil(NZ / 4);
     const max = gl.getParameter(gl.MAX_TEXTURE_SIZE);
@@ -97,6 +179,8 @@ export function l16SgmGpu(gpu) {
       return { C, R, TW, bands, height: R * bands };
     };
     prog = prog || program(gl, STEP);
+    addProg = addProg || program(gl, ADD);
+    winProg = winProg || program(gl, WINNER);
     const made = [];
     const tex = (tw, th, internal) => {
       const t = gpu.texture(tw, th, internal);
@@ -127,8 +211,10 @@ export function l16SgmGpu(gpu) {
       };
       const ex = edgeTex(edgeX);
       const ey = edgeTex(edgeY);
-      const total = new Uint16Array(w * h * NZ);
+      // (the total so far and the next one, swapped after each direction)
+      const T = [tex(cl.TW, cl.height, gl.RGBA16UI), tex(cl.TW, cl.height, gl.RGBA16UI)];
       const u = prog.u;
+      let dir = 0;
       for (const [horizontal, step] of [[1, 1], [1, -1], [0, 1], [0, -1]]) {
         const lines = horizontal ? w : h;
         // the two parities' textures: half the columns (or rows) each
@@ -168,39 +254,47 @@ export function l16SgmGpu(gpu) {
               }
             }
           }
-          // the costs read back, a band of rows at a time, and added to the total
-          for (let p = 0; p < 2; p++) {
-            gpu.target(L[p], ll.TW, ll.height);
-            const chunk = Math.max(1, Math.floor((1 << 22) / (4 * ll.TW)));
-            const buf = new Uint32Array(4 * ll.TW * chunk);
-            for (let b = 0; b < ll.bands; b++) {
-              const bw = Math.min(ll.TW, ll.C - b * ll.TW);
-              for (let r0 = 0; r0 < ll.R; r0 += chunk) {
-                const rows = Math.min(chunk, ll.R - r0);
-                gl.readPixels(0, b * ll.R + r0, bw, rows, gl.RGBA_INTEGER, gl.UNSIGNED_INT, buf);
-                for (let r = 0; r < rows; r++) {
-                  for (let X = 0; X < bw; X++) {
-                    const t = b * ll.TW + X;
-                    const cell = (t / G) | 0;
-                    const g = t - cell * G;
-                    const x = horizontal ? 2 * cell + p : cell;
-                    const y = horizontal ? r0 + r : 2 * (r0 + r) + p;
-                    if (x >= w || y >= h) continue;
-                    const base = (y * w + x) * NZ + 4 * g;
-                    const src = 4 * (r * bw + X);
-                    for (let c = 0; c < 4 && 4 * g + c < NZ; c++) total[base + c] += buf[src + c];
-                  }
-                }
-              }
-            }
-          }
+          // the direction's costs added to the total, on the card
+          const into = T[(dir + 1) & 1];
+          gpu.target(into, cl.TW, cl.height);
+          gl.useProgram(addProg.p);
+          const a = addProg.u;
+          gl.uniform1i(a.uTotal, 1);
+          gpu.bindTex(1, T[dir & 1]);
+          gl.uniform1i(a.uL0, 2);
+          gpu.bindTex(2, L[0]);
+          gl.uniform1i(a.uL1, 3);
+          gpu.bindTex(3, L[1]);
+          gl.uniform1i(a.uHasTotal, dir > 0 ? 1 : 0);
+          gl.uniform1i(a.uHorizontal, horizontal);
+          gl.uniform1i(a.uG, G);
+          gl.uniform1i(a.uW, w);
+          gl.uniform1i(a.uH, h);
+          gl.uniform1i(a.uTW, cl.TW);
+          gl.uniform1i(a.uLTW, ll.TW);
+          gl.uniform1i(a.uLR, ll.R);
+          gpu.draw();
         } finally {
           gl.deleteTexture(L[0]);
           gl.deleteTexture(L[1]);
         }
+        dir++;
         onDirection();
       }
-      return total;
+      // each pixel's winner, read back
+      const win = tex(w, h, gl.RGBA32UI);
+      gpu.target(win, w, h);
+      gl.useProgram(winProg.p);
+      gl.uniform1i(winProg.u.uTotal, 1);
+      gpu.bindTex(1, T[dir & 1]);
+      gl.uniform1i(winProg.u.uG, G);
+      gl.uniform1i(winProg.u.uNZ, NZ);
+      gl.uniform1i(winProg.u.uH, h);
+      gl.uniform1i(winProg.u.uTW, cl.TW);
+      gpu.draw();
+      const out = new Uint32Array(4 * w * h);
+      gl.readPixels(0, 0, w, h, gl.RGBA_INTEGER, gl.UNSIGNED_INT, out);
+      return out;
     } finally {
       for (const t of made) gl.deleteTexture(t);
     }

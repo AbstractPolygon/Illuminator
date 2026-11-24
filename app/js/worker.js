@@ -18,6 +18,7 @@ import { l16LookupGpu } from './gpu/l16lookup.js';
 import { l16NccGpu } from './gpu/l16ncc.js';
 import { l16SgmGpu } from './gpu/l16sgm.js';
 import { l16ReduceGpu } from './gpu/l16reduce.js';
+import { l16DepthFinishGpu } from './gpu/l16depthfinish.js';
 import { normalizeGrid, measureGrid, calibrateGrid, lensCenters, lensCenter, toLocal } from './core/lenslet.js';
 import {
   buildSampler, renderView, makeDevelopParams, apertureSamples, refocus,
@@ -75,7 +76,7 @@ import { renderL16Final } from './core/l16render.js';
 import { superpixelColor, depthAtSize, synthesize, fillFromBackground, backgroundDepth, fillFromDonors } from './core/l16view.js';
 import { RIG_RADIUS_MM, developL16, setL16DevelopGpu, encodePicture } from './core/l16photo.js';
 import { cameraModel as l16CameraModel } from './core/l16geometry.js';
-import { relativePose as l16RelativePose, setL16SgmGpu, setL16ReduceGpu } from './core/l16depth.js';
+import { relativePose as l16RelativePose, setL16SgmGpu, setL16ReduceGpu, setL16DepthFinishGpu } from './core/l16depth.js';
 import { lytroSplatGpu } from './gpu/lytroengine.js';
 import { debugFlags, hook, setHook } from './core/debugflags.js';
 import { withExtension, depthRange, searchSteps, reachProfile, reachToward, uncoveredMask } from './core/viewextend.js';
@@ -1091,6 +1092,7 @@ async function open({ id, bytes, synthetic, userDepth = null, depthCache = null,
     setL16NccGpu(state.gpu && !debugFlags().noGpuL16Align ? l16NccGpu(state.gpu) : null);
     setL16LookupGpu(state.gpu && !debugFlags().noGpuL16Lookup ? l16LookupGpu(state.gpu) : null);
     setL16FuseGpu(state.gpu && !debugFlags().noGpuL16Merge ? l16FuseGpu(state.gpu) : null);
+    setL16DepthFinishGpu(state.gpu && !debugFlags().noGpuL16DepthFinish ? l16DepthFinishGpu(state.gpu) : null);
     // (on a software renderer the depth pictures are slower than here)
     setL16ReduceGpu(hardwareGpu() && !debugFlags().noGpuL16DepthPictures ? l16ReduceGpu(state.gpu) : null);
     setL16DevelopGpu(state.gpu && !debugFlags().noGpuL16Develop ? l16DevelopGpu(state.gpu) : null);
@@ -4394,6 +4396,7 @@ function recoverGpu({ keepPhoto = true } = {}) {
   setL16LookupGpu(null);
   setL16FuseGpu(null);
   setL16ReduceGpu(null);
+  setL16DepthFinishGpu(null);
   setL16DevelopGpu(null);
   setL16SgmGpu(null);
   dropKeptStills();

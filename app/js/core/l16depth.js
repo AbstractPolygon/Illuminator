@@ -343,6 +343,12 @@ export async function measureDepthPooled(bytes, parsed, options = {}, onProgress
   return depthFinish(setup, cost, onProgress);
 }
 
+// The last steps on the graphics card (gpu/l16depthfinish.js l16DepthFinishGpu's function), or null for the processor's: set by the worker that has the card.
+let finishOnCard = null;
+export function setL16DepthFinishGpu(fn) {
+  finishOnCard = fn || null;
+}
+
 // The smoothing on the graphics card (gpu/l16sgm.js l16SgmGpu's function), or null for the processor's: set by the worker that has the card.
 let sgmOnCard = null;
 export function setL16SgmGpu(fn) {
@@ -353,7 +359,8 @@ export function setL16SgmGpu(fn) {
 function depthFinish(setup, cost, onProgress) {
   const { ref, refId, group, w, h, S, NZ, K, invMin, invMax, near, far, options } = setup;
   // semi-global smoothing along four directions
-  const total = new Uint16Array(w * h * NZ);
+  // (made only when the smoothing is done here)
+  let total = null;
   const P1 = options.p1 ?? 2;
   const gx = new Float32Array(w * h);
   const gy = new Float32Array(w * h);
@@ -403,7 +410,8 @@ function depthFinish(setup, cost, onProgress) {
       }
     }
   };
-  let onCard = false;
+  // (the card gives each pixel's winner: best step, its cost, the runner up, the costs either side)
+  let winners = null;
   if (sgmOnCard) {
     // (on the graphics card, gpu/l16sgm.js: the same integer steps; here if it fails)
     try {
@@ -414,15 +422,14 @@ function depthFinish(setup, cost, onProgress) {
       };
       const progress = [0.7, 0.8, 0.9, 0.9];
       let dir = 0;
-      total.set(sgmOnCard({ cost, w, h, NZ, P1, edgeX: floorP2(gx), edgeY: floorP2(gy), onDirection: () => onProgress('Smoothing depth', progress[dir++]) }));
-      onCard = true;
+      winners = sgmOnCard({ cost, w, h, NZ, P1, edgeX: floorP2(gx), edgeY: floorP2(gy), onDirection: () => onProgress('Smoothing depth', progress[dir++]) });
     } catch (err) {
       console.warn('L16 depth smoothing on the graphics card failed; smoothing here', err);
       sgmOnCard = null;
-      total.fill(0);
     }
   }
-  if (!onCard) {
+  if (!winners) {
+    total = new Uint16Array(w * h * NZ);
     path(0, 0, 1, 0);
     onProgress('Smoothing depth', 0.7);
     path(w - 1, 0, -1, 0);
@@ -438,19 +445,29 @@ function depthFinish(setup, cost, onProgress) {
     const base = i * NZ;
     let best = 0;
     let bc = 65535;
-    for (let k = 0; k < NZ; k++) {
-      const c = total[base + k];
-      if (c < bc) {
-        bc = c;
-        best = k;
-      }
-    }
     let second = 65535;
-    for (let k = 0; k < NZ; k++) if ((k < best - 1 || k > best + 1) && total[base + k] < second) second = total[base + k];
+    let a = 0;
+    let c = 0;
+    if (winners) {
+      best = winners[4 * i];
+      bc = winners[4 * i + 1];
+      second = winners[4 * i + 2];
+      a = winners[4 * i + 3] & 0xffff;
+      c = winners[4 * i + 3] >>> 16;
+    } else {
+      for (let k = 0; k < NZ; k++) {
+        const v = total[base + k];
+        if (v < bc) {
+          bc = v;
+          best = k;
+        }
+      }
+      for (let k = 0; k < NZ; k++) if ((k < best - 1 || k > best + 1) && total[base + k] < second) second = total[base + k];
+      if (best > 0) a = total[base + best - 1];
+      if (best < NZ - 1) c = total[base + best + 1];
+    }
     let pos = best;
     if (best > 0 && best < NZ - 1) {
-      const a = total[base + best - 1];
-      const c = total[base + best + 1];
       const den = a - 2 * bc + c;
       if (den > 0) pos += Math.max(-0.5, Math.min(0.5, (a - c) / (2 * den)));
     }
@@ -459,10 +476,21 @@ function depthFinish(setup, cost, onProgress) {
   }
   // Where the match is no better than its runner up (dark or flat areas), the depth is a guess: it is taken from the surer pixels round it (the mean of their depth, by confidence, over a
   // window), and a pixel that is sure keeps its own.
+  const BORDER = Math.max(4, Math.round(48 / S));
+  if (finishOnCard) {
+    // (the filling, the border and the median on the graphics card, gpu/l16depthfinish.js; here if it fails)
+    try {
+      finishOnCard(invZ, confidence, w, h, Math.max(3, Math.round(40 / S)), UNSURE, BORDER);
+      onProgress('Depth measured', 1);
+      return { width: w, height: h, scale: S, ref: refId, modules: group, focalPx: K[0], K, invZ, confidence, steps: NZ, near, far };
+    } catch (e) {
+      console.warn('L16 depth finish on the graphics card failed; finishing here', e);
+      finishOnCard = null;
+    }
+  }
   fillUnsure(invZ, confidence, w, h, Math.max(3, Math.round(40 / S)), UNSURE);
   // The border band is not measured well (the other cameras see less of it there): it takes the depth of the pixel BORDER inside; then a 3 x 3 median removes single bad steps.
   // (the median of a window round that pixel, not the one value: one noisy pixel would otherwise be spread out as a stripe to the edge of the picture)
-  const BORDER = Math.max(4, Math.round(48 / S));
   const filled = new Float32Array(invZ);
   const around = [];
   for (let y = 0; y < h; y++) {
