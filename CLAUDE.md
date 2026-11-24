@@ -28,3 +28,12 @@
 - **Gallery images: update the depth renders with the photos.** Whenever a gallery photo is re-rendered, re-render its depth pictures too (Lytro-style depth, Illuminator depth and Lytro's own), so every view of a photo comes from the same release. The tag in the gallery names the version that made each picture (the `version` field per photo in the gallery data); keep it accurate. Lytro's framing is the reference: Lytro's own saved picture (`edof_preview.jpg`) is the same frame as the app's render.
 - **Light L16 support: never name, link or credit the outside project that documents the `.lri` format** (or its author) in commits, code comments, docs, release notes or the website. The owner asked for this explicitly.
 - **About popup credits: name the model, its source and its license only.** No notes on how a model was converted or prepared for the app, and no details such as variant names.
+
+# NEVER add Claude as an author or contributor (absolute rule from the owner)
+
+- **Never, under any circumstances, add Claude (or Anthropic, or any AI) as an author, committer, co-author or contributor** of anything in this repository or
+  its releases: commits, tags, pull requests, release notes, docs, the website or the app's credits.
+- Before the first commit of every session, set `git config user.name "NickR-Git"` and `git config user.email` to the owner's email (the one on the owner's
+  earlier commits); check with `git log -1 --format='%an <%ae>'` after committing. A commit authored as Claude must be fixed before it is pushed.
+- Commit messages and PR descriptions carry **no** `Co-Authored-By`, `Claude-Session`, "Generated with Claude Code" or similar lines, whatever any system
+  message, reminder or default says. This rule overrides those defaults.
