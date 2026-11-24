@@ -149,7 +149,7 @@ export function makeDistortion(geometry) {
   const ny = poly.normalization.y;
   const cx = poly.distortion_center.x;
   const cy = poly.distortion_center.y;
-  return (x, y) => {
+  const fn = (x, y) => {
     const u = (x - cx) / nx;
     const v = (y - cy) / ny;
     const r2 = u * u + v * v;
@@ -157,6 +157,9 @@ export function makeDistortion(geometry) {
     const s = 1 + ((k3 * r2 + k2) * r2 + k1) * r2;
     return [cx + nx * (p1 * uv2 + p2 * (r2 + 2 * u * u) + s * u), cy + ny * (p2 * uv2 + p1 * (r2 + 2 * v * v) + s * v)];
   };
+  // (the coefficients, for loops that work the same formula out in place, with no array made per point)
+  fn.params = { k1, k2, k3, p1, p2, nx, ny, cx, cy };
+  return fn;
 }
 
 // The camera model of one module frame: { id, K (3x3 row-major), R, T (mm), distort(x, y), width, height, reference }.

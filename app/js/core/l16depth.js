@@ -150,7 +150,8 @@ export function fillUnsure(invZ, confidence, w, h, radius, threshold) {
   invZ.set(out);
 }
 
-export function measureDepth(bytes, parsed, options = {}, onProgress = () => {}) {
+// The first part of measureDepth: the pictures and numbers every depth step uses (`job`, which can be sent to a helper worker as it is), and what the last part needs.
+function depthSetup(bytes, parsed, options = {}, onProgress = () => {}) {
   const refId = options.ref || parsed.header.image_reference_camera;
   const S = options.scale || 4;
   const NZ = options.steps || 48;
@@ -179,46 +180,137 @@ export function measureDepth(bytes, parsed, options = {}, onProgress = () => {})
       refSample[y * w + x] = bilinear(ref.g, w, h, sx / S, sy / S);
     }
   }
-  // cost volume, 0..255 (the mean over modules of the capped difference, scaled)
-  const cost = new Uint8Array(w * h * NZ);
-  const diff = new Float32Array(w * h);
+  // Each module's numbers in one flat object, and the inner loop worked out in place (projection, lens distortion, bilinear lookup): the same arithmetic as
+  // cam.distort and bilinear, with no array made per pixel, depth and module (that was most of this step's time).
+  const mods = others.map((o) => {
+    const R = o.rel.R;
+    const T = o.rel.T;
+    const d = o.cam.distort.params || null;
+    return {
+      r0: R[0], r1: R[1], r2: R[2], r3: R[3], r4: R[4], r5: R[5], r6: R[6], r7: R[7], r8: R[8], t0: T[0], t1: T[1], t2: T[2],
+      f0: o.cam.K[0], c0: o.cam.K[2], f1: o.cam.K[4], c1: o.cam.K[5],
+      dist: !!d, k1: d ? d.k1 : 0, k2: d ? d.k2 : 0, k3: d ? d.k3 : 0, p1: d ? d.p1 : 0, p2: d ? d.p2 : 0, nx: d ? d.nx : 1, ny: d ? d.ny : 1, dcx: d ? d.cx : 0, dcy: d ? d.cy : 0,
+      g: o.pic.g, pw: o.pic.w, ph: o.pic.h,
+      // (distort's own function, for a module whose distortion is not the polynomial)
+      fn: d ? null : o.cam.distort,
+    };
+  });
+  // (the module pictures' own functions do not go to a helper: a module without the polynomial distortion keeps the work here)
+  const portable = mods.every((m) => m.dist);
+  const job = { mods: mods.map(({ fn, ...m }) => m), refSample, w, h, S, K: Array.from(K), invMin, invMax, NZ };
+  return { job, portable, mods, ref, refId, refCam, group, w, h, S, NZ, K, invMin, invMax, near, far, options };
+}
+
+// One depth step of the cost volume (step `zi` of the job's NZ, in equal steps of inverse depth): for every reference pixel, the mean over the modules of the capped
+// difference from the module's picture where that depth puts the pixel, gathered over a small window, scaled to 0..255. A helper worker runs the same function.
+export function depthCostStep(job, zi, mods = job.mods) {
+  const { refSample, w, h, S, K, invMin, invMax, NZ } = job;
   const CAP = 1.2;
-  for (let zi = 0; zi < NZ; zi++) {
-    const inv = invMin + ((invMax - invMin) * zi) / (NZ - 1);
-    const z = 1 / inv;
+  const diff = new Float32Array(w * h);
+  const sum = new Float64Array(w * h);
+  const cnt = new Uint8Array(w * h);
+  const inv = invMin + ((invMax - invMin) * zi) / (NZ - 1);
+  const z = 1 / inv;
+  sum.fill(0);
+  cnt.fill(0);
+  // (one module at a time over every pixel, its numbers in local variables)
+  for (let m = 0; m < mods.length; m++) {
+    const { r0, r1, r2, r3, r4, r5, r6, r7, r8, t0, t1, t2, f0, c0, f1, c1, dist, k1, k2, k3, p1, p2, nx, ny, dcx, dcy, g, pw, ph, fn } = mods[m];
+    const zx = r2 * z + t0;
+    const zy = r5 * z + t1;
+    const zz = r8 * z + t2;
     for (let y = 0; y < h; y++) {
-      const py = (y + 0.5) * S;
-      const Y = ((py - K[5]) / K[4]) * z;
-      for (let x = 0; x < w; x++) {
-        const px = (x + 0.5) * S;
-        const X = ((px - K[2]) / K[0]) * z;
-        const rv = refSample[y * w + x];
-        let sum = 0;
-        let n = 0;
-        if (rv === rv) {
-          for (const o of others) {
-            const R = o.rel.R;
-            const T = o.rel.T;
-            const Pz = R[6] * X + R[7] * Y + R[8] * z + T[2];
-            if (Pz <= 1) continue;
-            const ix = (o.cam.K[0] * (R[0] * X + R[1] * Y + R[2] * z + T[0])) / Pz + o.cam.K[2];
-            const iy = (o.cam.K[4] * (R[3] * X + R[4] * Y + R[5] * z + T[1])) / Pz + o.cam.K[5];
-            const [sx, sy] = o.cam.distort(ix, iy);
-            const v = bilinear(o.pic.g, o.pic.w, o.pic.h, sx / S, sy / S);
-            if (v === v) {
-              const d = Math.abs(v - rv);
-              sum += d < CAP ? d : CAP;
-              n++;
-            }
-          }
+      const Y = (((y + 0.5) * S - K[5]) / K[4]) * z;
+      const ax = r1 * Y + zx;
+      const ay = r4 * Y + zy;
+      const az = r7 * Y + zz;
+      for (let x = 0, i = y * w; x < w; x++, i++) {
+        const rv = refSample[i];
+        if (rv !== rv) continue;
+        const X = (((x + 0.5) * S - K[2]) / K[0]) * z;
+        const Pz = r6 * X + az;
+        if (Pz <= 1) continue;
+        const ix = (f0 * (r0 * X + ax)) / Pz + c0;
+        const iy = (f1 * (r3 * X + ay)) / Pz + c1;
+        let sx;
+        let sy;
+        if (dist) {
+          const u = (ix - dcx) / nx;
+          const v = (iy - dcy) / ny;
+          const rr = u * u + v * v;
+          const uv2 = 2 * u * v;
+          const k = 1 + ((k3 * rr + k2) * rr + k1) * rr;
+          sx = dcx + nx * (p1 * uv2 + p2 * (rr + 2 * u * u) + k * u);
+          sy = dcy + ny * (p2 * uv2 + p1 * (rr + 2 * v * v) + k * v);
+        } else {
+          [sx, sy] = fn(ix, iy);
         }
-        diff[y * w + x] = n ? sum / n : CAP;
+        // (bilinear, as the function above)
+        const bx = sx / S - 0.5;
+        const by = sy / S - 0.5;
+        if (!(bx >= 0 && by >= 0 && bx < pw - 1 && by < ph - 1)) continue;
+        const xi = bx | 0;
+        const yi = by | 0;
+        const fx = bx - xi;
+        const fy = by - yi;
+        const q = yi * pw + xi;
+        const val = (g[q] * (1 - fx) + g[q + 1] * fx) * (1 - fy) + (g[q + pw] * (1 - fx) + g[q + pw + 1] * fx) * fy;
+        if (val === val) {
+          const dd = val < rv ? rv - val : val - rv;
+          sum[i] += dd < CAP ? dd : CAP;
+          cnt[i]++;
+        }
       }
     }
-    const agg = boxBlur(diff, w, h, 2);
-    for (let i = 0; i < w * h; i++) cost[i * NZ + zi] = Math.min(255, Math.round((agg[i] / CAP) * 255 * 2));
+  }
+  for (let i = 0; i < w * h; i++) diff[i] = cnt[i] ? sum[i] / cnt[i] : CAP;
+  const agg = boxBlur(diff, w, h, 2);
+  const out = new Uint8Array(w * h);
+  for (let i = 0; i < w * h; i++) out[i] = Math.min(255, Math.round((agg[i] / CAP) * 255 * 2));
+  return out;
+}
+
+// Depth for the reference module of a Light L16 capture: { width, height, scale, ref, modules, focalPx, K, invZ (1 / mm per pixel), confidence, steps, near, far }.
+export function measureDepth(bytes, parsed, options = {}, onProgress = () => {}) {
+  const setup = depthSetup(bytes, parsed, options, onProgress);
+  const { w, h, NZ, job, mods } = setup;
+  const cost = new Uint8Array(w * h * NZ);
+  for (let zi = 0; zi < NZ; zi++) {
+    const slice = depthCostStep(job, zi, mods);
+    for (let i = 0; i < w * h; i++) cost[i * NZ + zi] = slice[i];
     onProgress('Measuring depth', ((zi + 1) / NZ) * 0.6);
   }
+  return depthFinish(setup, cost, onProgress);
+}
+
+// The same, with the depth steps shared out to helper workers (`pool`: run(job, zis, onSlice), see core/l16depthpool.js); the result is the same.
+export async function measureDepthPooled(bytes, parsed, options = {}, onProgress = () => {}, pool = null) {
+  const setup = depthSetup(bytes, parsed, options, onProgress);
+  const { w, h, NZ, job, mods, portable } = setup;
+  const cost = new Uint8Array(w * h * NZ);
+  const have = new Uint8Array(NZ);
+  let done = 0;
+  const put = (zi, slice) => {
+    if (have[zi]) return;
+    have[zi] = 1;
+    for (let i = 0; i < w * h; i++) cost[i * NZ + zi] = slice[i];
+    onProgress('Measuring depth', (++done / NZ) * 0.6);
+  };
+  if (pool && portable) {
+    try {
+      await pool.run(job, NZ, put);
+    } catch (err) {
+      // (a helper failed: the steps not made yet are made here, as without helpers)
+      console.warn('Depth helpers failed; measuring here', err);
+    }
+  }
+  for (let zi = 0; zi < NZ; zi++) if (!have[zi]) put(zi, depthCostStep(job, zi, mods));
+  return depthFinish(setup, cost, onProgress);
+}
+
+// The last part: semi-global smoothing of the cost volume, the depth with its confidence, the filling of unsure pixels and the border.
+function depthFinish(setup, cost, onProgress) {
+  const { ref, refId, group, w, h, S, NZ, K, invMin, invMax, near, far, options } = setup;
   // semi-global smoothing along four directions
   const total = new Uint16Array(w * h * NZ);
   const P1 = options.p1 ?? 2;

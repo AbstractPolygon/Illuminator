@@ -29,21 +29,40 @@ export function demosaic(bytes, frame, { black = 42, white = 1023, gains = [1, 1
 function removeSpecks(px, W, H, step) {
   const out = [];
   const at = (x, y) => px[Math.min(H - 1, Math.max(0, y)) * W + Math.min(W - 1, Math.max(0, x))];
-  for (let y = 0; y < H; y++) {
-    for (let x = 0; x < W; x++) {
-      const v = px[y * W + x];
-      const a = at(x - step, y);
-      const b = at(x + step, y);
-      const c = at(x, y - step);
-      const d = at(x, y + step);
-      const e = at(x - step, y - step);
-      const f = at(x + step, y - step);
-      const g = at(x - step, y + step);
-      const h = at(x + step, y + step);
-      const hi = Math.max(a, b, c, d, e, f, g, h);
-      const lo = Math.min(a, b, c, d, e, f, g, h);
-      if (v > hi * 1.5 + 0.03 || (lo > 0.12 && v < lo * 0.3)) out.push(y * W + x, (a + b + c + d) / 4);
+  const test = (i, v, a, b, c, d, e, f, g, h) => {
+    let hi = a > b ? a : b;
+    let lo = a < b ? a : b;
+    for (const n of [c, d, e, f, g, h]) {
+      if (n > hi) hi = n;
+      if (n < lo) lo = n;
     }
+    if (v > hi * 1.5 + 0.03 || (lo > 0.12 && v < lo * 0.3)) out.push(i, (a + b + c + d) / 4);
+  };
+  // The edge rows and columns (neighbours past the edge are the edge's pixels), then the inside, where every neighbour is in the picture: read straight, with no
+  // bounds to check (most of the time of this step was the checks).
+  const edge = (x, y) => test(y * W + x, px[y * W + x], at(x - step, y), at(x + step, y), at(x, y - step), at(x, y + step), at(x - step, y - step), at(x + step, y - step), at(x - step, y + step), at(x + step, y + step));
+  for (let y = 0; y < H; y++) {
+    if (y < step || y >= H - step) {
+      for (let x = 0; x < W; x++) edge(x, y);
+      continue;
+    }
+    for (let x = 0; x < Math.min(step, W); x++) edge(x, y);
+    const up = -step * W;
+    const dn = step * W;
+    for (let x = step, i = y * W + step; x < W - step; x++, i++) {
+      const v = px[i];
+      const a = px[i - step];
+      const b = px[i + step];
+      const c = px[i + up];
+      const d = px[i + dn];
+      // (most pixels pass at once: a hot pixel is brighter than 1.5 times its brightest side neighbour and more, a dead one darker than 0.3 times its darkest; only the
+      // rest are tested against all eight)
+      const m4 = a > b ? (a > c ? (a > d ? a : d) : c > d ? c : d) : b > c ? (b > d ? b : d) : c > d ? c : d;
+      const n4 = a < b ? (a < c ? (a < d ? a : d) : c < d ? c : d) : b < c ? (b < d ? b : d) : c < d ? c : d;
+      if (v <= m4 * 1.5 + 0.03 && v >= n4 * 0.3) continue;
+      test(i, v, a, b, c, d, px[i + up - step], px[i + up + step], px[i + dn - step], px[i + dn + step]);
+    }
+    for (let x = Math.max(step, W - step); x < W; x++) edge(x, y);
   }
   // (replaced after the search, so one pixel's fix is not another's neighbour)
   for (let i = 0; i < out.length; i += 2) px[out[i]] = out[i + 1];

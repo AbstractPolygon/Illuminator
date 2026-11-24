@@ -3,16 +3,17 @@
 import { parseHotPixels } from './calibration.js';
 import { bufferReader, isLfp, readLightFieldPicture, photoIdOf, LfpError } from './lfp.js';
 import { isLri } from './lri.js';
-import { decodeL16, l16PhotoId } from './l16photo.js';
+import { decodeL16Pooled, l16PhotoId } from './l16photo.js';
 import { cameraInfo, guessRawLayout, packedSize, unpackRaw } from './raw.js';
 import { findRecipe } from './recipe.js';
 import { gridFromCamera, calibrateGrid, measureGrid, normalizeGrid } from './lenslet.js';
 
-export async function decodeLightField(bytes, { onProgress = () => {}, calibrate = true, hot = true, l16Cache = null } = {}) {
+export async function decodeLightField(bytes, { onProgress = () => {}, calibrate = true, hot = true, l16Cache = null, l16Pool = null } = {}) {
   onProgress('Reading file', 0);
   // A Light L16 photo: a picture and a depth map measured between its camera modules, shown as a processed photo (core/l16photo.js).
   if (isLri(bytes)) {
-    const l16 = decodeL16(bytes, onProgress, { hot, cache: l16Cache });
+    // (`l16Pool`: helper workers for the depth's steps, js/l16depthpool.js)
+    const l16 = await decodeL16Pooled(bytes, onProgress, { hot, cache: l16Cache, pool: l16Pool });
     return { metadata: null, privateMetadata: null, geometryRef: null, stacks: [], frameDepth: null, photoId: l16PhotoId(l16.header), thumbnails: [], recipe: null, readSection: async () => null, rayWarpBytes: null, geometryBytes: null, cam: null, raw: null, l16 };
   }
   let picture = null;

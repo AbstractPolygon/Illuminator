@@ -9,7 +9,7 @@
 // that stays still (the middle of the scene).
 import { l16CacheKey, encodeL16Cache } from './l16-cache.js';
 import { parseLri } from './lri.js';
-import { measureDepth } from './l16depth.js';
+import { measureDepth, measureDepthPooled } from './l16depth.js';
 import { fuse } from './l16fusion.js';
 
 // Half the distance the viewpoint may travel, in mm (the wide modules are about 70 mm apart at most).
@@ -137,11 +137,26 @@ export function developL16(bytes, parsed, depth, ref, colorOptions, onProgress =
   return { picture: { width: w, height: h, data }, gain, colorMatrix, wide: color, used: color.used };
 }
 
-// `hot`: hot and dead pixels taken out of the camera pictures (Remove hot pixels). `cache`: what an earlier opening measured (decodeL16Cache), used when its key is the
-// photo's; otherwise the result carries `cacheOut`, the bytes to keep with the photo.
-export function decodeL16(bytes, onProgress = () => {}, { hot = true, cache = null } = {}) {
+// decodeL16 with the depth's steps made by helper workers side by side (`pool`, js/l16depthpool.js); the same result. Without a pool, or with what an earlier opening
+// kept (`cache`), it is decodeL16.
+export async function decodeL16Pooled(bytes, onProgress = () => {}, { hot = true, cache = null, pool = null } = {}) {
+  if (!pool) return decodeL16(bytes, onProgress, { hot, cache });
   onProgress('Reading the camera pictures', 0.02);
   const parsed = parseLri(bytes);
+  const ref = parsed.header.image_reference_camera;
+  if (!parsed.modules[ref]) throw new Error('This photo has no picture from its reference camera');
+  // (what an earlier opening kept, when it is for this photo and these settings: nothing to measure)
+  if (cache && cache.key === l16CacheKey(l16PhotoId(parsed.header), hot)) return decodeL16(bytes, onProgress, { hot, cache, parsed });
+  const depth = await measureDepthPooled(bytes, parsed, { ref }, (stage, p) => onProgress(stage, 0.05 + 0.8 * p), pool);
+  return decodeL16(bytes, onProgress, { hot, parsed, depth });
+}
+
+// `hot`: hot and dead pixels taken out of the camera pictures (Remove hot pixels). `cache`: what an earlier opening measured (decodeL16Cache), used when its key is the
+// photo's; otherwise the result carries `cacheOut`, the bytes to keep with the photo.
+export function decodeL16(bytes, onProgress = () => {}, { hot = true, cache = null, parsed: given = null, depth: measured = null } = {}) {
+  onProgress('Reading the camera pictures', 0.02);
+  // (`parsed` and `depth` can be given: the depth measured by helper workers side by side, decodeL16Pooled)
+  const parsed = given || parseLri(bytes);
   const ref = parsed.header.image_reference_camera;
   if (!parsed.modules[ref]) throw new Error('This photo has no picture from its reference camera');
   const awb = (parsed.header.view_preferences && parsed.header.view_preferences.awb_gains) || {};
@@ -150,7 +165,7 @@ export function decodeL16(bytes, onProgress = () => {}, { hot = true, cache = nu
   const white = sd && sd.white_level !== undefined ? sd.white_level : 1023;
   const key = l16CacheKey(l16PhotoId(parsed.header), hot);
   const kept = cache && cache.key === key && cache.depth && cache.wide ? cache : null;
-  const depth = kept ? kept.depth : measureDepth(bytes, parsed, { ref }, (stage, p) => onProgress(stage, 0.05 + 0.8 * p));
+  const depth = kept ? kept.depth : measured || measureDepth(bytes, parsed, { ref }, (stage, p) => onProgress(stage, 0.05 + 0.8 * p));
   const colorOptions = { black, white, gains: [awb.r || 1, awb.gr || 1, awb.b || 1], hot };
   const developed = developL16(bytes, parsed, depth, ref, colorOptions, (stage, p) => onProgress(stage, (kept ? 0.5 : 0.85) + (kept ? 0.45 : 0.12) * p), kept ? kept.wide : null);
   const { picture, gain, colorMatrix, wide: color } = developed;

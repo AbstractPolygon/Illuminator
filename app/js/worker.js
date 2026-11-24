@@ -5,6 +5,8 @@ import { filterPremultiplied } from './core/viewblur.js';
 import { regionsGpu } from './gpu/regions.js';
 import { decodeLightField } from './core/decode.js';
 import { decodeL16Cache } from './core/l16-cache.js';
+import { isLri } from './core/lri.js';
+import { createL16DepthPool, l16DepthHelperCount } from './l16depthpool.js';
 import { normalizeGrid, measureGrid, calibrateGrid, lensCenters, lensCenter, toLocal } from './core/lenslet.js';
 import {
   buildSampler, renderView, makeDevelopParams, apertureSamples, refocus,
@@ -1061,8 +1063,15 @@ async function open({ id, bytes, synthetic, userDepth = null, depthCache = null,
   };
   state.pp = null;
   processedBuilt = null;
-  // (a Light L16 photo: what an earlier opening measured, kept with the photo, core/l16-cache.js)
-  const decoded = await decodeLightField(data, { onProgress, hot: state.settings.hotPixels !== false, l16Cache: l16Cache ? decodeL16Cache(l16Cache) : null });
+  // (a Light L16 photo: what an earlier opening measured, kept with the photo, core/l16-cache.js; its depth's steps made by helper workers side by side,
+  // js/l16depthpool.js, which are shut down after)
+  const l16Pool = data && isLri(data) ? createL16DepthPool(l16DepthHelperCount((self.navigator && self.navigator.hardwareConcurrency) || 0)) : null;
+  let decoded;
+  try {
+    decoded = await decodeLightField(data, { onProgress, hot: state.settings.hotPixels !== false, l16Cache: l16Cache ? decodeL16Cache(l16Cache) : null, l16Pool });
+  } finally {
+    if (l16Pool) l16Pool.close();
+  }
   checkOpen();
   state.lf = decoded;
   // measured now: handed to the page to keep with the photo
