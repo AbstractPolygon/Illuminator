@@ -9,6 +9,12 @@ import { cameraModel } from './l16geometry.js';
 import { relativePose } from './l16depth.js';
 import { demosaic, halfSize } from './l16fusion.js';
 
+// The camera alignment search on the graphics card (gpu/l16ncc.js l16NccGpu's), or null for the processor's: set by the worker that has the card.
+let nccOnCard = null;
+export function setL16NccGpu(f) {
+  nccOnCard = f || null;
+}
+
 // The filters on the graphics card (gpu/l16filters.js l16FiltersGpu's), or null for the processor's: set by the worker that has the card. Where one fails there, the
 // processor's is used from then on.
 let filtersOnCard = null;
@@ -259,9 +265,6 @@ export function estimateCorrections(bytes, parsed, depth, wide, grid, modules, o
     };
     const pts = [];
     const n = 12;
-    const a = new Float32Array(n * n);
-    const sxs = new Float32Array(n * n);
-    const sys = new Float32Array(n * n);
     // (at most about 300 patches a camera, spread over the frame: enough for the fit, and quick)
     const ax0 = area ? Math.max(T, Math.floor(area.x0)) : T;
     const ay0 = area ? Math.max(T, Math.floor(area.y0)) : T;
@@ -270,9 +273,13 @@ export function estimateCorrections(bytes, parsed, depth, wide, grid, modules, o
     const cols = Math.floor((ax1 - ax0 - T) / T);
     const rows = Math.floor((ay1 - ay0 - T) / T);
     const stride = Math.max(1, Math.ceil(Math.sqrt(Math.max(1, cols * rows) / 300)));
+    // The patches: the wide picture's samples (less their mean) and where they land on the camera's sensor.
+    const patches = [];
     for (let ty = ay0; ty + T <= ay1; ty += T * stride) {
       for (let tx = ax0; tx + T <= ax1; tx += T * stride) {
-        // the wide patch and where its samples land on the camera's sensor
+        const a = new Float32Array(n * n);
+        const sxs = new Float32Array(n * n);
+        const sys = new Float32Array(n * n);
         let k = 0;
         let ok = true;
         for (let j = 0; j < n && ok; j++) {
@@ -297,62 +304,109 @@ export function estimateCorrections(bytes, parsed, depth, wide, grid, modules, o
         let va = 0;
         for (let i = 0; i < k; i++) va += (a[i] - ma) ** 2;
         if (va / k < 1e-6 + 0.002 * ma * ma) continue; // no texture
-        const nccAt = (dx, dy) => {
-          let sb = 0;
-          let sbb = 0;
-          let sab = 0;
-          let m = 0;
-          for (let i = 0; i < k; i++) {
-            const v = sample(sxs[i] + dx, sys[i] + dy);
-            if (v !== v) continue;
-            sb += v;
-            sbb += v * v;
-            sab += (a[i] - ma) * v;
-            m++;
+        for (let i = 0; i < k; i++) a[i] -= ma;
+        patches.push({ k, a, va, sx: sxs, sy: sys, bx: 0, by: 0 });
+      }
+    }
+    if (patches.length < 8) continue;
+    const nccAt = (q, dx, dy) => {
+      let sb = 0;
+      let sbb = 0;
+      let sab = 0;
+      let m = 0;
+      for (let i = 0; i < q.k; i++) {
+        const v = sample(q.sx[i] + dx, q.sy[i] + dy);
+        if (v !== v) continue;
+        sb += v;
+        sbb += v * v;
+        sab += q.a[i] * v;
+        m++;
+      }
+      if (m <= q.k * 0.9) return -2;
+      const vb = sbb - (sb * sb) / m;
+      return vb > 1e-12 ? sab / Math.sqrt(q.va * vb) : -2;
+    };
+    // Every patch at every shift in `shifts` (added to the patch's bx, by): on the graphics card when there is one, else here.
+    let card = null;
+    if (nccOnCard) {
+      try {
+        card = nccOnCard.open({ lum: pl, pw, ph, pox, poy });
+      } catch (e) {
+        console.warn('L16 camera alignment on the graphics card failed; using the processor', e);
+        nccOnCard = null;
+      }
+    }
+    const searchAll = (shifts) => {
+      if (card) {
+        try {
+          return card.search(patches, shifts);
+        } catch (e) {
+          console.warn('L16 camera alignment on the graphics card failed; using the processor', e);
+          nccOnCard = null;
+          card.close();
+          card = null;
+        }
+      }
+      const S = shifts.length / 2;
+      const out = new Float32Array(patches.length * S);
+      patches.forEach((q, p) => {
+        for (let s = 0; s < S; s++) out[p * S + s] = nccAt(q, q.bx + shifts[2 * s], q.by + shifts[2 * s + 1]);
+      });
+      return out;
+    };
+    // coarse (every 4 sensor pixels over +-R), then every pixel round the best, then between pixels by parabolas
+    const coarse = [];
+    for (let dy = -R; dy <= R; dy += 4) for (let dx = -R; dx <= R; dx += 4) coarse.push(dx, dy);
+    const fineShifts = [];
+    for (let dy = -3; dy <= 3; dy++) for (let dx = -3; dx <= 3; dx++) fineShifts.push(dx, dy);
+    try {
+      const pick = (vals, shifts, best) => {
+        const S = shifts.length / 2;
+        patches.forEach((q, p) => {
+          let b = best ? best[p] : -2;
+          let bx = q.bx;
+          let by = q.by;
+          for (let s = 0; s < S; s++) {
+            const v = vals[p * S + s];
+            if (v > b) {
+              b = v;
+              bx = q.bx + shifts[2 * s];
+              by = q.by + shifts[2 * s + 1];
+            }
           }
-          if (m <= k * 0.9) return -2;
-          const vb = sbb - (sb * sb) / m;
-          return vb > 1e-12 ? sab / Math.sqrt(va * vb) : -2;
+          q.best = b;
+          q.nx = bx;
+          q.ny = by;
+        });
+      };
+      pick(searchAll(coarse), coarse, null);
+      for (const q of patches) {
+        q.bx = q.nx;
+        q.by = q.ny;
+      }
+      const fineVals = searchAll(fineShifts);
+      pick(fineVals, fineShifts, patches.map((q) => q.best));
+      const S = fineShifts.length / 2;
+      patches.forEach((q, p) => {
+        const { best, nx: bx, ny: by } = q;
+        if (best < 0.75 || Math.abs(bx) >= R || Math.abs(by) >= R) return; // a poor match, or at the edge of the search
+        // (the neighbours from the fine search where it has them)
+        const sc = (x, y) => {
+          const ix = x - q.bx;
+          const iy = y - q.by;
+          return Math.abs(ix) <= 3 && Math.abs(iy) <= 3 ? fineVals[p * S + (iy + 3) * 7 + ix + 3] : nccAt(q, x, y);
         };
-        // coarse (every 4 sensor pixels over +-R), then every pixel round the best, then between pixels by parabolas
-        let best = -2;
-        let bx = 0;
-        let by = 0;
-        for (let dy = -R; dy <= R; dy += 4) {
-          for (let dx = -R; dx <= R; dx += 4) {
-            const v = nccAt(dx, dy);
-            if (v > best) {
-              best = v;
-              bx = dx;
-              by = dy;
-            }
-          }
-        }
-        const fine = new Map();
-        const cx0 = bx;
-        const cy0 = by;
-        for (let dy = cy0 - 3; dy <= cy0 + 3; dy++) {
-          for (let dx = cx0 - 3; dx <= cx0 + 3; dx++) {
-            const v = nccAt(dx, dy);
-            fine.set(`${dx},${dy}`, v);
-            if (v > best) {
-              best = v;
-              bx = dx;
-              by = dy;
-            }
-          }
-        }
-        if (best < 0.75 || Math.abs(bx) >= R || Math.abs(by) >= R) continue; // a poor match, or at the edge of the search
-        const sc = (x, y) => (fine.has(`${x},${y}`) ? fine.get(`${x},${y}`) : nccAt(x, y));
         const sub = (l, m0, r) => {
           const den = l - 2 * m0 + r;
           return den < 0 ? Math.max(-0.5, Math.min(0.5, (l - r) / (2 * den))) : 0;
         };
         const fx = bx + sub(sc(bx - 1, by), best, sc(bx + 1, by));
         const fy = by + sub(sc(bx, by - 1), best, sc(bx, by + 1));
-        const c = (k >> 1) + (n >> 1);
-        pts.push({ u: sxs[c] / 4160, v: sys[c] / 3120, dx: fx, dy: fy, w: best });
-      }
+        const c = (q.k >> 1) + (n >> 1);
+        pts.push({ u: q.sx[c] / 4160, v: q.sy[c] / 3120, dx: fx, dy: fy, w: best });
+      });
+    } finally {
+      if (card) card.close();
     }
     if (pts.length < 8) continue;
     // weighted least squares of the affine function, three rounds, each dropping the patches more than 3 times the typical miss off
