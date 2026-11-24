@@ -3,6 +3,27 @@
 // the monochrome camera's four sites averaged), and the lens's lateral chromatic aberration taken out (unshiftChannel) with the amounts the processor measures.
 import { program } from './renderer.js';
 
+// Pass 0: the sensor plane from the file's packed 10 bit rows (core/lri.js decodeFrame: four pixels in five bytes), at black 0 and white 1.
+const UNPACK = `#version 300 es
+precision highp float;
+precision highp int;
+precision highp usampler2D;
+uniform usampler2D uPacked;   // the rows needed, from the byte of the first group needed
+uniform int uX0;              // the plane's first sensor column
+uniform float uBlack;
+uniform float uScale;
+out vec4 outColor;
+void main() {
+  ivec2 p = ivec2(gl_FragCoord.xy);
+  int x = p.x + uX0;
+  int o = 5 * ((x >> 2) - (uX0 >> 2));
+  int j = x & 3;
+  uint b0 = texelFetch(uPacked, ivec2(o + j, p.y), 0).r;
+  uint b1 = texelFetch(uPacked, ivec2(o + j + 1, p.y), 0).r;
+  uint v = j == 0 ? (b0 | ((b1 & 3u) << 8)) : j == 1 ? ((b0 >> 2) | ((b1 & 15u) << 6)) : j == 2 ? ((b0 >> 4) | ((b1 & 63u) << 4)) : ((b0 >> 6) | (b1 << 2));
+  outColor = vec4(max(0.0, (float(v) - uBlack) * uScale), 0.0, 0.0, 1.0);
+}`;
+
 // Pass 1: hot and dead pixels. A pixel far brighter than every neighbour of its own color (`uStep` away), or far darker than all of them, takes the mean of the four
 // side neighbours; neighbours past the edge are the edge's pixels. All read from the unchanged plane, as the processor replaces only after its search.
 const HOT = `#version 300 es
@@ -224,7 +245,7 @@ export function l16PrepGpu(gpu) {
   const gl = gpu.gl;
   let progs = null;
   const programs = () => {
-    if (!progs) progs = { hot: program(gl, HOT), half: program(gl, HALF), full: program(gl, FULL), unshift: program(gl, UNSHIFT), sums: program(gl, SUMS) };
+    if (!progs) progs = { hot: program(gl, HOT), half: program(gl, HALF), full: program(gl, FULL), unshift: program(gl, UNSHIFT), sums: program(gl, SUMS), unpack: program(gl, UNPACK) };
     return progs;
   };
   const read = (tex, w, h) => {
@@ -239,7 +260,8 @@ export function l16PrepGpu(gpu) {
     }
     return rgb;
   };
-  return function prep({ plane, W, H, w: hw, h: hh, red, mono, hot, gains, full = false }) {
+  // `packed` in place of `plane`: { bytes, start, stride, x0, y0, black, scale }, the file's packed rows (core/lri.js), the plane being W x H from sensor pixel x0, y0.
+  return function prep({ plane, packed, W, H, w: hw, h: hh, red, mono, hot, gains, full = false }) {
     const w = full ? W : hw;
     const h = full ? H : hh;
     const P = programs();
@@ -250,8 +272,45 @@ export function l16PrepGpu(gpu) {
       return t;
     };
     try {
-      const raw = gpu.uploadR32F(null, null, plane, W, H);
-      made.push(raw);
+      let raw;
+      if (packed) {
+        const { bytes, start, stride, x0, y0, black, scale } = packed;
+        const bx0 = 5 * (x0 >> 2);
+        const bw = 5 * (((x0 + W - 1) >> 2) - (x0 >> 2) + 1);
+        const max = gl.getParameter(gl.MAX_TEXTURE_SIZE);
+        if (bw > max || H > max) throw new Error('The frame is larger than the graphics card textures');
+        // (the file's rows from y0; the last one, which the file may end within, padded)
+        const from = start + y0 * stride;
+        let rows = bytes.subarray(from, from + H * stride);
+        if (rows.length < H * stride) {
+          const padded = new Uint8Array(H * stride);
+          padded.set(rows);
+          rows = padded;
+        }
+        const pk = tex(bw, H, gl.R8UI);
+        gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+        gl.pixelStorei(gl.UNPACK_ROW_LENGTH, stride);
+        gl.pixelStorei(gl.UNPACK_SKIP_PIXELS, bx0);
+        try {
+          gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, bw, H, gl.RED_INTEGER, gl.UNSIGNED_BYTE, rows);
+        } finally {
+          gl.pixelStorei(gl.UNPACK_ALIGNMENT, 4);
+          gl.pixelStorei(gl.UNPACK_ROW_LENGTH, 0);
+          gl.pixelStorei(gl.UNPACK_SKIP_PIXELS, 0);
+        }
+        raw = tex(W, H, gl.R32F);
+        gpu.target(raw, W, H);
+        gl.useProgram(P.unpack.p);
+        gl.uniform1i(P.unpack.u.uPacked, 1);
+        gpu.bindTex(1, pk);
+        gl.uniform1i(P.unpack.u.uX0, x0);
+        gl.uniform1f(P.unpack.u.uBlack, black);
+        gl.uniform1f(P.unpack.u.uScale, scale);
+        gpu.draw();
+      } else {
+        raw = gpu.uploadR32F(null, null, plane, W, H);
+        made.push(raw);
+      }
       let src = raw;
       if (hot) {
         const clean = tex(W, H, gl.R32F);

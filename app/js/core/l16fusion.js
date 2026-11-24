@@ -15,6 +15,14 @@ import { relativePose } from './l16depth.js';
 // each module's unpacked frame between calls.
 export function demosaic(bytes, frame, { black = 42, white = 1023, gains = [1, 1, 1], hot = true } = {}, win = null, rawCache = null) {
   const key = frame.module.id;
+  // (on the graphics card, from the file's packed rows: no unpacking here; the processor's below if it fails)
+  const packed = prepOnCard ? packedRows(bytes, frame) : null;
+  if (packed) {
+    const { x: SW, y: SH } = frame.module.sensor_data_surface.size;
+    const r = win ? windowRect(SW, SH, win) : { x0: 0, y0: 0, x1: SW, y1: SH, ex0: 0, ey0: 0, ex1: SW, ey1: SH };
+    const part = fullOnCard({ packed: { ...packed, x0: r.ex0, y0: r.ey0, black, scale: 1 / (white - black) } }, frame, r.ex1 - r.ex0, r.ey1 - r.ey0, { gains, hot });
+    if (part) return win ? cropWindow(part, r) : part;
+  }
   let decoded = rawCache && rawCache.get(key);
   if (!decoded) {
     decoded = decodeFrame(bytes, frame);
@@ -246,6 +254,57 @@ function correctChroma(frame, rgb, W, H, scale, measureHere, card = null) {
 }
 
 
+// A frame's packed rows in the file ({ bytes, start, stride }), for the graphics card to unpack, or null (another format, or a file cut short).
+function packedRows(bytes, frame) {
+  const s = frame.module.sensor_data_surface;
+  if (s.format !== 'RAW_PACKED_10BPP') return null;
+  const start = frame.blockStart + s.data_offset;
+  if (start + (s.size.y - 1) * s.row_stride + (s.size.x / 4) * 5 > bytes.length) return null;
+  return { bytes, start, stride: s.row_stride };
+}
+
+// Every pixel of a W x H part of the sensor demosaiced on the graphics card (input: { plane } or { packed }, as gpu/l16prep.js takes them), with the lens's color fringes
+// taken out (as measured on the half size picture); null if the card fails (it is not used again).
+function fullOnCard(input, frame, W, H, { gains, hot }) {
+  const o = frame.module.sensor_bayer_red_override || { x: 0, y: 0 };
+  const mono = o.x < 0;
+  let card = null;
+  try {
+    card = prepOnCard({ ...input, W, H, w: W >> 1, h: H >> 1, red: o, mono, hot, gains, full: true });
+    const out = card.rgb;
+    if (!mono) correctChroma(frame, out, W, H, 2, false, card);
+    return { width: W, height: H, rgb: out };
+  } catch (e) {
+    console.warn('L16 camera picture on the graphics card failed; using the processor', e);
+    prepOnCard = null;
+    return null;
+  } finally {
+    if (card) card.release();
+  }
+}
+
+// The window of the sensor (W x H) a demosaic of `win` makes: the pixels x0..x1, y0..y1, and the part demosaiced, ex0..ex1, ey0..ey1 (2 pixels round them, edges clamped,
+// from an even origin to keep the pattern's phase).
+function windowRect(W, H, win) {
+  const pad = 2;
+  const x0 = Math.max(0, Math.min(W - 1, Math.floor(win.x0)));
+  const y0 = Math.max(0, Math.min(H - 1, Math.floor(win.y0)));
+  const x1 = Math.min(W, Math.max(x0 + 1, Math.ceil(win.x0 + win.w)));
+  const y1 = Math.min(H, Math.max(y0 + 1, Math.ceil(win.y0 + win.h)));
+  const ex0 = Math.max(0, x0 - pad - ((x0 - pad) & 1));
+  const ey0 = Math.max(0, y0 - pad - ((y0 - pad) & 1));
+  return { x0, y0, x1, y1, ex0, ey0, ex1: Math.min(W, x1 + pad), ey1: Math.min(H, y1 + pad) };
+}
+// The window's pixels from the part demosaiced.
+function cropWindow(part, r) {
+  const w = r.ex1 - r.ex0;
+  const ow = r.x1 - r.x0;
+  const oh = r.y1 - r.y0;
+  const rgb = new Float32Array(3 * ow * oh);
+  for (let y = 0; y < oh; y++) rgb.set(part.rgb.subarray(3 * ((r.y0 - r.ey0 + y) * w + (r.x0 - r.ex0)), 3 * ((r.y0 - r.ey0 + y) * w + (r.x0 - r.ex0) + ow)), 3 * y * ow);
+  return { width: ow, height: oh, rgb, x0: r.x0, y0: r.y0 };
+}
+
 // The demosaic of an unpacked frame (the whole frame, or a window of it cut out with the pattern's phase kept).
 function demosaicRaw(decoded, frame, { black, white, gains, hot = true }) {
   const { width: W, height: H, data } = decoded;
@@ -254,21 +313,10 @@ function demosaicRaw(decoded, frame, { black, white, gains, hot = true }) {
   const scale = 1 / (white - black);
   if (prepOnCard) {
     // (on the graphics card, gpu/l16prep.js: the same steps; the processor's below if it fails)
-    const mono = o.x < 0;
     const plane = new Float32Array(W * H);
     for (let i = 0; i < W * H; i++) plane[i] = Math.max(0, (data[i] - black) * scale);
-    let card = null;
-    try {
-      card = prepOnCard({ plane, W, H, w: W >> 1, h: H >> 1, red: o, mono, hot, gains, full: true });
-      const out = card.rgb;
-      if (!mono) correctChroma(frame, out, W, H, 2, false, card);
-      return { width: W, height: H, rgb: out };
-    } catch (e) {
-      console.warn('L16 camera picture on the graphics card failed; using the processor', e);
-      prepOnCard = null;
-    } finally {
-      if (card) card.release();
-    }
+    const done = fullOnCard({ plane }, frame, W, H, { gains, hot });
+    if (done) return done;
   }
   if (o.x < 0) {
     // the monochrome module: one value for all three
@@ -332,27 +380,13 @@ function demosaicRaw(decoded, frame, { black, white, gains, hot = true }) {
 
 // The same demosaic over a window: the raw window is cut out with 2 pixels around it (edges clamped), the filter run on it, and the margin dropped.
 function demosaicWindow(decoded, frame, opts, win) {
-  const { width: W, height: H, data } = decoded;
-  const pad = 2;
-  const x0 = Math.max(0, Math.min(W - 1, Math.floor(win.x0)));
-  const y0 = Math.max(0, Math.min(H - 1, Math.floor(win.y0)));
-  const x1 = Math.min(W, Math.max(x0 + 1, Math.ceil(win.x0 + win.w)));
-  const y1 = Math.min(H, Math.max(y0 + 1, Math.ceil(win.y0 + win.h)));
-  // even origin keeps the pattern's phase
-  const ex0 = Math.max(0, x0 - pad - ((x0 - pad) & 1));
-  const ey0 = Math.max(0, y0 - pad - ((y0 - pad) & 1));
-  const ex1 = Math.min(W, x1 + pad);
-  const ey1 = Math.min(H, y1 + pad);
-  const w = ex1 - ex0;
-  const h = ey1 - ey0;
+  const { width: W, data } = decoded;
+  const r = windowRect(W, decoded.height, win);
+  const w = r.ex1 - r.ex0;
+  const h = r.ey1 - r.ey0;
   const sub = new Uint16Array(w * h);
-  for (let y = 0; y < h; y++) sub.set(data.subarray((ey0 + y) * W + ex0, (ey0 + y) * W + ex0 + w), y * w);
-  const part = demosaicRaw({ width: w, height: h, data: sub }, frame, opts);
-  const ow = x1 - x0;
-  const oh = y1 - y0;
-  const rgb = new Float32Array(3 * ow * oh);
-  for (let y = 0; y < oh; y++) rgb.set(part.rgb.subarray(3 * ((y0 - ey0 + y) * w + (x0 - ex0)), 3 * ((y0 - ey0 + y) * w + (x0 - ex0) + ow)), 3 * y * ow);
-  return { width: ow, height: oh, rgb, x0, y0 };
+  for (let y = 0; y < h; y++) sub.set(data.subarray((r.ey0 + y) * W + r.ex0, (r.ey0 + y) * W + r.ex0 + w), y * w);
+  return cropWindow(demosaicRaw({ width: w, height: h, data: sub }, frame, opts), r);
 }
 
 // The merge on the graphics card (gpu/l16fuse.js l16FuseGpu's), or null for the processor's: set by the worker that has the card.
@@ -372,11 +406,14 @@ export function setL16PrepGpu(fn) {
 export function halfSize(bytes, frame, { black = 42, white = 1023, gains = [1, 1, 1], hot = true } = {}, rawCache = null, crop = null) {
   const key = frame.module.id;
   let decoded = rawCache && rawCache.get(key);
-  if (!decoded) {
-    decoded = decodeFrame(bytes, frame);
-    if (rawCache) rawCache.set(key, decoded);
-  }
-  const { width: SW, height: SH, data } = decoded;
+  const decode = () => {
+    if (!decoded) {
+      decoded = decodeFrame(bytes, frame);
+      if (rawCache) rawCache.set(key, decoded);
+    }
+    return decoded;
+  };
+  const { x: SW, y: SH } = frame.module.sensor_data_surface.size;
   const o = frame.module.sensor_bayer_red_override || { x: 0, y: 0 };
   const mono = o.x < 0;
   const cx = crop ? Math.min((SW >> 1) - 1, Math.max(0, Math.floor(crop.x))) : 0;
@@ -391,13 +428,19 @@ export function halfSize(bytes, frame, { black = 42, white = 1023, gains = [1, 1
   const rgb = new Float32Array(3 * w * h);
   const scale = 1 / (white - black);
   // (hot and dead pixels out first: binned, one would be a bright dot in the picture)
-  const plane = new Float32Array(W * H);
-  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) plane[y * W + x] = Math.max(0, (data[(y + sy0) * SW + x + sx0] - black) * scale);
+  const planeOf = () => {
+    const { data } = decode();
+    const plane = new Float32Array(W * H);
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) plane[y * W + x] = Math.max(0, (data[(y + sy0) * SW + x + sx0] - black) * scale);
+    return plane;
+  };
   if (prepOnCard) {
-    // (on the graphics card, gpu/l16prep.js: the same steps; the processor's below if it fails)
+    // (on the graphics card, gpu/l16prep.js: the same steps, from the file's packed rows where it can; the processor's below if it fails)
     let card = null;
     try {
-      card = prepOnCard({ plane, W, H, w, h, red: o, mono, hot, gains });
+      const packed = packedRows(bytes, frame);
+      const input = packed ? { packed: { ...packed, x0: sx0, y0: sy0, black, scale } } : { plane: planeOf() };
+      card = prepOnCard({ ...input, W, H, w, h, red: o, mono, hot, gains });
       const out = card.rgb;
       if (!crop && !mono) correctChroma(frame, out, w, h, 1, true, card);
       return crop ? { width: w, height: h, rgb: out, ox: cx, oy: cy } : { width: w, height: h, rgb: out };
@@ -408,6 +451,7 @@ export function halfSize(bytes, frame, { black = 42, white = 1023, gains = [1, 1
       if (card) card.release();
     }
   }
+  const plane = planeOf();
   if (hot) removeSpecks(plane, W, H, mono ? 1 : 2);
   if (mono) {
     for (let y = 0; y < h; y++) {
