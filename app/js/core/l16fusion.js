@@ -49,6 +49,139 @@ function removeSpecks(px, W, H, step) {
   for (let i = 0; i < out.length; i += 2) px[out[i]] = out[i + 1];
 }
 
+// ----- lateral chromatic aberration
+// Each camera's lens draws red and blue a little larger or smaller than green (the calibration has one distortion for all three). It is measured on the camera's picture
+// itself, once a photo: the shift of red and of blue against green over tiles of the picture, along the radius, fitted as a shift growing in proportion to the distance from the
+// center ({ r, b }: pixels at the corner, of the picture it was measured on). Kept per camera frame.
+const chromaOf = new WeakMap();
+export const chromaFor = (frame) => chromaOf.get(frame) || null;
+function tileShift(rgb, W, H, c, x0, y0, n) {
+  let mg = 0;
+  let mv = 0;
+  for (let y = y0; y < y0 + n; y++) for (let x = x0; x < x0 + n; x++) {
+    mg += rgb[3 * (y * W + x) + 1];
+    mv += rgb[3 * (y * W + x) + c];
+  }
+  if (!(mv > 1e-6) || !(mg > 1e-6)) return null;
+  const k = mg / mv;
+  let sxx = 0;
+  let sxy = 0;
+  let syy = 0;
+  let sxt = 0;
+  let syt = 0;
+  for (let y = y0 + 1; y < y0 + n - 1; y++) {
+    for (let x = x0 + 1; x < x0 + n - 1; x++) {
+      const i = y * W + x;
+      const gx = (rgb[3 * (i + 1) + 1] - rgb[3 * (i - 1) + 1]) / 2;
+      const gy = (rgb[3 * (i + W) + 1] - rgb[3 * (i - W) + 1]) / 2;
+      const dt = rgb[3 * i + c] * k - rgb[3 * i + 1];
+      sxx += gx * gx;
+      sxy += gx * gy;
+      syy += gy * gy;
+      sxt += gx * dt;
+      syt += gy * dt;
+    }
+  }
+  const det = sxx * syy - sxy * sxy;
+  const mean = mg / (n * n);
+  if (det < 1e-12 || (sxx + syy) / (n * n) < 1e-4 * mean * mean) return null;
+  const dx = (syy * sxt - sxy * syt) / det;
+  const dy = (sxx * syt - sxy * sxt) / det;
+  return Math.hypot(dx, dy) < 3 ? [dx, dy] : null;
+}
+function measureChroma(rgb, W, H) {
+  const out = {};
+  const R = Math.hypot(W / 2, H / 2);
+  for (const [key, c] of [['r', 0], ['b', 2]]) {
+    const n = Math.max(16, Math.round(W / 16));
+    // shift = s * (position - middle) / R + t, fitted over the tiles in both directions (s: the spread, pixels at the corner; t: where the lens's center is, in effect)
+    let suu = 0;
+    let su = 0;
+    let sv = 0;
+    let rs = 0;
+    let rx = 0;
+    let ry = 0;
+    let used = 0;
+    for (let ty = 1; ty < 11; ty++) {
+      for (let tx = 1; tx < 15; tx++) {
+        const x0 = Math.round((tx * W) / 16);
+        const y0 = Math.round((ty * H) / 12);
+        if (x0 + n >= W - 1 || y0 + n >= H - 1) continue;
+        const d = tileShift(rgb, W, H, c, x0, y0, n);
+        if (!d) continue;
+        const u = (x0 + n / 2 - W / 2) / R;
+        const v = (y0 + n / 2 - H / 2) / R;
+        suu += u * u + v * v;
+        su += u;
+        sv += v;
+        rs += u * d[0] + v * d[1];
+        rx += d[0];
+        ry += d[1];
+        used++;
+      }
+    }
+    if (used < 30) {
+      out[key] = { s: 0, tx: 0, ty: 0 };
+      continue;
+    }
+    // (least squares of dx = s u + tx, dy = s v + ty: t eliminated)
+    const den = suu - (su * su + sv * sv) / used;
+    const s = den > 1e-9 ? (rs - (su * rx + sv * ry) / used) / den : 0;
+    const clamp = (x) => Math.max(-3, Math.min(3, x));
+    out[key] = { s: clamp(s), tx: clamp((rx - su * s) / used), ty: clamp((ry - sv * s) / used) };
+  }
+  return out;
+}
+// Channel c of rgb (W x H) where the lens drew it shifted by m ({ s, tx, ty }, pixels, as measureChroma fits; times `k` for a picture k times as large): looked up there, so it
+// lines up with green.
+function unshiftChannel(rgb, W, H, c, m, k = 1) {
+  if (!m || (!m.s && !m.tx && !m.ty)) return;
+  const src = new Float32Array(W * H);
+  for (let i = 0; i < W * H; i++) src[i] = rgb[3 * i + c];
+  const cx = W / 2;
+  const cy = H / 2;
+  const R = Math.hypot(cx, cy);
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      const px = x + 0.5;
+      const py = y + 0.5;
+      // (the channel at a point shows what green has at the point plus the shift: it is looked up at the point minus the shift)
+      const sx = Math.min(W - 1.001, Math.max(0, px - k * (m.s * ((px - cx) / R) + m.tx) - 0.5));
+      const sy = Math.min(H - 1.001, Math.max(0, py - k * (m.s * ((py - cy) / R) + m.ty) - 0.5));
+      const x0 = sx | 0;
+      const y0 = sy | 0;
+      const ax = sx - x0;
+      const ay = sy - y0;
+      const i = y0 * W + x0;
+      rgb[3 * (y * W + x) + c] = (src[i] * (1 - ax) + src[i + 1] * ax) * (1 - ay) + (src[i + W] * (1 - ax) + src[i + W + 1] * ax) * ay;
+    }
+  }
+}
+// The picture's red and blue lined up with green (`scale`: pixels of this picture per pixel of the half size one, for the measured amounts).
+function correctChroma(frame, rgb, W, H, scale, measureHere) {
+  let ca = chromaOf.get(frame);
+  if (!ca && measureHere) {
+    // (measured, taken out, and what is left measured again, a few rounds: one measure of a shift this small comes out short)
+    const orig = Float32Array.from(rgb);
+    const add = (p, q) => ({ s: p.s + q.s, tx: p.tx + q.tx, ty: p.ty + q.ty });
+    ca = { r: { s: 0, tx: 0, ty: 0 }, b: { s: 0, tx: 0, ty: 0 } };
+    for (let round = 0; round < 3; round++) {
+      const m = measureChroma(rgb, W, H);
+      ca = { r: add(ca.r, m.r), b: add(ca.b, m.b) };
+      rgb.set(orig);
+      unshiftChannel(rgb, W, H, 0, ca.r, scale);
+      unshiftChannel(rgb, W, H, 2, ca.b, scale);
+      if (Math.max(...[m.r, m.b].flatMap((q) => [q.s, q.tx, q.ty].map(Math.abs))) < 0.02) break;
+    }
+    chromaOf.set(frame, ca);
+    return;
+  }
+  if (!ca) return;
+  unshiftChannel(rgb, W, H, 0, ca.r, scale);
+  unshiftChannel(rgb, W, H, 2, ca.b, scale);
+}
+
+
 // The demosaic of an unpacked frame (the whole frame, or a window of it cut out with the pattern's phase kept).
 function demosaicRaw(decoded, frame, { black, white, gains, hot = true }) {
   const { width: W, height: H, data } = decoded;
@@ -109,6 +242,8 @@ function demosaicRaw(decoded, frame, { black, white, gains, hot = true }) {
       rgb[i + 2] = Math.max(0, b) * gains[2];
     }
   }
+  // (the lens's lateral chromatic aberration, as measured on the half size picture: twice the pixels here)
+  correctChroma(frame, rgb, W, H, 2, false);
   return { width: W, height: H, rgb };
 }
 
@@ -165,19 +300,85 @@ export function halfSize(bytes, frame, { black = 42, white = 1023, gains = [1, 1
   const plane = new Float32Array(W * H);
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) plane[y * W + x] = Math.max(0, (data[(y + sy0) * SW + x + sx0] - black) * scale);
   if (hot) removeSpecks(plane, W, H, mono ? 1 : 2);
-  for (let y = 0; y < h; y++) {
-    for (let x = 0; x < w; x++) {
-      const at = (dx, dy) => plane[(2 * y + dy) * W + 2 * x + dx];
-      const i = 3 * (y * w + x);
-      if (mono) {
-        rgb[i] = rgb[i + 1] = rgb[i + 2] = ((at(0, 0) + at(1, 0) + at(0, 1) + at(1, 1)) / 4);
-      } else {
-        rgb[i] = at(o.x, o.y) * gains[0];
-        rgb[i + 1] = ((at(1 - o.x, o.y) + at(o.x, 1 - o.y)) / 2) * gains[1];
-        rgb[i + 2] = at(1 - o.x, 1 - o.y) * gains[2];
+  if (mono) {
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const j = 2 * y * W + 2 * x;
+        rgb[3 * (y * w + x)] = rgb[3 * (y * w + x) + 1] = rgb[3 * (y * w + x) + 2] = (plane[j] + plane[j + 1] + plane[j + W] + plane[j + W + 1]) / 4;
+      }
+    }
+  } else {
+    // Every color at the 2 x 2 block's center: the full demosaic (Malvar-He-Cutler) of the block's four sites, averaged. Taking red and blue from their own corners instead
+    // leaves them half a sensor pixel off green in opposite directions, which colors every edge (an orange and a cyan fringe); interpolating them on their own gives a
+    // green and magenta speckle. Done on a padded copy so the kernels need no bounds checks.
+    const P = 2;
+    const PW = W + 2 * P;
+    const PH = H + 2 * P;
+    const pad = new Float32Array(PW * PH);
+    for (let y = 0; y < PH; y++) {
+      // (mirrored by two, keeping each site's color)
+      let sy = y - P;
+      if (sy < 0) sy += 2;
+      else if (sy >= H) sy -= 2;
+      for (let x = 0; x < PW; x++) {
+        let sx = x - P;
+        if (sx < 0) sx += 2;
+        else if (sx >= W) sx -= 2;
+        pad[y * PW + x] = plane[sy * W + sx];
+      }
+    }
+    const rx = o.x;
+    const ry = o.y;
+    const sum = [0, 0, 0];
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        sum[0] = sum[1] = sum[2] = 0;
+        for (let k = 0; k < 4; k++) {
+          const X = 2 * x + (k & 1);
+          const Y = 2 * y + (k >> 1);
+          const j = (Y + P) * PW + X + P;
+          const c = pad[j];
+          const n4 = pad[j - 1] + pad[j + 1] + pad[j - PW] + pad[j + PW];
+          const d4 = pad[j - PW - 1] + pad[j - PW + 1] + pad[j + PW - 1] + pad[j + PW + 1];
+          const h2 = pad[j - 2] + pad[j + 2];
+          const v2 = pad[j - 2 * PW] + pad[j + 2 * PW];
+          const isR = (X & 1) === rx;
+          const isRrow = (Y & 1) === ry;
+          if (isR === isRrow) {
+            // a red or blue site: green and the opposite color
+            const g = (2 * n4 + 4 * c - (h2 + v2)) / 8;
+            const opp = (2 * d4 + 6 * c - 1.5 * (h2 + v2)) / 8;
+            if (isR) {
+              sum[0] += c;
+              sum[2] += opp;
+            } else {
+              sum[2] += c;
+              sum[0] += opp;
+            }
+            sum[1] += g;
+          } else {
+            const row = (5 * c - d4 - h2 + 0.5 * v2 + 4 * (pad[j - 1] + pad[j + 1])) / 8;
+            const col = (5 * c - d4 - v2 + 0.5 * h2 + 4 * (pad[j - PW] + pad[j + PW])) / 8;
+            sum[1] += c;
+            // (a green site on the red row has red beside it)
+            if (isRrow) {
+              sum[0] += row;
+              sum[2] += col;
+            } else {
+              sum[2] += row;
+              sum[0] += col;
+            }
+          }
+        }
+        const i = 3 * (y * w + x);
+        rgb[i] = Math.max(0, sum[0] / 4) * gains[0];
+        rgb[i + 1] = Math.max(0, sum[1] / 4) * gains[1];
+        rgb[i + 2] = Math.max(0, sum[2] / 4) * gains[2];
       }
     }
   }
+  // (lateral chromatic aberration: measured on the whole picture, once a photo, and taken out of it; a part, made for lining the cameras up, needs only the brightness)
+  if (!crop && !mono) correctChroma(frame, rgb, w, h, 1, true);
   return crop ? { width: w, height: h, rgb, ox: cx, oy: cy } : { width: w, height: h, rgb };
 }
 
