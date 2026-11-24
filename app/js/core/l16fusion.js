@@ -177,8 +177,27 @@ function unshiftChannel(rgb, W, H, c, m, k = 1) {
   }
 }
 // The picture's red and blue lined up with green (`scale`: pixels of this picture per pixel of the half size one, for the measured amounts).
-function correctChroma(frame, rgb, W, H, scale, measureHere) {
+// `card`: the picture on the graphics card (gpu/l16prep.js), which makes the shifted pictures there.
+function correctChroma(frame, rgb, W, H, scale, measureHere, card = null) {
   let ca = chromaOf.get(frame);
+  if (card) {
+    if (!ca && measureHere) {
+      const add = (p, q) => ({ s: p.s + q.s, tx: p.tx + q.tx, ty: p.ty + q.ty });
+      ca = { r: { s: 0, tx: 0, ty: 0 }, b: { s: 0, tx: 0, ty: 0 } };
+      let cur = rgb;
+      for (let round = 0; round < 3; round++) {
+        const m = measureChroma(cur, W, H);
+        ca = { r: add(ca.r, m.r), b: add(ca.b, m.b) };
+        cur = card.unshift(ca, scale);
+        if (Math.max(...[m.r, m.b].flatMap((q) => [q.s, q.tx, q.ty].map(Math.abs))) < 0.02) break;
+      }
+      chromaOf.set(frame, ca);
+      rgb.set(cur);
+      return;
+    }
+    if (ca) rgb.set(card.unshift(ca, scale));
+    return;
+  }
   if (!ca && measureHere) {
     // (measured, taken out, and what is left measured again, a few rounds: one measure of a shift this small comes out short)
     const orig = Float32Array.from(rgb);
@@ -207,6 +226,24 @@ function demosaicRaw(decoded, frame, { black, white, gains, hot = true }) {
   const o = frame.module.sensor_bayer_red_override || { x: 0, y: 0 };
   const rgb = new Float32Array(3 * W * H);
   const scale = 1 / (white - black);
+  if (prepOnCard) {
+    // (on the graphics card, gpu/l16prep.js: the same steps; the processor's below if it fails)
+    const mono = o.x < 0;
+    const plane = new Float32Array(W * H);
+    for (let i = 0; i < W * H; i++) plane[i] = Math.max(0, (data[i] - black) * scale);
+    let card = null;
+    try {
+      card = prepOnCard({ plane, W, H, w: W >> 1, h: H >> 1, red: o, mono, hot, gains, full: true });
+      const out = card.rgb;
+      if (!mono) correctChroma(frame, out, W, H, 2, false, card);
+      return { width: W, height: H, rgb: out };
+    } catch (e) {
+      console.warn('L16 camera picture on the graphics card failed; using the processor', e);
+      prepOnCard = null;
+    } finally {
+      if (card) card.release();
+    }
+  }
   if (o.x < 0) {
     // the monochrome module: one value for all three
     const mv = new Float32Array(W * H);
@@ -292,6 +329,12 @@ function demosaicWindow(decoded, frame, opts, win) {
   return { width: ow, height: oh, rgb, x0, y0 };
 }
 
+// The camera pictures' preparation on the graphics card (gpu/l16prep.js l16PrepGpu's function), or null for the processor's: set by the worker that has the card.
+let prepOnCard = null;
+export function setL16PrepGpu(fn) {
+  prepOnCard = fn || null;
+}
+
 // Each 2 x 2 sensor cell as one pixel (red, the mean of the greens, blue; the monochrome module's mean for all three): a quarter-size picture, quick to make.
 // `crop` ({ x, y, w, h }, in pixels of the half size picture): only that part is made (the returned picture is that part, at ox, oy of the whole).
 export function halfSize(bytes, frame, { black = 42, white = 1023, gains = [1, 1, 1], hot = true } = {}, rawCache = null, crop = null) {
@@ -318,6 +361,21 @@ export function halfSize(bytes, frame, { black = 42, white = 1023, gains = [1, 1
   // (hot and dead pixels out first: binned, one would be a bright dot in the picture)
   const plane = new Float32Array(W * H);
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) plane[y * W + x] = Math.max(0, (data[(y + sy0) * SW + x + sx0] - black) * scale);
+  if (prepOnCard) {
+    // (on the graphics card, gpu/l16prep.js: the same steps; the processor's below if it fails)
+    let card = null;
+    try {
+      card = prepOnCard({ plane, W, H, w, h, red: o, mono, hot, gains });
+      const out = card.rgb;
+      if (!crop && !mono) correctChroma(frame, out, w, h, 1, true, card);
+      return crop ? { width: w, height: h, rgb: out, ox: cx, oy: cy } : { width: w, height: h, rgb: out };
+    } catch (e) {
+      console.warn('L16 camera picture on the graphics card failed; using the processor', e);
+      prepOnCard = null;
+    } finally {
+      if (card) card.release();
+    }
+  }
   if (hot) removeSpecks(plane, W, H, mono ? 1 : 2);
   if (mono) {
     for (let y = 0; y < h; y++) {

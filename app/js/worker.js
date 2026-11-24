@@ -8,6 +8,8 @@ import { decodeL16Cache } from './core/l16-cache.js';
 import { isLri } from './core/lri.js';
 import { createL16DepthPool, l16DepthHelperCount } from './l16depthpool.js';
 import { l16CostGpu } from './gpu/l16cost.js';
+import { l16PrepGpu } from './gpu/l16prep.js';
+import { setL16PrepGpu } from './core/l16fusion.js';
 import { normalizeGrid, measureGrid, calibrateGrid, lensCenters, lensCenter, toLocal } from './core/lenslet.js';
 import {
   buildSampler, renderView, makeDevelopParams, apertureSamples, refocus,
@@ -1075,6 +1077,8 @@ async function open({ id, bytes, synthetic, userDepth = null, depthCache = null,
     if (state.gpu === null && state.settings.gpu !== false) state.gpu = GpuRenderer.create({ width: 4160, height: 3120 }) || false;
     const helpers = createL16DepthPool(l16DepthHelperCount((self.navigator && self.navigator.hardwareConcurrency) || 0));
     const gpu = state.gpu && !debugFlags().noGpuL16Depth ? state.gpu : null;
+    // (and the camera pictures made there, gpu/l16prep.js)
+    setL16PrepGpu(state.gpu && !debugFlags().noGpuL16Prep ? l16PrepGpu(state.gpu) : null);
     l16Pool = {
       async run(job, steps, onSlice) {
         const onCard = gpu ? l16CostGpu(gpu, job) : null;
@@ -4371,6 +4375,7 @@ function recoverGpu({ keepPhoto = true } = {}) {
   state.kept = null;
   state.refocusViews = null;
   DEPTH_REGIONS.gpu = null;
+  setL16PrepGpu(null);
   dropKeptStills();
   if (!keepPhoto || !state.lf) return false; // a photo opened next makes its own renderer
   state.gpu = GpuRenderer.create(state.lf.cam) || false;
