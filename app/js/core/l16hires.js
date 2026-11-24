@@ -445,6 +445,33 @@ export function telephotoModules(parsed, refId, [lo, hi]) {
   return ids.sort();
 }
 
+// A box blur of one value per pixel (w x h), radius r, twice (close to a Gaussian).
+function boxBlur1(src, w, h, r) {
+  let a = src;
+  for (let pass = 0; pass < 2; pass++) {
+    const tmp = new Float32Array(w * h);
+    for (let y = 0; y < h; y++) {
+      let acc = 0;
+      for (let x = -r; x <= r; x++) acc += a[y * w + Math.min(w - 1, Math.max(0, x))];
+      for (let x = 0; x < w; x++) {
+        tmp[y * w + x] = acc / (2 * r + 1);
+        acc += a[y * w + Math.min(w - 1, x + r + 1)] - a[y * w + Math.max(0, x - r)];
+      }
+    }
+    const out = new Float32Array(w * h);
+    for (let x = 0; x < w; x++) {
+      let acc = 0;
+      for (let y = -r; y <= r; y++) acc += tmp[Math.min(h - 1, Math.max(0, y)) * w + x];
+      for (let y = 0; y < h; y++) {
+        out[y * w + x] = acc / (2 * r + 1);
+        acc += tmp[Math.min(h - 1, y + r + 1) * w + x] - tmp[Math.max(0, y - r) * w + x];
+      }
+    }
+    a = out;
+  }
+  return a;
+}
+
 // Renders the region { x0, y0, w, h } (pixels of the wide reference's grid) at `scale` (output pixels per wide pixel). `wide` is the merged wide picture, `depth` the measured depth
 // (core/l16depth.js), `modules` the telephoto cameras to use. Returns { width, height, rgb, covered: the share of output pixels that a telephoto camera supplied }.
 // (`grid`: sensor pixels per pixel of the wide picture's grid, 1 for the full size merge and 2 for the half size one; the region is in that grid's pixels and `scale` is output pixels per grid pixel.)
@@ -491,8 +518,6 @@ export function renderRegion(bytes, parsed, depth, wide, { x0, y0, w, h, scale, 
   const agreement = {};
   const details = []; // each camera's high frequency detail (3 per pixel, NaN where it has none or disagrees)
   const wsum = new Float32Array(W * H);
-  const nhave = new Float32Array(W * H); // how many cameras cover the pixel
-  const wall = new Float32Array(W * H); // their agreement, all of them
   let used = 0;
   for (const id of modules) {
     onProgress('Adding telephoto detail', used / Math.max(1, modules.length));
@@ -606,7 +631,9 @@ export function renderRegion(bytes, parsed, depth, wide, { x0, y0, w, h, scale, 
       }
       if (moved) low = gauss(samp, W, H, sigma);
     }
-    const det = new Float32Array(3 * W * H).fill(NaN);
+    // (the detail is brightness only: a camera's color detail is mostly its demosaic's false color at fine edges, and mixing cameras per channel would color the edges)
+    const det = new Float32Array(W * H).fill(NaN);
+    const wmap = new Float32Array(W * H);
     let camW = 0;
     let camN = 0;
     // (near the sensor's white level a channel is cut, at a different level in each camera: there is no detail to add there, only the difference in where each one clipped)
@@ -621,15 +648,20 @@ export function renderRegion(bytes, parsed, depth, wide, { x0, y0, w, h, scale, 
       const sig = 0.015 + 0.08 * Math.sqrt(Math.max(lu, 0)) * 0.35;
       const d = (ll - lu) / sig;
       const wgt = Math.exp(-0.5 * d * d);
-      nhave[i] += 1;
-      wall[i] += wgt;
       camW += wgt;
       camN++;
-      if (wgt < 0.05) continue;
-      for (let c = 0; c < 3; c++) det[3 * i + c] = samp[3 * i + c] - low[3 * i + c];
-      wsum[i] += wgt;
+      wmap[i] = wgt;
+      det[i] = luma(samp[3 * i], samp[3 * i + 1], samp[3 * i + 2]) - ll;
     }
-    details.push(det);
+    // The agreement judged over a small neighborhood, not pixel by pixel: one pixel's noise would otherwise switch the detail on and off from pixel to pixel (a patchwork).
+    const wsm = boxBlur1(wmap, W, H, Math.max(1, Math.round(scale)));
+    for (let i = 0; i < W * H; i++) {
+      if (det[i] !== det[i]) continue;
+      if (wsm[i] < 0.05) det[i] = NaN;
+      else wsum[i] += wsm[i];
+    }
+    // (a longer lens resolves more: where several agree, its detail is the one to take)
+    details.push({ det, w: wsm, reach: cam.K[0] / K[0] });
     // (how well this camera fits the wide picture over the region: the mean agreement, for checking the registration)
     agreement[id] = camN ? camW / camN : null;
     used++;
@@ -638,33 +670,42 @@ export function renderRegion(bytes, parsed, depth, wide, { x0, y0, w, h, scale, 
   // edge a little off (parallax, a misregistration), and it would draw a dark or bright outline, so it is held to a little beyond it.
   const rr = Math.max(2, Math.round(scale * 1.5));
   const bounds = localBounds(up, W, H, rr);
-  // The detail at each pixel: the median over the cameras that agree there (a camera that is a little out of register, or sees an edge another does not, is outvoted; with two, the
-  // mean), and the weak part of it, which is mostly noise, taken down.
+  details.sort((a, b) => b.reach - a.reach);
+  // The detail at each pixel: the cameras that agree there, weighted by how well (one that is a little out of register, or sees an edge another does not, counts little), and the
+  // weak part of it, which is mostly noise, taken down.
   let covered = 0;
-  const vals = [];
   for (let i = 0; i < W * H; i++) {
     if (!(wsum[i] > 0.05)) continue;
-    const lumaOf = up[3 * i + 1];
-    const noise = 0.004 + 0.02 * Math.sqrt(Math.max(lumaOf, 0)) * 0.35;
-    for (let c = 0; c < 3; c++) {
-      vals.length = 0;
-      for (const d of details) {
-        const v = d[3 * i + c];
-        if (v === v) vals.push(v);
-      }
-      if (!vals.length) continue;
-      vals.sort((a, b) => a - b);
-      let m = vals.length % 2 ? vals[vals.length >> 1] : (vals[vals.length / 2 - 1] + vals[vals.length / 2]) / 2;
-      const a = Math.abs(m);
-      m = a <= noise ? m * (a / noise) : Math.sign(m) * (a - noise * 0.5);
-      // Where the cameras' low frequencies fit the wide picture only roughly (an edge a little off in one of them), the detail is a ringing, not detail: it counts as much as they agree.
-      const agree = wall[i] / Math.max(1, nhave[i]);
-      const t = Math.min(1, Math.max(0, (agree - 0.2) / 0.6));
-      m *= t * t * (3 - 2 * t);
-      const lo = bounds.min[3 * i + c];
-      const hi = bounds.max[3 * i + c];
-      // (held to a little beyond the wide picture's own range there, in proportion: a dark pixel stays dark, not black)
-      out[3 * i + c] = Math.max(0, Math.min(hi * 1.2 + 0.004, Math.max(lo * 0.75, up[3 * i + c] + m)));
+    const Y = luma(up[3 * i], up[3 * i + 1], up[3 * i + 2]);
+    const noise = 0.004 + 0.02 * Math.sqrt(Math.max(Y, 0)) * 0.35;
+    // the cameras' detail layered, the longest lens first: each fills in as much as it agrees round the pixel, and the shorter ones only what is left (averaging cameras evenly
+    // blurs the detail, as one a little out of register, or one with less reach, takes the edge off the others)
+    let m = 0;
+    let rest = 1;
+    let any = false;
+    for (const { det, w: wm } of details) {
+      const v = det[i];
+      if (v !== v) continue;
+      const t = Math.min(1, Math.max(0, (wm[i] - 0.15) / 0.45));
+      const a = t * t * (3 - 2 * t);
+      m += rest * a * v;
+      rest *= 1 - a;
+      any = true;
+    }
+    // (m is already in proportion to how well the cameras that supply it agree: no camera that disagrees takes it down)
+    if (!any || rest > 0.999) continue;
+    const a = Math.abs(m);
+    m = a <= noise ? m * (a / noise) : Math.sign(m) * (a - noise * 0.5);
+    // (held to a little beyond the wide picture's own brightness range there, in proportion: a dark pixel stays dark, not black)
+    const lo = luma(bounds.min[3 * i], bounds.min[3 * i + 1], bounds.min[3 * i + 2]);
+    const hi = luma(bounds.max[3 * i], bounds.max[3 * i + 1], bounds.max[3 * i + 2]);
+    const Yn = Math.max(lo * 0.6, Math.min(hi * 1.3 + 0.006, Y + m));
+    // the new brightness with the wide picture's color: scaled where there is light enough to scale, added equally in the dark
+    if (Y > 0.02) {
+      const k = Yn / Y;
+      for (let c = 0; c < 3; c++) out[3 * i + c] = Math.max(0, up[3 * i + c] * k);
+    } else {
+      for (let c = 0; c < 3; c++) out[3 * i + c] = Math.max(0, up[3 * i + c] + (Yn - Y));
     }
     covered++;
   }
