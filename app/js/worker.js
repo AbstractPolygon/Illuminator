@@ -11,6 +11,7 @@ import { l16CostGpu } from './gpu/l16cost.js';
 import { l16PrepGpu } from './gpu/l16prep.js';
 import { setL16PrepGpu, setL16FuseGpu } from './core/l16fusion.js';
 import { l16FuseGpu } from './gpu/l16fuse.js';
+import { l16DevelopGpu } from './gpu/l16develop.js';
 import { l16FiltersGpu } from './gpu/l16filters.js';
 import { setL16FiltersGpu, setL16NccGpu } from './core/l16hires.js';
 import { l16NccGpu } from './gpu/l16ncc.js';
@@ -70,7 +71,7 @@ import { parseSpots, resolveSpots, packSpots, applySpots } from './core/retouch.
 import { GpuRenderer } from './gpu/renderer.js';
 import { renderL16Final } from './core/l16render.js';
 import { superpixelColor, depthAtSize, synthesize, fillFromBackground, backgroundDepth, fillFromDonors } from './core/l16view.js';
-import { RIG_RADIUS_MM, applyColorMatrix, developL16 } from './core/l16photo.js';
+import { RIG_RADIUS_MM, applyColorMatrix, developL16, setL16DevelopGpu } from './core/l16photo.js';
 import { cameraModel as l16CameraModel } from './core/l16geometry.js';
 import { relativePose as l16RelativePose, setL16SgmGpu } from './core/l16depth.js';
 import { lytroSplatGpu } from './gpu/lytroengine.js';
@@ -1087,6 +1088,7 @@ async function open({ id, bytes, synthetic, userDepth = null, depthCache = null,
     setL16FiltersGpu(state.gpu && !debugFlags().noGpuL16Filters ? l16FiltersGpu(state.gpu) : null);
     setL16NccGpu(state.gpu && !debugFlags().noGpuL16Align ? l16NccGpu(state.gpu) : null);
     setL16FuseGpu(state.gpu && !debugFlags().noGpuL16Merge ? l16FuseGpu(state.gpu) : null);
+    setL16DevelopGpu(state.gpu && !debugFlags().noGpuL16Develop ? l16DevelopGpu(state.gpu) : null);
     // (the smoothing is thousands of small steps: on a software renderer, which runs them on the processor, it is slower than the processor's)
     setL16SgmGpu(hardwareGpu() && !debugFlags().noGpuL16Smooth ? l16SgmGpu(state.gpu) : null);
     l16Pool = {
@@ -4389,6 +4391,7 @@ function recoverGpu({ keepPhoto = true } = {}) {
   setL16FiltersGpu(null);
   setL16NccGpu(null);
   setL16FuseGpu(null);
+  setL16DevelopGpu(null);
   setL16SgmGpu(null);
   dropKeptStills();
   if (!keepPhoto || !state.lf) return false; // a photo opened next makes its own renderer

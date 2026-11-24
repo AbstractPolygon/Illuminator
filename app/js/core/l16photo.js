@@ -118,6 +118,43 @@ export function applyColorMatrix(rgb, m) {
 // The picture of the capture from the measured depth: the cameras merged at half size (`wide`, float, white balanced, before the color matrix), and the picture shown (8 bit sRGB,
 // the color matrix and an exposure that puts the 99th percentile of green at 0.9). Made again when a setting that changes the merge changes (Remove hot pixels).
 // `merged`: the cameras already merged (kept with the photo, core/l16-cache.js): only the picture is made from it.
+// The k-th smallest value of `a` (reordered in place): the value a sorted copy has at k, found without sorting it all (quickselect).
+export function nth(a, k) {
+  let lo = 0;
+  let hi = a.length - 1;
+  while (lo < hi) {
+    // (the median of three as the pivot)
+    const m = (lo + hi) >> 1;
+    const x = a[lo];
+    const y = a[m];
+    const z = a[hi];
+    const pivot = x < y ? (y < z ? y : x < z ? z : x) : x < z ? x : y < z ? z : y;
+    let i = lo;
+    let j = hi;
+    while (i <= j) {
+      while (a[i] < pivot) i++;
+      while (a[j] > pivot) j--;
+      if (i <= j) {
+        const t = a[i];
+        a[i] = a[j];
+        a[j] = t;
+        i++;
+        j--;
+      }
+    }
+    if (k <= j) hi = j;
+    else if (k >= i) lo = i;
+    else return a[k];
+  }
+  return a[k];
+}
+
+// The sRGB encoding on the graphics card (gpu/l16develop.js l16DevelopGpu's function), or null for the processor's: set by the worker that has the card.
+let encodeOnCard = null;
+export function setL16DevelopGpu(fn) {
+  encodeOnCard = fn || null;
+}
+
 export function developL16(bytes, parsed, depth, ref, colorOptions, onProgress = () => {}, merged = null) {
   const color = merged || fuse(bytes, parsed, depth, colorOptions, (stage, p) => onProgress(stage, 0.9 * p), { grid: 2 });
   onProgress('Developing the picture', 0.95);
@@ -127,12 +164,23 @@ export function developL16(bytes, parsed, depth, ref, colorOptions, onProgress =
   const rgb = applyColorMatrix(Float32Array.from(color.rgb), colorMatrix);
   const greens = new Float32Array(w * h);
   for (let i = 0; i < greens.length; i++) greens[i] = rgb[3 * i + 1];
-  greens.sort();
-  const gain = 0.9 / Math.max(1e-4, greens[Math.floor(greens.length * 0.99)]);
-  const data = new Uint8ClampedArray(w * h * 4);
-  for (let i = 0; i < w * h; i++) {
-    for (let c = 0; c < 3; c++) data[4 * i + c] = Math.round(255 * sRGB(Math.min(1, rgb[3 * i + c] * gain)));
-    data[4 * i + 3] = 255;
+  const gain = 0.9 / Math.max(1e-4, nth(greens, Math.floor(greens.length * 0.99)));
+  let data = null;
+  if (encodeOnCard) {
+    // (on the graphics card, gpu/l16develop.js; here if it fails)
+    try {
+      data = encodeOnCard(rgb, w, h, gain);
+    } catch (e) {
+      console.warn('L16 picture on the graphics card failed; making it here', e);
+      encodeOnCard = null;
+    }
+  }
+  if (!data) {
+    data = new Uint8ClampedArray(w * h * 4);
+    for (let i = 0; i < w * h; i++) {
+      for (let c = 0; c < 3; c++) data[4 * i + c] = Math.round(255 * sRGB(Math.min(1, rgb[3 * i + c] * gain)));
+      data[4 * i + 3] = 255;
+    }
   }
   return { picture: { width: w, height: h, data }, gain, colorMatrix, wide: color, used: color.used };
 }
