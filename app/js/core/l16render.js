@@ -24,18 +24,39 @@ export function finalSize(l16, scale) {
 export async function renderL16Final(l16, { scale, margin, depthLambda, renderTile, onProgress = () => {}, cancelled = () => false, tile = 768, wide: givenWide = null, grid = 1, window = null, onTile = null }) {
   const { bytes, parsed, measured: depth, colorOptions: opts, gain, colorMatrix } = l16;
   const mods = telephotoModules(parsed, depth.ref, [2, Infinity]);
-  // each camera's registration corrected for this capture (once a photo; measured on the half size merge): the wide cameras for the full size merge, the longer lens ones for the detail
-  if (!l16.corrections && l16.wide) {
-    onProgress('Aligning the cameras', 0.01);
-    l16.corrections = estimateCorrections(bytes, parsed, depth, l16.wide, 2, [...depth.modules, ...mods], opts, (p) => onProgress('Aligning the cameras', p));
+  const { width: W, height: H } = finalSize(l16, scale);
+  // each camera's registration corrected for this capture (measured on the half size merge): the wide cameras for the full size merge, the longer lens ones for the detail.
+  // The whole picture's once a photo for a whole render; for a part (the zoomed-in view, `window`) only round that part, which is much quicker, kept for the next view inside it.
+  let corrections = l16.corrections || null;
+  if (!corrections && l16.wide && window && givenWide) {
+    const f = l16.wide.width / W;
+    const ww = l16.wide.width;
+    const wh = l16.wide.height;
+    // (the part on the screen, with room round it, and at least a fifth of the picture each way so the fit has enough to go on)
+    const cx = (window.x + window.w / 2) * f;
+    const cy = (window.y + window.h / 2) * f;
+    const hw = Math.min(ww, Math.max(ww / 5, window.w * f * 1.3)) / 2;
+    const hh = Math.min(wh, Math.max(wh / 5, window.h * f * 1.3)) / 2;
+    const need = { x0: (window.x - margin) * f, y0: (window.y - margin) * f, x1: (window.x + window.w + margin) * f, y1: (window.y + window.h + margin) * f };
+    const kept = (l16.localCorrections || []).find((c) => c.area.x0 <= need.x0 && c.area.y0 <= need.y0 && c.area.x1 >= need.x1 && c.area.y1 >= need.y1);
+    if (kept) corrections = kept.corrections;
+    else {
+      const x0 = Math.max(0, Math.min(ww - 2 * hw, cx - hw));
+      const y0 = Math.max(0, Math.min(wh - 2 * hh, cy - hh));
+      const area = { x0, y0, x1: x0 + 2 * hw, y1: y0 + 2 * hh };
+      onProgress('Aligning the cameras', 0);
+      corrections = estimateCorrections(bytes, parsed, depth, l16.wide, 2, [...depth.modules, ...mods], opts, (p) => onProgress('Aligning the cameras', p), area);
+      l16.localCorrections = [{ area, corrections }, ...(l16.localCorrections || [])].slice(0, 8);
+    }
+  } else if (!corrections && l16.wide) {
+    onProgress('Aligning the cameras', 0);
+    corrections = l16.corrections = estimateCorrections(bytes, parsed, depth, l16.wide, 2, [...depth.modules, ...mods], opts, (p) => onProgress('Aligning the cameras', p));
   }
-  const corrections = l16.corrections || null;
   let wide = givenWide;
   if (!wide) {
     onProgress('Merging the cameras at full size', 0.03);
     wide = fuse(bytes, parsed, depth, opts, (stage, p) => onProgress(stage, 0.03 + 0.07 * p), { grid: 1, corrections });
   }
-  const { width: W, height: H } = finalSize(l16, scale);
   const win = window || { x: 0, y: 0, w: W, h: H };
   const out = new Uint8ClampedArray(win.w * win.h * 4);
   // every camera with a longer lens than the reference (the 70 mm and the 150 mm ones, which see the middle of the picture)

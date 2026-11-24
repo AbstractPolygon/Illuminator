@@ -139,23 +139,31 @@ function demosaicWindow(decoded, frame, opts, win) {
 }
 
 // Each 2 x 2 sensor cell as one pixel (red, the mean of the greens, blue; the monochrome module's mean for all three): a quarter-size picture, quick to make.
-export function halfSize(bytes, frame, { black = 42, white = 1023, gains = [1, 1, 1], hot = true } = {}, rawCache = null) {
+// `crop` ({ x, y, w, h }, in pixels of the half size picture): only that part is made (the returned picture is that part, at ox, oy of the whole).
+export function halfSize(bytes, frame, { black = 42, white = 1023, gains = [1, 1, 1], hot = true } = {}, rawCache = null, crop = null) {
   const key = frame.module.id;
   let decoded = rawCache && rawCache.get(key);
   if (!decoded) {
     decoded = decodeFrame(bytes, frame);
     if (rawCache) rawCache.set(key, decoded);
   }
-  const { width: W, height: H, data } = decoded;
+  const { width: SW, height: SH, data } = decoded;
   const o = frame.module.sensor_bayer_red_override || { x: 0, y: 0 };
   const mono = o.x < 0;
-  const w = W >> 1;
-  const h = H >> 1;
+  const cx = crop ? Math.min((SW >> 1) - 1, Math.max(0, Math.floor(crop.x))) : 0;
+  const cy = crop ? Math.min((SH >> 1) - 1, Math.max(0, Math.floor(crop.y))) : 0;
+  const w = crop ? Math.max(1, Math.min((SW >> 1) - cx, Math.ceil(crop.w))) : SW >> 1;
+  const h = crop ? Math.max(1, Math.min((SH >> 1) - cy, Math.ceil(crop.h))) : SH >> 1;
+  // (the sensor pixels under it: W x H from sx0, sy0)
+  const sx0 = 2 * cx;
+  const sy0 = 2 * cy;
+  const W = 2 * w;
+  const H = 2 * h;
   const rgb = new Float32Array(3 * w * h);
   const scale = 1 / (white - black);
   // (hot and dead pixels out first: binned, one would be a bright dot in the picture)
   const plane = new Float32Array(W * H);
-  for (let i = 0; i < W * H; i++) plane[i] = Math.max(0, (data[i] - black) * scale);
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) plane[y * W + x] = Math.max(0, (data[(y + sy0) * SW + x + sx0] - black) * scale);
   if (hot) removeSpecks(plane, W, H, mono ? 1 : 2);
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
@@ -170,7 +178,7 @@ export function halfSize(bytes, frame, { black = 42, white = 1023, gains = [1, 1
       }
     }
   }
-  return { width: w, height: h, rgb };
+  return crop ? { width: w, height: h, rgb, ox: cx, oy: cy } : { width: w, height: h, rgb };
 }
 
 // The depth in mm at every pixel of a w x h grid, from the depth map (1 / mm, dw x dh): bilinear in inverse depth.

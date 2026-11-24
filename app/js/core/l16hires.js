@@ -150,7 +150,9 @@ function flowOffsets(a, b, W, H, ds = 4, block = 6, R = 2) {
 // +-48 sensor pixels, coarse to fine, between steps by a parabola); the shifts of the patches that match well are fitted with an affine function of the place on the sensor (by weighted least squares,
 // patches far off the fit dropped and the fit made again). Returns { [module id]: { ax: [a0, a1, a2], ay: [...] , n, rms } } where the sensor point (sx, sy) of the camera becomes
 // (sx + ax0 + ax1 u + ax2 v, ...) with u = sx / 4160, v = sy / 3120; a module that could not be measured is left out.
-export function estimateCorrections(bytes, parsed, depth, wide, grid, modules, opts, onProgress = () => {}) {
+// `area` ({ x0, y0, x1, y1 }, pixels of the wide picture): only the patches there are matched, and only the part of each camera's picture they land on is made (much quicker
+// than the whole: what the zoomed-in view needs); the whole picture when null.
+export function estimateCorrections(bytes, parsed, depth, wide, grid, modules, opts, onProgress = () => {}, area = null) {
   const refCam = cameraModel(parsed.header, parsed.modules[depth.ref][0]);
   const K = refCam.K;
   const W = wide.width;
@@ -185,23 +187,6 @@ export function estimateCorrections(bytes, parsed, depth, wide, grid, modules, o
       continue;
     }
     const { R: Rm, T: Tm } = relativePose(refCam, cam);
-    const pic = halfSize(bytes, parsed.modules[id][0], opts);
-    const pw = pic.width;
-    const ph = pic.height;
-    const pl = new Float32Array(pw * ph);
-    for (let i = 0; i < pw * ph; i++) pl[i] = luma(pic.rgb[3 * i], pic.rgb[3 * i + 1], pic.rgb[3 * i + 2]);
-    const sample = (sx, sy) => {
-      // sensor pixel -> the half size picture
-      const x = sx / 2 - 0.5;
-      const y = sy / 2 - 0.5;
-      if (x < 0 || y < 0 || x >= pw - 1 || y >= ph - 1) return NaN;
-      const x0 = x | 0;
-      const y0 = y | 0;
-      const fx = x - x0;
-      const fy = y - y0;
-      const i = y0 * pw + x0;
-      return (pl[i] * (1 - fx) + pl[i + 1] * fx) * (1 - fy) + (pl[i + pw] * (1 - fx) + pl[i + pw + 1] * fx) * fy;
-    };
     const project = (px, py) => {
       const Z = zAt(px, py);
       const Xr = (((px * grid) - K[2]) / K[0]) * Z;
@@ -212,17 +197,62 @@ export function estimateCorrections(bytes, parsed, depth, wide, grid, modules, o
       const iy = (cam.K[4] * (Rm[3] * Xr + Rm[4] * Yr + Rm[5] * Z + Tm[1])) / Pz + cam.K[5];
       return cam.distort(ix, iy);
     };
+    // (with an area: the part of this camera's picture it lands on, with room for the search)
+    let crop = null;
+    if (area) {
+      let lo = [Infinity, Infinity];
+      let hi = [-Infinity, -Infinity];
+      for (let j = 0; j <= 8; j++) {
+        for (let i = 0; i <= 8; i++) {
+          const s2 = project(area.x0 + ((area.x1 - area.x0) * i) / 8, area.y0 + ((area.y1 - area.y0) * j) / 8);
+          if (!s2) continue;
+          lo = [Math.min(lo[0], s2[0]), Math.min(lo[1], s2[1])];
+          hi = [Math.max(hi[0], s2[0]), Math.max(hi[1], s2[1])];
+        }
+      }
+      if (!(hi[0] > lo[0] && hi[1] > lo[1])) continue;
+      const pad = R + 2 * T * grid;
+      crop = { x: Math.floor((lo[0] - pad) / 2), y: Math.floor((lo[1] - pad) / 2) };
+      crop.w = Math.ceil((hi[0] + pad) / 2) - crop.x;
+      crop.h = Math.ceil((hi[1] + pad) / 2) - crop.y;
+      crop.x = Math.max(0, crop.x);
+      crop.y = Math.max(0, crop.y);
+      if (crop.w <= 0 || crop.h <= 0) continue;
+    }
+    const pic = halfSize(bytes, parsed.modules[id][0], opts, null, crop);
+    const pox = pic.ox || 0;
+    const poy = pic.oy || 0;
+    const pw = pic.width;
+    const ph = pic.height;
+    const pl = new Float32Array(pw * ph);
+    for (let i = 0; i < pw * ph; i++) pl[i] = luma(pic.rgb[3 * i], pic.rgb[3 * i + 1], pic.rgb[3 * i + 2]);
+    const sample = (sx, sy) => {
+      // sensor pixel -> the half size picture (or the part of it made)
+      const x = sx / 2 - 0.5 - pox;
+      const y = sy / 2 - 0.5 - poy;
+      if (x < 0 || y < 0 || x >= pw - 1 || y >= ph - 1) return NaN;
+      const x0 = x | 0;
+      const y0 = y | 0;
+      const fx = x - x0;
+      const fy = y - y0;
+      const i = y0 * pw + x0;
+      return (pl[i] * (1 - fx) + pl[i + 1] * fx) * (1 - fy) + (pl[i + pw] * (1 - fx) + pl[i + pw + 1] * fx) * fy;
+    };
     const pts = [];
     const n = 12;
     const a = new Float32Array(n * n);
     const sxs = new Float32Array(n * n);
     const sys = new Float32Array(n * n);
     // (at most about 300 patches a camera, spread over the frame: enough for the fit, and quick)
-    const cols = Math.floor((W - 2 * T) / T);
-    const rows = Math.floor((H - 2 * T) / T);
-    const stride = Math.max(1, Math.ceil(Math.sqrt((cols * rows) / 300)));
-    for (let ty = T; ty + T <= H - T; ty += T * stride) {
-      for (let tx = T; tx + T <= W - T; tx += T * stride) {
+    const ax0 = area ? Math.max(T, Math.floor(area.x0)) : T;
+    const ay0 = area ? Math.max(T, Math.floor(area.y0)) : T;
+    const ax1 = area ? Math.min(W - T, Math.ceil(area.x1)) : W - T;
+    const ay1 = area ? Math.min(H - T, Math.ceil(area.y1)) : H - T;
+    const cols = Math.floor((ax1 - ax0 - T) / T);
+    const rows = Math.floor((ay1 - ay0 - T) / T);
+    const stride = Math.max(1, Math.ceil(Math.sqrt(Math.max(1, cols * rows) / 300)));
+    for (let ty = ay0; ty + T <= ay1; ty += T * stride) {
+      for (let tx = ax0; tx + T <= ax1; tx += T * stride) {
         // the wide patch and where its samples land on the camera's sensor
         let k = 0;
         let ok = true;
