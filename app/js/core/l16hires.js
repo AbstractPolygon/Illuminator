@@ -9,6 +9,12 @@ import { cameraModel } from './l16geometry.js';
 import { relativePose } from './l16depth.js';
 import { demosaic, halfSize } from './l16fusion.js';
 
+// The telephoto cameras' lookup on the graphics card (gpu/l16lookup.js l16LookupGpu's), or null for the processor's: set by the worker that has the card.
+let lookupOnCard = null;
+export function setL16LookupGpu(f) {
+  lookupOnCard = f || null;
+}
+
 // The camera alignment search on the graphics card (gpu/l16ncc.js l16NccGpu's), or null for the processor's: set by the worker that has the card.
 let nccOnCard = null;
 export function setL16NccGpu(f) {
@@ -605,14 +611,34 @@ export function renderRegion(bytes, parsed, depth, wide, { x0, y0, w, h, scale, 
     const corr = corrections && corrections[id];
     const R = rel.R;
     const T = rel.T;
-    // where each output pixel lands on this camera's sensor, and the window of the sensor that covers them
-    const sxs = new Float32Array(W * H).fill(NaN);
-    const sys = new Float32Array(W * H);
+    // where each output pixel lands on this camera's sensor, and the window of the sensor that covers them (on the graphics card where there is one, gpu/l16lookup.js:
+    // the same steps; here if it fails)
+    let card = null;
+    if (lookupOnCard) {
+      try {
+        card = lookupOnCard.project({ W, H, x0, y0, scale, grid, K, z, cam, rel, corr });
+      } catch (e) {
+        console.warn('L16 telephoto lookup on the graphics card failed; looking up here', e);
+        lookupOnCard = null;
+      }
+    }
+    const sxs = card ? card.sx : new Float32Array(W * H).fill(NaN);
+    const sys = card ? card.sy : new Float32Array(W * H);
     let minX = Infinity;
     let minY = Infinity;
     let maxX = -Infinity;
     let maxY = -Infinity;
-    for (let Y = 0; Y < H; Y++) {
+    if (card) {
+      for (let i = 0; i < W * H; i++) {
+        const sx = sxs[i];
+        if (sx !== sx) continue;
+        const sy = sys[i];
+        if (sx < minX) minX = sx;
+        if (sx > maxX) maxX = sx;
+        if (sy < minY) minY = sy;
+        if (sy > maxY) maxY = sy;
+      }
+    } else for (let Y = 0; Y < H; Y++) {
       const py = (y0 + (Y + 0.5) / scale) * grid;
       for (let X = 0; X < W; X++) {
         const i = Y * W + X;
@@ -640,18 +666,34 @@ export function renderRegion(bytes, parsed, depth, wide, { x0, y0, w, h, scale, 
         if (sy > maxY) maxY = sy;
       }
     }
-    if (!(maxX >= minX)) continue;
+    if (!(maxX >= minX)) {
+      if (card) card.release();
+      continue;
+    }
     const img = demosaic(bytes, parsed.modules[id][0], opts, { x0: minX - 3, y0: minY - 3, w: maxX - minX + 7, h: maxY - minY + 7 }, rawCache || new Map());
-    const samp = new Float32Array(3 * W * H);
-    const have = new Uint8Array(W * H);
     const s3 = [0, 0, 0];
-    for (let i = 0; i < W * H; i++) {
-      if (sxs[i] !== sxs[i]) continue;
-      if (bilinear(img.rgb, img.width, img.height, sxs[i] - img.x0, sys[i] - img.y0, s3)) {
-        have[i] = 1;
-        samp[3 * i] = s3[0];
-        samp[3 * i + 1] = s3[1];
-        samp[3 * i + 2] = s3[2];
+    let looked = null;
+    if (card) {
+      try {
+        looked = card.sample(img);
+      } catch (e) {
+        console.warn('L16 telephoto lookup on the graphics card failed; looking up here', e);
+        lookupOnCard = null;
+      } finally {
+        card.release();
+      }
+    }
+    const samp = looked ? looked.samp : new Float32Array(3 * W * H);
+    const have = looked ? looked.have : new Uint8Array(W * H);
+    if (!looked) {
+      for (let i = 0; i < W * H; i++) {
+        if (sxs[i] !== sxs[i]) continue;
+        if (bilinear(img.rgb, img.width, img.height, sxs[i] - img.x0, sys[i] - img.y0, s3)) {
+          have[i] = 1;
+          samp[3 * i] = s3[0];
+          samp[3 * i + 1] = s3[1];
+          samp[3 * i + 2] = s3[2];
+        }
       }
     }
     // gains that bring the camera's colors to the wide picture's (over where it has pixels)
