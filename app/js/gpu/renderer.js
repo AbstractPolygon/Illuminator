@@ -527,6 +527,9 @@ void main() {
   // A radius that is not a number (a depth that is not one) would break the whole 8 x 8 tile of the blur (DOF_TILES takes each tile's largest radius):
   // that pixel is left as it is instead.
   if (isnan(d) || isinf(d) || !(abs(d) < 1e6)) d = 0.0;
+  // (no pixel blurs by more than half the picture's diagonal, as on the processor: core/dof.js maxRadius)
+  float maxRadius = 0.5 * length(vec2(isz));
+  d = clamp(d, -maxRadius, maxRadius);
   float y = dot(c, vec3(0.2126, 0.7152, 0.0722));
   float knee = 0.8 * uClip;
   float t = clamp((y - knee) / (uClip - knee), 0.0, 1.0);
@@ -652,7 +655,8 @@ void main() {
   outColor = mix(mix(c00, c10, a.x), mix(c01, c11, a.x), a.y);
 }`;
 
-const MAX_TAPS = 512;
+// (up to 2048 taps: a ball of a large blur keeps a clean edge; each pixel uses only as many as its own reach needs, maxR squared times 1.2 at most)
+const MAX_TAPS = 2048;
 
 // Depth of field, step 2: each pixel gathers light from neighbors whose own
 // blur reaches it, inside the aperture shape. Bright out-of-focus points thus
@@ -3701,6 +3705,19 @@ export class GpuRenderer {
     return t;
   }
 
+  // A copy of `src` in a texture of its own, outside the pool (never trimmed): the caller deletes it (gl.deleteTexture) when done.
+  holdCopy(src, w, h) {
+    const gl = this.gl;
+    const t = this.texture(w, h);
+    const P = this.programs.copy;
+    this.target(t, w, h);
+    gl.useProgram(P.p);
+    gl.uniform1i(P.u.uSrc, 1);
+    this.bindTex(1, src);
+    this.draw();
+    return t;
+  }
+
   // Scratch textures by size, reused between frames.
   scratch(w, h, name, internal = this.gl.RGBA16F) {
     const key = `${w}x${h}:${name}${internal === this.gl.RGBA16F ? '' : ':f32'}`;
@@ -4448,7 +4465,9 @@ export class GpuRenderer {
 
     const [lo, hi] = this.depthRange || [0, 0];
     const reach = Math.abs(tilt[0]) + Math.abs(tilt[1]);
-    const maxR = Math.min(64, strength * Math.max(0, Math.max(Math.abs(hi - focus), Math.abs(lo - focus)) + reach - spread));
+    // (no cap but the processor's: half the picture's diagonal; the gather's taps read the pre-averaged picture at the scale each tap stands for, so a large blur costs
+    // no more taps than a small one)
+    const maxR = Math.min(0.5 * Math.hypot(w, h), strength * Math.max(0, Math.max(Math.abs(hi - focus), Math.abs(lo - focus)) + reach - spread));
     const taps = Math.max(32, Math.min(draft ? 160 : MAX_TAPS, Math.round(maxR * maxR * 1.2)));
     const kernel = bokehKernel(options);
     const shapeId = kernel.kind;
@@ -4469,15 +4488,19 @@ export class GpuRenderer {
     this.bindTex(1, prep);
     this.draw();
     gl.uniform1i(P.u.uPass, 1);
-    gl.uniform1i(P.u.uRadius, Math.min(16, Math.ceil((maxR * blurReach + 1) / DOF_TILE)));
-    this.target(tilesTmp, tw, th);
-    this.bindTex(1, tiles);
-    gl.uniform2i(P.u.uDir, 1, 0);
-    this.draw();
-    this.target(tiles, tw, th);
-    this.bindTex(1, tilesTmp);
-    gl.uniform2i(P.u.uDir, 0, 1);
-    this.draw();
+    // Each tile takes the largest blur within reach: a pass reaches 16 tiles each way, and passes one after another add up (the largest over a window of the largest
+    // over windows is the largest over their sum), so any blur is covered.
+    for (let left = Math.ceil((maxR * blurReach + 1) / DOF_TILE); left > 0; left -= 16) {
+      gl.uniform1i(P.u.uRadius, Math.min(16, left));
+      this.target(tilesTmp, tw, th);
+      this.bindTex(1, tiles);
+      gl.uniform2i(P.u.uDir, 1, 0);
+      this.draw();
+      this.target(tiles, tw, th);
+      this.bindTex(1, tilesTmp);
+      gl.uniform2i(P.u.uDir, 0, 1);
+      this.draw();
+    }
 
     P = this.programs.dofGather;
     gl.useProgram(P.p);

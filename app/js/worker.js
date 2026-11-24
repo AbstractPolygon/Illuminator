@@ -981,6 +981,8 @@ function releasePhoto({ all = false } = {}) {
   for (const k of ['depth', 'depthRaw', 'depthPlain', 'depthParts', 'depthParallax', 'depth5', 'depthEngine', 'depthExact', 'depthOwn', 'depthOwnF', 'modelDepth', 'modelJob', 'objects', 'userDepth', 'depthJob',
     'rawOriginal', 'rawFixed', 'rawWhite', 'rayWarp', 'rayWarpEdof', 'geoTable', 'geoTableExact', 'reconSource', 'rayField', 'refocusViews', 'kept', 'vignetting', 'center', 'exactOffsets',
     'lensOffsets', 'lensShiftFor', 'lensOut', 'lensCacheIn', 'depthCacheIn', 'depthCacheOut', 'openOut', 'usmDepth', 'usmMap', 'engineScale', 'engineWb', 'scratch', 'ppGpuFailed', 'ppDepthOnGpu']) state[k] = null;
+  if (state.ppSrcTex && state.gpu) state.gpu.gl.deleteTexture(state.ppSrcTex.tex);
+  state.ppSrcTex = null;
   processedBase = null;
   state.engineViews = undefined;
   state.modulation = undefined;
@@ -1573,10 +1575,6 @@ function checkRenderMemoryNow(sampler, scale, cpu) {
 // (what the progress says when the picture comes from one kept before, not from the sensor)
 const KEPT_LABEL = 'Applying change';
 
-// The graphics card's blur reaches at most GPU_BLUR_REACH pixels (gpu/renderer.js depthOfField): whether a picture's largest blur (`strength` per unit of depth from
-// `focus`, over the depth range of `lambda`, with the tilt, less the spread) fits in it. A picture that needs more is blurred on the processor, which has no such limit
-// (zoomed in, the blur grows with the zoom).
-const GPU_BLUR_REACH = 64;
 // The smooth (Natural) blur of the processor blurs about twice as far as the graphics card's at the same strength (two box passes of the radius, against the card's
 // ball of the radius; measured on noise at radius 5 to 40): a processed photo's blur on the card is made twice as strong there, so it looks as it did on the
 // processor. The shaped blurs (circle, blades, drawn and custom shapes) already match.
@@ -1585,17 +1583,6 @@ function cardStrength(bokeh) {
   const shape = (bokeh && bokeh.shape) || 'smooth';
   return ['circle', 'custom', 'optical', 'blades', 'hexagon', 'star', 'heart'].includes(shape) ? 1 : 2;
 }
-function blurFitsGpu(lambda, focus, strength, tilt, spread) {
-  let lo = Infinity;
-  let hi = -Infinity;
-  for (let i = 0; i < lambda.length; i++) {
-    const d = lambda[i];
-    if (d < lo) lo = d;
-    if (d > hi) hi = d;
-  }
-  const reach = Math.abs(tilt[0]) + Math.abs(tilt[1]);
-  return strength * Math.max(0, Math.max(Math.abs(hi - focus), Math.abs(lo - focus)) + reach - spread) <= GPU_BLUR_REACH;
-}
 
 // One tile of a Light L16 picture made in tiles (the Render, the zoomed-in view) with its depth of field blur on the graphics card: the picture for the viewpoint and
 // focus is made here (as ProcessedPicture.render does), blurred on the card, read back, and given its share of the whole picture's glow and flare (`light`). The
@@ -1603,7 +1590,7 @@ function blurFitsGpu(lambda, focus, strength, tilt, spread) {
 // there is no blur to make, no card, or the card fails (the processor makes the tile; the card is not tried again for the photo).
 function tileOnGpu(tile, { u, v, alpha, blur, bokeh, frame, light }) {
   const gpu = state.gpu;
-  if (!gpu || state.ppGpuFailed || debugFlags().noProcessedGpu || !tile.depth || !(blur > 0 || bokeh.blur > 0)) return null;
+  if (!gpu || state.ppGpuFailed || debugFlags().noProcessedGpu || !tile.depth) return null;
   try {
     const { width: w, height: h } = tile;
     const lambda = tile.toLambda(alpha);
@@ -1618,8 +1605,16 @@ function tileOnGpu(tile, { u, v, alpha, blur, bokeh, frame, light }) {
     const oy = frame ? frame.y : 0;
     const tileTilt = [tilt[0] * (w / FW), tilt[1] * (h / FH)];
     const strength = cardStrength(bokeh) * blur * (bokeh.size ?? 1) * pxPer;
-    if (!blurFitsGpu(grid.lambda, lambda, strength, tileTilt, (bokeh.spread || 0) * scale)) return null;
-    let tex = gpu.uploadRGB(tile.base(u, v, lambda), w, h, { full: true });
+    let tex;
+    const img = tile.images[0];
+    const du = u - img.u;
+    const dv = v - img.v;
+    if (tile.source === 'l16' && (Math.abs(du) > 1e-6 || Math.abs(dv) > 1e-6) && !debugFlags().noGpuExtend) {
+      // (the viewpoint moved on by the depth on the card, as for the live view)
+      const e = tile.extension();
+      gpu.setDepth(e.neg, tile.depth.width, tile.depth.height);
+      tex = gpu.extendView(gpu.uploadRGB(tile.linear(img), w, h, { full: true }), w, h, [0, 0], [du, dv], 0, e.detail, e.range, searchSteps(e.range, 0, [du, dv], e.detail));
+    } else tex = gpu.uploadRGB(tile.base(u, v, lambda), w, h, { full: true });
     gpu.setDepth(grid.lambda, grid.width, grid.height);
     // (the live view's depth is no longer the one on the card)
     state.ppDepthOnGpu = null;
@@ -4245,19 +4240,33 @@ function processedGpu(params, message) {
   const v = params.v || 0;
   const alpha = params.alpha || 0;
   const lambda = pp.toLambda(alpha);
-  // (the picture for the viewpoint and focus, kept while only the blur or the colors change)
-  const baseKey = `${u},${v},${alpha}`;
-  if (!processedBase || processedBase.pp !== pp || processedBase.key !== baseKey) processedBase = { pp, key: baseKey, rgb: pp.base(u, v, lambda) };
-  let tex = gpu.uploadRGB(processedBase.rgb, w, h);
+  let tex;
+  // A Light L16 photo with its viewpoint moved: the picture moved on by the depth on the card (EXTEND, gpu/renderer.js extendView; the processor's is core/viewextend.js
+  // withExtension, which it matches), from the unmoved picture kept on the card.
+  const moved = Math.abs(u) > 1e-6 || Math.abs(v) > 1e-6;
+  if (pp.source === 'l16' && pp.depth && pp.kind !== 'focus' && pp.images.length === 1 && moved && !debugFlags().noGpuExtend) {
+    const img = pp.images[0];
+    if (!state.ppSrcTex || state.ppSrcTex.img !== img) {
+      if (state.ppSrcTex) gpu.gl.deleteTexture(state.ppSrcTex.tex);
+      state.ppSrcTex = { img, tex: gpu.holdCopy(gpu.uploadRGB(pp.linear(img), w, h, { full: true }), w, h) };
+    }
+    const e = pp.extension();
+    const du = u - img.u;
+    const dv = v - img.v;
+    gpu.setDepth(e.neg, pp.depth.width, pp.depth.height);
+    state.ppDepthOnGpu = null;
+    tex = gpu.extendView(state.ppSrcTex.tex, w, h, [0, 0], [du, dv], 0, e.detail, e.range, searchSteps(e.range, 0, [du, dv], e.detail));
+  } else {
+    // (the picture for the viewpoint and focus, kept while only the blur or the colors change)
+    const baseKey = `${u},${v},${alpha}`;
+    if (!processedBase || processedBase.pp !== pp || processedBase.key !== baseKey) processedBase = { pp, key: baseKey, rgb: pp.base(u, v, lambda) };
+    tex = gpu.uploadRGB(processedBase.rgb, w, h);
+  }
   const bokeh = params.bokeh || {};
   const blur = processedBlur(params);
   // The blur from the depth map, in the picture's own units (as ProcessedPicture.render: lambda, the aperture's reach in pixels per lambda, the spread and tilt scaled)
   if ((blur > 0 || bokeh.blur > 0) && pp.depth && pp.kind !== 'focus') {
     const grid = pp.depthGrid();
-    {
-      const sc = (pp.lambdaRange[1] - pp.lambdaRange[0]) / 2 / FOCUS_RANGE;
-      if (!blurFitsGpu(grid.lambda, lambda, cardStrength(bokeh) * blur * (bokeh.size ?? 1) * APERTURE_RADIUS * pp.pxPerLambda, (bokeh.tilt || [0, 0]).map((t) => t * sc), (bokeh.spread || 0) * sc)) return false;
-    }
     if (state.ppDepthOnGpu !== grid) {
       gpu.setDepth(grid.lambda, grid.width, grid.height);
       state.ppDepthOnGpu = grid;
