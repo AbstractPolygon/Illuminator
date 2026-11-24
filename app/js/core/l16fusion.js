@@ -329,6 +329,12 @@ function demosaicWindow(decoded, frame, opts, win) {
   return { width: ow, height: oh, rgb, x0, y0 };
 }
 
+// The merge on the graphics card (gpu/l16fuse.js l16FuseGpu's), or null for the processor's: set by the worker that has the card.
+let fuseOnCard = null;
+export function setL16FuseGpu(f) {
+  fuseOnCard = f || null;
+}
+
 // The camera pictures' preparation on the graphics card (gpu/l16prep.js l16PrepGpu's function), or null for the processor's: set by the worker that has the card.
 let prepOnCard = null;
 export function setL16PrepGpu(fn) {
@@ -515,7 +521,20 @@ export function fuse(bytes, parsed, depth, { black = 42, white = 1023, gains = [
   const refUnd = new Float32Array(3 * W * H);
   const tmp = [0, 0, 0];
   const valid = new Uint8Array(W * H);
-  for (let y = 0; y < H; y++) {
+  // (on the graphics card where there is one, gpu/l16fuse.js: the same steps; here if it fails)
+  let card = fuseOnCard;
+  const failed = (e) => {
+    console.warn('L16 merge on the graphics card failed; merging here', e);
+    fuseOnCard = card = null;
+  };
+  if (card) {
+    try {
+      card.reference({ img: ref, W, H, S, dist: refCam.distort, refUnd, valid });
+    } catch (e) {
+      failed(e);
+    }
+  }
+  if (!card) for (let y = 0; y < H; y++) {
     for (let x = 0; x < W; x++) {
       const [sx, sy] = refCam.distort((x + 0.5) * S, (y + 0.5) * S);
       if (bilinear(ref.rgb, W, H, sx / S, sy / S, tmp)) {
@@ -583,7 +602,27 @@ export function fuse(bytes, parsed, depth, { black = 42, white = 1023, gains = [
     // the monochrome camera: one brightness gain, from the reference's brightness over its own
     const mg = mono ? luma(sumR[0], sumR[1], sumR[2]) / Math.max(1e-9, sumD[1]) : 1;
     let agreed = 0;
-    for (let y = 0; y < H; y++) {
+    let done = false;
+    if (card) {
+      // (the shares are added to out and weight only once the whole camera is done, so a failure part way leaves them as they were)
+      const share = new Float32Array(3 * W * H);
+      const wshare = new Float32Array(W * H);
+      try {
+        agreed = card.camera({ img, W, H, S, K, cam, rel, corr, gain: g, mono, mg, z, refUnd, valid, out: share, weight: wshare });
+        for (let i = 0; i < W * H; i++) {
+          if (!wshare[i]) continue;
+          out[3 * i] += share[3 * i];
+          out[3 * i + 1] += share[3 * i + 1];
+          out[3 * i + 2] += share[3 * i + 2];
+          weight[i] += wshare[i];
+        }
+        done = true;
+      } catch (e) {
+        failed(e);
+        agreed = 0;
+      }
+    }
+    if (!done) for (let y = 0; y < H; y++) {
       for (let x = 0; x < W; x++) {
         const i = y * W + x;
         if (!valid[i] || !at(x, y)) continue;

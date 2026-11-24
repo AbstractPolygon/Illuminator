@@ -9,7 +9,8 @@ import { isLri } from './core/lri.js';
 import { createL16DepthPool, l16DepthHelperCount } from './l16depthpool.js';
 import { l16CostGpu } from './gpu/l16cost.js';
 import { l16PrepGpu } from './gpu/l16prep.js';
-import { setL16PrepGpu } from './core/l16fusion.js';
+import { setL16PrepGpu, setL16FuseGpu } from './core/l16fusion.js';
+import { l16FuseGpu } from './gpu/l16fuse.js';
 import { l16FiltersGpu } from './gpu/l16filters.js';
 import { setL16FiltersGpu, setL16NccGpu } from './core/l16hires.js';
 import { l16NccGpu } from './gpu/l16ncc.js';
@@ -1085,6 +1086,7 @@ async function open({ id, bytes, synthetic, userDepth = null, depthCache = null,
     setL16PrepGpu(state.gpu && !debugFlags().noGpuL16Prep ? l16PrepGpu(state.gpu) : null);
     setL16FiltersGpu(state.gpu && !debugFlags().noGpuL16Filters ? l16FiltersGpu(state.gpu) : null);
     setL16NccGpu(state.gpu && !debugFlags().noGpuL16Align ? l16NccGpu(state.gpu) : null);
+    setL16FuseGpu(state.gpu && !debugFlags().noGpuL16Merge ? l16FuseGpu(state.gpu) : null);
     // (the smoothing is thousands of small steps: on a software renderer, which runs them on the processor, it is slower than the processor's)
     setL16SgmGpu(hardwareGpu() && !debugFlags().noGpuL16Smooth ? l16SgmGpu(state.gpu) : null);
     l16Pool = {
@@ -4386,6 +4388,7 @@ function recoverGpu({ keepPhoto = true } = {}) {
   setL16PrepGpu(null);
   setL16FiltersGpu(null);
   setL16NccGpu(null);
+  setL16FuseGpu(null);
   setL16SgmGpu(null);
   dropKeptStills();
   if (!keepPhoto || !state.lf) return false; // a photo opened next makes its own renderer
