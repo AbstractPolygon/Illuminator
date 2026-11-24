@@ -97,13 +97,18 @@ export function veilAt(veil, nx, ny, out = [0, 0, 0]) {
 
 // rgb minus `amount` (0..1) of the veil, as a new array; with no veil or an amount of 0 it is rgb itself (toPixels in worker.js calls this on every render, and a copy of
 // the whole picture for a no-op would cost more than the pass it skips). Callers must not write into the result.
-export function subtractVeil(rgb, w, h, veil, amount) {
+// `frame` ({ x, y, width, height }): the picture is a tile of a bigger one (as for applyLens), the veil the whole picture's.
+export function subtractVeil(rgb, w, h, veil, amount, frame = null) {
   if (!veil || !(amount > 0)) return rgb;
   const out = new Float32Array(rgb.length);
   const v = [0, 0, 0];
+  const ox = frame ? frame.x : 0;
+  const oy = frame ? frame.y : 0;
+  const W = frame ? frame.width : w;
+  const H = frame ? frame.height : h;
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
-      veilAt(veil, (x + 0.5) / w, (y + 0.5) / h, v);
+      veilAt(veil, (x + 0.5 + ox) / W, (y + 0.5 + oy) / H, v);
       const p = (y * w + x) * 3;
       out[p] = Math.max(0, rgb[p] - amount * v[0]);
       out[p + 1] = Math.max(0, rgb[p + 1] - amount * v[1]);

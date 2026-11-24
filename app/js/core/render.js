@@ -650,7 +650,9 @@ export function toneMap(rgb, matrix, exposure, out, look = null, local = null, g
   const scale = linearLook || local ? 1 : steps;
   const m = matrix.map((v) => v * exposure * scale);
   const p = [0, 0, 0];
-  const aspect = local ? local.w / local.h : 1;
+  // (local.frame: a tile of a bigger picture, as for applySpatial)
+  const lf = local ? local.frame || { x: 0, y: 0, width: local.w, height: local.h } : null;
+  const aspect = local ? lf.width / lf.height : 1;
   const graded = !!(grade && grade.lut && grade.amount > 0);
   const k = graded ? Math.min(1, grade.amount) : 0;
   const q = [0, 0, 0];
@@ -678,8 +680,8 @@ export function toneMap(rgb, matrix, exposure, out, look = null, local = null, g
         const k = i / 3;
         const x = k % local.w;
         const y = (k - x) / local.w;
-        const nx = (x + 0.5) / local.w;
-        const ny = (y + 0.5) / local.h;
+        const nx = (x + 0.5 + lf.x) / lf.width;
+        const ny = (y + 0.5 + lf.y) / lf.height;
         let d = null;
         if (local.depth) d = local.depth[Math.min(local.dh - 1, Math.floor(ny * local.dh)) * local.dw + Math.min(local.dw - 1, Math.floor(nx * local.dw))];
         applyLocal(p, local.masks, nx, ny, aspect, d, local.show);

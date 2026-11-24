@@ -399,7 +399,8 @@ function colorState(color) {
   const look = makeLook(s);
   if (state.pp) {
     const sat = colorMatrix({ ccm: null }, { ...s, useCcm: false, ccm: null });
-    return { settings: s, look, lens: state.lens, matrix: sat.map((v, i) => v * auto[i % 3] * manual[i % 3]), baseExposure: 1, veil: null, veilAmount: 0, lytro: null };
+    const veil = s.flare && s.flare.on ? state.veil : null;
+    return { settings: s, look, lens: lensParams(s.lens, null), matrix: sat.map((v, i) => v * auto[i % 3] * manual[i % 3]), baseExposure: 1, veil, veilAmount: veil ? s.flare.amount : 0, lytro: null };
   }
   const gains = customWbGains(s) || engineAutoGains(s) || auto.map((g, i) => g * manual[i]);
   // The engine's own colour pipeline when the photo's engine units are known (colour matrix, tone spline, sRGB); the fitted Lytro look otherwise.
@@ -457,10 +458,24 @@ function anchorScale() {
 
 function localFor(w, h, ctx) {
   if (!state.masks || !state.masks.length) return null;
-  // (a tile of a bigger picture: the masks are placed on the whole picture, and are not moved into tiles yet)
-  if (ctx && ctx.window) return null;
-  const d = state.depth && state.sampler ? { depth: state.depth.alpha, dw: state.sampler.outW, dh: state.sampler.outH } : {};
-  return { masks: resolveMasks(state.masks, { ...ctx, anchor: sceneAnchor(ctx) }), w, h, show: state.maskShow, ...d };
+  const d = state.depth && state.sampler ? { depth: state.depth.alpha, dw: state.sampler.outW, dh: state.sampler.outH } : processedMaskDepth();
+  // (a tile of a bigger picture, ctx.window: the masks are placed on the whole picture)
+  const frame = ctx && ctx.window ? ctx.window : null;
+  return { masks: resolveMasks(state.masks, { ...ctx, anchor: sceneAnchor(ctx) }), w, h, show: state.maskShow, ...d, ...(frame ? { frame } : {}) };
+}
+
+// A processed photo's depth (Light L16 photos and .lfp files with a depth map) in focus units, for the depth masks: {} when it has none.
+function processedMaskDepth() {
+  const pp = state.pp;
+  if (!pp || !pp.depth) return {};
+  if (!state.ppMaskDepth || state.ppMaskDepth.of !== pp.depth) {
+    const { width, height, lambda } = pp.depth;
+    const alpha = new Float32Array(width * height);
+    for (let i = 0; i < alpha.length; i++) alpha[i] = pp.toAlpha(lambda[i]);
+    state.ppMaskDepth = { of: pp.depth, depth: alpha, dw: width, dh: height };
+  }
+  const { depth, dw, dh } = state.ppMaskDepth;
+  return { depth, dw, dh };
 }
 
 // Lens columns across the picture at one pixel per lens (the view at Resolution 1).
@@ -490,8 +505,10 @@ function toPixels(rgb, w, h, ctx, cs = state, distortionCorrected = false, onGpu
   if (!onGpu) rgb = applyLocalTone(rgb, w, h, localToneForSize(state.localTone, w, lensColumns()));
   // (retouching: the spots, before the rest; from the GPU path they are already in the picture)
   if (!onGpu) rgb = applySpots(rgb, w, h, spotsFor(ctx, w, h));
-  rgb = subtractVeil(rgb, w, h, cs.veil, cs.veilAmount);
-  rgb = applyLens(rgb, w, h, distortionCorrected ? withoutDistortion(cs.lens) : cs.lens);
+  // (a tile of a bigger picture, ctx.window: the flare veil and the lens correction are placed on the whole picture)
+  const frame = (ctx && ctx.window) || null;
+  rgb = subtractVeil(rgb, w, h, cs.veil, cs.veilAmount, frame);
+  rgb = applyLens(rgb, w, h, distortionCorrected ? withoutDistortion(cs.lens) : cs.lens, frame);
   const exposure = cs.baseExposure * Math.pow(2, cs.settings.ev);
   const f = cs.settings.defringe;
   const local = localFor(w, h, ctx);
@@ -4015,7 +4032,12 @@ function updateProcessedColor() {
   state.look = makeLook(s);
   state.detail = makeDetail({ ...s, engineSharpen: s.engineSharpen ?? !!(state.lf && state.lf.raw && !state.pp) });
   state.localTone = withAirlight(makeLocalTone(s), center);
-  // (retouching and local adjustments were left out for processed photos: Light L16 photos and finished .lfp pictures)
+  // Lens correction (vignetting, distortion: set by hand, these photos have no lens model) and Reduce flare, as for raw photos.
+  state.lens = lensParams(s.lens, null);
+  if (!(s.flare && s.flare.on)) state.veil = null;
+  else if (!state.veil || state.veilOf !== pp.images[0]) state.veil = estimateVeil(center, pp.width, pp.height);
+  state.veilOf = state.veil ? pp.images[0] : null;
+  state.veilAmount = state.veil ? s.flare.amount : 0;
   setLocalAndSpots(s);
   applyAutoDefringe(center, pp.width, pp.height);
 }

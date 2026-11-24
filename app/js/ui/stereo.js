@@ -4,10 +4,10 @@ import { geometry } from '../core/geometry.js';
 import { showInVr, vrSupported } from '../vr.js';
 import { fillPicture, hasHoles } from '../core/fillmodel.js';
 
-export function initStereo({ $, state, engine, showProgress, backToCamera, setFullRes, refresh, cameraParams, withPivotZoom, pivotFor, cropValues, drawGeometry, canRender, savePhoto, baseName, showError, hideProgress, showSliderValue }) {
+export function initStereo({ $, state, canDrag, engine, showProgress, backToCamera, setFullRes, refresh, cameraParams, withPivotZoom, pivotFor, cropValues, drawGeometry, canRender, savePhoto, baseName, showError, hideProgress, showSliderValue }) {
   // Show 3D: the live picture in the chosen 3D type.
   function stereoShown() {
-    return $('stereo-on').checked && !!(state.info && state.info.hasRaw);
+    return $('stereo-on').checked && canDrag();
   }
 
   function eyeOffset() {
@@ -115,7 +115,7 @@ export function initStereo({ $, state, engine, showProgress, backToCamera, setFu
   // (red / cyan glasses), side by side (parallel viewing or a VR headset) or
   // cross-eyed. Crop, rotation and the pivot apply to both eyes alike.
   async function saveStereo() {
-    if (!canRender() || !state.info.hasRaw) return;
+    if (!canRender() || !canDrag()) return;
     $('stereo-btn').disabled = true;
     try {
       const [L, R] = await stereoPair();
@@ -151,7 +151,7 @@ export function initStereo({ $, state, engine, showProgress, backToCamera, setFu
   // View in VR (browsers with WebXR, such as the Meta Quest Browser): the 3D
   // picture on a large screen in front of you, each eye seeing its own view.
   async function viewInVr() {
-    if (!canRender() || !state.info.hasRaw) return;
+    if (!canRender() || !canDrag()) return;
     try {
       const [L, R] = await stereoPair();
       hideProgress();

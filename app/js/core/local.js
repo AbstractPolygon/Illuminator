@@ -407,9 +407,11 @@ const lum = (p, i) => 0.2126 * p[i] + 0.7152 * p[i + 1] + 0.0722 * p[i + 2];
 // (gpu/renderer.js mirrors this): blur (radius up to 2% of the picture),
 // pixelate (tiles up to 4%) and sketch (pencil outlines over light colors),
 // each blended in by the mask's weight. `local` as for toneMap.
+// `local.frame` ({ x, y, width, height }): the picture is a tile of a bigger one, whose corner sits at x, y of a width x height whole; the masks and sizes are the whole picture's.
 export function applySpatial(rgb, w, h, local) {
-  const big = Math.max(w, h);
-  const aspect = w / h;
+  const fr = local.frame || { x: 0, y: 0, width: w, height: h };
+  const big = Math.max(fr.width, fr.height);
+  const aspect = fr.width / fr.height;
   let out = rgb;
   for (const m of local.masks) {
     const { blur = 0, pixelate = 0, sketch = 0, denoise = 0 } = m.fx;
@@ -418,8 +420,8 @@ export function applySpatial(rgb, w, h, local) {
     let any = false;
     for (let y = 0; y < h; y++) {
       for (let x = 0; x < w; x++) {
-        const nx = (x + 0.5) / w;
-        const ny = (y + 0.5) / h;
+        const nx = (x + 0.5 + fr.x) / fr.width;
+        const ny = (y + 0.5 + fr.y) / fr.height;
         let d = null;
         if (local.depth) d = local.depth[Math.min(local.dh - 1, Math.floor(ny * local.dh)) * local.dw + Math.min(local.dw - 1, Math.floor(nx * local.dw))];
         const v = maskWeight(m, nx, ny, aspect, d);
@@ -475,14 +477,15 @@ export function applySpatial(rgb, w, h, local) {
     }
     if (pixelate > 0) {
       const s = Math.max(2, Math.floor(pixelate * 0.04 * big));
-      for (let by = 0; by < h; by += s) {
-        for (let bx = 0; bx < w; bx += s) {
+      // (the blocks line up with the whole picture's)
+      for (let by = -(((fr.y % s) + s) % s); by < h; by += s) {
+        for (let bx = -(((fr.x % s) + s) % s); bx < w; bx += s) {
           let r = 0;
           let g = 0;
           let bl = 0;
           let n = 0;
-          for (let y = by; y < Math.min(h, by + s); y++) {
-            for (let x = bx; x < Math.min(w, bx + s); x++) {
+          for (let y = Math.max(0, by); y < Math.min(h, by + s); y++) {
+            for (let x = Math.max(0, bx); x < Math.min(w, bx + s); x++) {
               const i = 3 * (y * w + x);
               r += src[i];
               g += src[i + 1];
@@ -490,7 +493,7 @@ export function applySpatial(rgb, w, h, local) {
               n++;
             }
           }
-          for (let y = by; y < Math.min(h, by + s); y++) for (let x = bx; x < Math.min(w, bx + s); x++) {
+          for (let y = Math.max(0, by); y < Math.min(h, by + s); y++) for (let x = Math.max(0, bx); x < Math.min(w, bx + s); x++) {
             const i = y * w + x;
             if (weight[i] > 0) blend(i, r / n, g / n, bl / n, weight[i]);
           }

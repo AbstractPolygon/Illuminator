@@ -154,15 +154,22 @@ function catmullRom(t) {
 }
 
 // rgb (w x h) through the lens correction, as a new array.
-export function applyLens(rgb, w, h, p) {
+// `frame` ({ x, y, width, height }): the picture is a tile of a bigger one, whose corner sits at x, y of a width x height whole; the correction is the whole picture's.
+export function applyLens(rgb, w, h, p, frame = null) {
   if (!p) return rgb;
   const out = new Float32Array(rgb.length);
+  const ox = frame ? frame.x : 0;
+  const oy = frame ? frame.y : 0;
+  const W = frame ? frame.width : w;
+  const H = frame ? frame.height : h;
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
-      let sx = x + 0.5;
-      let sy = y + 0.5;
-      if (p.k || p.k2) [sx, sy] = lensSource(p, sx, sy, w, h);
-      const g = lensGain(p, sx, sy, w, h);
+      let sx = x + 0.5 + ox;
+      let sy = y + 0.5 + oy;
+      if (p.k || p.k2) [sx, sy] = lensSource(p, sx, sy, W, H);
+      const g = lensGain(p, sx, sy, W, H);
+      sx -= ox;
+      sy -= oy;
       // Catmull-Rom, between pixel centers: a bilinear lookup would blur the
       // detail the render has just been given, wherever the correction moves
       // the picture by a fraction of a pixel.

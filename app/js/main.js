@@ -3462,11 +3462,12 @@ function setMode(mode) {
   for (const id of ['stop-btn', 'key-prev', 'key-next', 'play-btn', 'loop-btn', 'webm-btn', 'scrub', ...PREVIEW_IDS]) $(id).disabled = !state.info || !camera || !$('anim-on').checked;
   $('png-btn').disabled = !state.info;
   $('quick-export-btn').disabled = !state.info;
-  $('stereo-btn').disabled = !(state.info && state.info.hasRaw) || !camera;
+  // (3D needs two viewpoints: every photo that can change its viewpoint, raw, Light L16 and processed ones with depth)
+  $('stereo-btn').disabled = !canDrag() || !camera;
   $('lent-btn').disabled = !state.info || !camera;
   $('lent-preview-btn').disabled = !state.info || !camera;
-  $('vr-btn').disabled = !(state.info && state.info.hasRaw) || !camera;
-  $('stereo-on').disabled = !(state.info && state.info.hasRaw) || !camera;
+  $('vr-btn').disabled = !canDrag() || !camera;
+  $('stereo-on').disabled = !canDrag() || !camera;
   if (!state.info) return;
   setFullRes(false, { restore: false });
   // The depth map stays on through camera-mode changes (a new photo or leaving the camera view turns it off elsewhere).
@@ -5498,7 +5499,7 @@ const { plotBox, drawCurves } = initCurvesView({ trackGroups, shownTracks, track
 const { showFrameRate } = initFrameRate({ $, state, scheduleSave: (...a) => scheduleSave(...a), animationSettingsChanged: (...a) => animationSettingsChanged(...a), showAnimationLength: (...a) => showAnimationLength(...a), renderTimeline: (...a) => renderTimeline(...a), updateFrameLabel: (...a) => updateFrameLabel(...a) });
 
 // 3D: ui/stereo.js
-const { stereoShown, eyeOffset, eyeParams, stereoPreview, stereoTag } = initStereo({ $, state, engine, showProgress: (...a) => showProgress(...a), backToCamera: (...a) => backToCamera(...a), setFullRes: (...a) => setFullRes(...a), refresh: (...a) => refresh(...a), cameraParams: (...a) => cameraParams(...a), withPivotZoom: (...a) => withPivotZoom(...a), pivotFor: (...a) => pivotFor(...a), cropValues: (...a) => cropValues(...a), drawGeometry: (...a) => drawGeometry(...a), canRender: (...a) => canRender(...a), savePhoto: (...a) => savePhoto(...a), baseName: (...a) => baseName(...a), showError: (...a) => showError(...a), hideProgress: (...a) => hideProgress(...a), showSliderValue: (...a) => showSliderValue(...a) });
+const { stereoShown, eyeOffset, eyeParams, stereoPreview, stereoTag } = initStereo({ $, state, canDrag: () => canDrag(), engine, showProgress: (...a) => showProgress(...a), backToCamera: (...a) => backToCamera(...a), setFullRes: (...a) => setFullRes(...a), refresh: (...a) => refresh(...a), cameraParams: (...a) => cameraParams(...a), withPivotZoom: (...a) => withPivotZoom(...a), pivotFor: (...a) => pivotFor(...a), cropValues: (...a) => cropValues(...a), drawGeometry: (...a) => drawGeometry(...a), canRender: (...a) => canRender(...a), savePhoto: (...a) => savePhoto(...a), baseName: (...a) => baseName(...a), showError: (...a) => showError(...a), hideProgress: (...a) => hideProgress(...a), showSliderValue: (...a) => showSliderValue(...a) });
 
 // living filters: ui/livingfilters.js
 const { livingFilter } = initLivingFilters({ $, state, canRender: (...a) => canRender(...a), getMasks, showNotice: (...a) => showNotice(...a), startNoticeTimer: (...a) => startNoticeTimer(...a), setMasks, renderMasks, renderTimeline: (...a) => renderTimeline(...a) });
