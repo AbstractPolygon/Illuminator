@@ -17,6 +17,7 @@ import { setL16FiltersGpu, setL16NccGpu, setL16LookupGpu } from './core/l16hires
 import { l16LookupGpu } from './gpu/l16lookup.js';
 import { l16NccGpu } from './gpu/l16ncc.js';
 import { l16SgmGpu } from './gpu/l16sgm.js';
+import { l16ReduceGpu } from './gpu/l16reduce.js';
 import { normalizeGrid, measureGrid, calibrateGrid, lensCenters, lensCenter, toLocal } from './core/lenslet.js';
 import {
   buildSampler, renderView, makeDevelopParams, apertureSamples, refocus,
@@ -74,7 +75,7 @@ import { renderL16Final } from './core/l16render.js';
 import { superpixelColor, depthAtSize, synthesize, fillFromBackground, backgroundDepth, fillFromDonors } from './core/l16view.js';
 import { RIG_RADIUS_MM, developL16, setL16DevelopGpu, encodePicture } from './core/l16photo.js';
 import { cameraModel as l16CameraModel } from './core/l16geometry.js';
-import { relativePose as l16RelativePose, setL16SgmGpu } from './core/l16depth.js';
+import { relativePose as l16RelativePose, setL16SgmGpu, setL16ReduceGpu } from './core/l16depth.js';
 import { lytroSplatGpu } from './gpu/lytroengine.js';
 import { debugFlags, hook, setHook } from './core/debugflags.js';
 import { withExtension, depthRange, searchSteps, reachProfile, reachToward, uncoveredMask } from './core/viewextend.js';
@@ -1090,6 +1091,8 @@ async function open({ id, bytes, synthetic, userDepth = null, depthCache = null,
     setL16NccGpu(state.gpu && !debugFlags().noGpuL16Align ? l16NccGpu(state.gpu) : null);
     setL16LookupGpu(state.gpu && !debugFlags().noGpuL16Lookup ? l16LookupGpu(state.gpu) : null);
     setL16FuseGpu(state.gpu && !debugFlags().noGpuL16Merge ? l16FuseGpu(state.gpu) : null);
+    // (on a software renderer the depth pictures are slower than here)
+    setL16ReduceGpu(hardwareGpu() && !debugFlags().noGpuL16DepthPictures ? l16ReduceGpu(state.gpu) : null);
     setL16DevelopGpu(state.gpu && !debugFlags().noGpuL16Develop ? l16DevelopGpu(state.gpu) : null);
     // (the smoothing is thousands of small steps: on a software renderer, which runs them on the processor, it is slower than the processor's)
     setL16SgmGpu(hardwareGpu() && !debugFlags().noGpuL16Smooth ? l16SgmGpu(state.gpu) : null);
@@ -4390,6 +4393,7 @@ function recoverGpu({ keepPhoto = true } = {}) {
   setL16NccGpu(null);
   setL16LookupGpu(null);
   setL16FuseGpu(null);
+  setL16ReduceGpu(null);
   setL16DevelopGpu(null);
   setL16SgmGpu(null);
   dropKeptStills();

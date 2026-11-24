@@ -24,7 +24,26 @@ export function relativePose(ref, c) {
 
 // Picture of a module reduced by `s` (sum of s x s sensor pixels), brightness-normalized by its local mean and spread so that exposure and vignetting differences
 // between modules do not matter. Float32Array of (width / s) * (height / s).
+// The depth pictures made on the graphics card (gpu/l16reduce.js l16ReduceGpu's), or null for the processor's: set by the worker that has the card.
+let reduceOnCard = null;
+export function setL16ReduceGpu(r) {
+  reduceOnCard = r || null;
+}
+
 export function reducedPicture(bytes, frame, s) {
+  const sd = frame.module.sensor_data_surface;
+  if (reduceOnCard && sd.format === 'RAW_PACKED_10BPP') {
+    // (on the graphics card, gpu/l16reduce.js, straight from the file's packed rows; here if it fails)
+    const start = frame.blockStart + sd.data_offset;
+    if (start + (sd.size.y - 1) * sd.row_stride + (sd.size.x / 4) * 5 <= bytes.length) {
+      try {
+        return reduceOnCard.reduced({ packed: { bytes, start, stride: sd.row_stride }, W: sd.size.x, H: sd.size.y, s, r: 6 });
+      } catch (e) {
+        console.warn('L16 depth pictures on the graphics card failed; making them here', e);
+        reduceOnCard = null;
+      }
+    }
+  }
   const { width: W, height: H, data } = decodeFrame(bytes, frame);
   const w = Math.floor(W / s);
   const h = Math.floor(H / s);
@@ -173,8 +192,17 @@ function depthSetup(bytes, parsed, options = {}, onProgress = () => {}) {
   });
   const K = refCam.K;
   // the reference pixel's ideal position, the sensor position of the reference picture (its own distortion)
-  const refSample = new Float32Array(w * h);
-  for (let y = 0; y < h; y++) {
+  let refSample = null;
+  if (reduceOnCard) {
+    try {
+      refSample = reduceOnCard.undistorted(ref.g, w, h, S, refCam.distort);
+    } catch (e) {
+      console.warn('L16 depth pictures on the graphics card failed; making them here', e);
+      reduceOnCard = null;
+    }
+  }
+  if (!refSample) refSample = new Float32Array(w * h);
+  if (!reduceOnCard) for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
       const [sx, sy] = refCam.distort((x + 0.5) * S, (y + 0.5) * S);
       refSample[y * w + x] = bilinear(ref.g, w, h, sx / S, sy / S);
