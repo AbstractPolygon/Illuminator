@@ -91,3 +91,32 @@ test('the tilted plane of focus on a tile is the whole picture\'s', async () => 
   assert.ok(dFrame < 0.02, `tile with its frame differs by ${dFrame}`);
   assert.ok(dNaive > 0.05, `the test needs a tilt that shows (${dNaive})`);
 });
+
+test('glow and flare on a tile are the whole picture\'s', async () => {
+  const { applyBokehFx, fxLight, addFxLight, fxOptions } = await import('../app/js/core/bokehfx.js');
+  const W2 = 96;
+  const H2 = 64;
+  const rgb = new Float32Array(W2 * H2 * 3).fill(0.05);
+  // bright points, some outside the tile, whose streaks, ghosts and glow reach into it
+  for (const [x, y] of [[10, 10], [80, 50], [30, 55], [60, 8]]) for (let c = 0; c < 3; c++) rgb[(y * W2 + x) * 3 + c] = 1;
+  const fx = fxOptions({ fxStreak: 0.8, fxStar: 0.6, fxGhosts: 0.8, fxFog: 0.6, fxDirt: 0.8 });
+  const whole = applyBokehFx(rgb, W2, H2, fx, 1);
+  const light = fxLight(rgb, W2, H2, fx, 1);
+  const x0 = 40;
+  const y0 = 20;
+  const tw = 32;
+  const th = 24;
+  const tile = new Float32Array(tw * th * 3);
+  for (let y = 0; y < th; y++) tile.set(rgb.subarray(((y + y0) * W2 + x0) * 3, ((y + y0) * W2 + x0 + tw) * 3), y * tw * 3);
+  const out = addFxLight(tile, tw, th, light, { x: x0, y: y0, width: W2, height: H2 });
+  const own = applyBokehFx(tile, tw, th, fx, 1);
+  let dFrame = 0;
+  let dOwn = 0;
+  for (let y = 0; y < th; y++) for (let x = 0; x < tw; x++) for (let c = 0; c < 3; c++) {
+    const a = whole[((y + y0) * W2 + x + x0) * 3 + c];
+    dFrame = Math.max(dFrame, Math.abs(out[(y * tw + x) * 3 + c] - a));
+    dOwn = Math.max(dOwn, Math.abs(own[(y * tw + x) * 3 + c] - a));
+  }
+  assert.ok(dFrame < 1e-5, `tile with the whole's light differs by ${dFrame}`);
+  assert.ok(dOwn > 0.01, `the test needs effects that reach the tile from outside (${dOwn})`);
+});

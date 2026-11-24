@@ -28,7 +28,7 @@ import { methodDepthModel, readDepthModel } from './core/depthmodels.js';
 import { releaseDepthSession, runDepthModel, fitModelDepth, shapeModelDepth, fuseModelDepth } from './core/depthmodel.js';
 import { depthStats, fillNonFinite, shapeDepthContrast, setDepthStyle, estimateDepth, estimateDepthPooled, poolable, DEPTH_FAST_SEARCH, focusAtPoint, smoothDepth, finishDepth, depthGuide, depthColorGuide, luminance, brightnessFloor, DEPTH_SEARCH, DEPTH_LCOST, DEPTH_CBCA, DEPTH_TRWS, DEPTH_COARSE, DEPTH_STEP, DEPTH_REGIONS, combineCoarse } from './core/depth.js';
 import { applyDepthOfField, smoothMap, shapeOptions } from './core/dof.js';
-import { fxOptions, applyBokehFx } from './core/bokehfx.js';
+import { fxOptions, applyBokehFx, fxLight, FX_KEYS } from './core/bokehfx.js';
 import { makeLocalTone, localToneForSize, applyLocalTone, airlight } from './core/localtone.js';
 import { defringe, autoDefringe } from './core/defringe.js';
 import { makeLook, whiteBalanceGains, DEFAULT_KELVIN, solveWhiteBalance, autoWhiteBalance } from './core/color.js';
@@ -1532,6 +1532,16 @@ function checkRenderMemoryNow(sampler, scale, cpu) {
 // (what the progress says when the picture comes from one kept before, not from the sensor)
 const KEPT_LABEL = 'Applying change';
 
+// Glow and flare for a Light L16 picture made in tiles: the effects' light made once from the whole picture (the quick picture, with the same viewpoint, focus and blur), so
+// every tile gets its share of the whole's streaks, ghosts, fog and dirt (sized and placed on the whole picture, not on each tile). Null when no effect is on.
+function wholeFxLight(top, { u, v, alpha, blur, bokeh }) {
+  const fx = fxOptions(bokeh || {});
+  if (!fx) return null;
+  const plain = { ...(bokeh || {}) };
+  for (const k of FX_KEYS) plain[k] = 0;
+  return fxLight(top.render({ u, v, alpha, blur, bokeh: plain }), top.width, top.height, fx, 1);
+}
+
 // The final render of a Light L16 photo (core/l16render.js): the picture at `scale` times the camera's size (1 is 4160 x 3120), with the viewpoint, blur and color of the camera view.
 async function l16Still({ id, job, scale = 1, u = 0, v = 0, alpha = 0, dof = 0, bokeh, color = null }) {
   state.jobs.superres = job;
@@ -1545,6 +1555,7 @@ async function l16Still({ id, job, scale = 1, u = 0, v = 0, alpha = 0, dof = 0, 
   const fullSpan = (top.lambdaRange[1] - top.lambdaRange[0]) * sOut;
   const margin = Math.min(480, Math.ceil(span * Math.max(Math.abs(u), Math.abs(v)) + (blur > 0 ? blur * (bokeh && bokeh.size != null ? bokeh.size : 1) * 0.5 * fullSpan : 0) + 8));
   const progress = (stage, p) => post({ id, type: 'progress', stage, progress: p });
+  const light = wholeFxLight(top, { u, v, alpha, blur, bokeh });
   const res = await renderL16Final(l16, {
     scale,
     margin,
@@ -1554,8 +1565,8 @@ async function l16Still({ id, job, scale = 1, u = 0, v = 0, alpha = 0, dof = 0, 
     renderTile: ({ data, width, height, lambda, window }) => {
       const tile = new ProcessedPicture({ kind: 'single', source: 'l16', images: [{ width, height, data }], depth: { width, height, lambda }, pitchRatio: { x: 1, y: 1 } });
       tile.lambdaRange = top.lambdaRange.map((x) => x * sOut);
-      // (`window`: where the tile sits in the whole picture, for what is placed on the whole picture: the tilted plane of focus)
-      const rgb = tile.render({ u, v, alpha, blur, bokeh: { ...(bokeh || {}), frame: window } });
+      // (`window`: where the tile sits in the whole picture, for what is placed on the whole picture: the tilted plane of focus, the glow and flare)
+      const rgb = tile.render({ u, v, alpha, blur, bokeh: { ...(bokeh || {}), frame: window, fxLight: light } });
       return toPixels(rgb, width, height, { focus: alpha, view: { u, v }, window }, colorState(color));
     },
   });
@@ -1647,6 +1658,7 @@ async function l16Detail({ id, job, gx0, gy0, gw, gh, zs, u = 0, v = 0, alpha = 
   const span = Math.max(Math.abs(top.lambdaRange[0]), Math.abs(top.lambdaRange[1])) * zs;
   const fullSpan = (top.lambdaRange[1] - top.lambdaRange[0]) * zs;
   const margin = Math.min(480, Math.ceil(span * Math.max(Math.abs(u), Math.abs(v)) + (blur > 0 ? blur * (bokeh && bokeh.size != null ? bokeh.size : 1) * 0.5 * fullSpan : 0) + 8));
+  const light = wholeFxLight(top, { u, v, alpha, blur, bokeh });
   const res = await renderL16Final(l16, {
     scale,
     margin,
@@ -1662,8 +1674,8 @@ async function l16Detail({ id, job, gx0, gy0, gw, gh, zs, u = 0, v = 0, alpha = 
     renderTile: ({ data, width, height, lambda, window }) => {
       const tile = new ProcessedPicture({ kind: 'single', source: 'l16', images: [{ width, height, data }], depth: { width, height, lambda }, pitchRatio: { x: 1, y: 1 } });
       tile.lambdaRange = top.lambdaRange.map((x) => x * zs);
-      // (`window`: where the tile sits in the whole picture, for what is placed on the whole picture: the tilted plane of focus)
-      const rgb = tile.render({ u, v, alpha, blur, bokeh: { ...(bokeh || {}), frame: window } });
+      // (`window`: where the tile sits in the whole picture, for what is placed on the whole picture: the tilted plane of focus, the glow and flare)
+      const rgb = tile.render({ u, v, alpha, blur, bokeh: { ...(bokeh || {}), frame: window, fxLight: light } });
       return toPixels(rgb, width, height, { focus: alpha, view: { u, v }, window }, colorState(color));
     },
   });

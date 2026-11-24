@@ -162,6 +162,12 @@ function atLod(hl, hw, hh, lod) {
 // The effects on linear RGB (w x h); a new array, or `rgb` itself when no effect is on.
 export function applyBokehFx(rgb, w, h, fx, clip = 1) {
   if (!fx) return rgb;
+  return addFxLight(rgb, w, h, fxLight(rgb, w, h, fx, clip));
+}
+
+// The effects' light for a picture (linear RGB, w x h), at half its size: { light, hw, hh }. Made once from a whole picture, it can be added to tiles of it (addFxLight with
+// their frame), so a picture made in tiles (the Light L16 render and zoomed-in view) has the whole picture's streaks, ghosts and dirt, not each tile's.
+export function fxLight(rgb, w, h, fx, clip = 1) {
   const hw = Math.ceil(w / 2);
   const hh = Math.ceil(h / 2);
   const hl = brightParts(rgb, w, h, clip);
@@ -235,18 +241,28 @@ export function applyBokehFx(rgb, w, h, fx, clip = 1) {
       }
     }
   }
-  // added to the picture, the half size light spread bilinearly
+  return { light: out, hw, hh };
+}
+
+// The effects' light (fxLight) added to the picture (linear RGB, w x h), spread bilinearly. `frame` ({ x, y, width, height }): the picture is a tile of a bigger one, whose
+// corner sits at x, y of a width x height whole, and the light is the whole's.
+export function addFxLight(rgb, w, h, { light: out, hw, hh }, frame = null) {
+  const ox = frame ? frame.x : 0;
+  const oy = frame ? frame.y : 0;
+  // (light pixels per picture pixel)
+  const kx = hw / (frame ? frame.width : 2 * hw);
+  const ky = hh / (frame ? frame.height : 2 * hh);
   const res = new Float32Array(rgb.length);
   for (let y = 0; y < h; y++) {
-    const fy = Math.max(0, (y + 0.5) / 2 - 0.5);
+    const fy = Math.max(0, (y + 0.5 + oy) * ky - 0.5);
     const y0 = Math.min(hh - 1, Math.floor(fy));
     const y1 = Math.min(hh - 1, y0 + 1);
-    const ty = fy - y0;
+    const ty = Math.min(1, fy - y0);
     for (let x = 0; x < w; x++) {
-      const fx0 = Math.max(0, (x + 0.5) / 2 - 0.5);
+      const fx0 = Math.max(0, (x + 0.5 + ox) * kx - 0.5);
       const x0 = Math.min(hw - 1, Math.floor(fx0));
       const x1 = Math.min(hw - 1, x0 + 1);
-      const tx = fx0 - x0;
+      const tx = Math.min(1, fx0 - x0);
       const i = 3 * (y * w + x);
       for (let c = 0; c < 3; c++) {
         const v = (out[3 * (y0 * hw + x0) + c] * (1 - tx) + out[3 * (y0 * hw + x1) + c] * tx) * (1 - ty) + (out[3 * (y1 * hw + x0) + c] * (1 - tx) + out[3 * (y1 * hw + x1) + c] * tx) * ty;

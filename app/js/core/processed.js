@@ -13,7 +13,7 @@
 // picture's lambda range.
 
 import { applyDepthOfField, shapeOptions } from './dof.js';
-import { fxOptions, applyBokehFx } from './bokehfx.js';
+import { fxOptions, applyBokehFx, addFxLight } from './bokehfx.js';
 import { smoothDepth } from './depth.js';
 import { nthSmallest } from './typed.js';
 import { withExtension, uncoveredMask, depthRange } from './viewextend.js';
@@ -303,10 +303,12 @@ export class ProcessedPicture {
     const rgb = this.base(u, v, lambda);
     // (the lens effects round bright points need no depth)
     const fx = fxOptions(bokeh);
-    if (!(blur > 0 || bokeh.blur > 0) || !this.depth || this.kind === 'focus') return applyBokehFx(rgb, this.width, this.height, fx, 1);
+    // (a tile of a bigger picture, bokeh.frame, gets the glow and flare made once from the whole picture, bokeh.fxLight: the effects reach across tiles)
+    const effects = (img) => (bokeh.fxLight ? addFxLight(img, this.width, this.height, bokeh.fxLight, bokeh.frame || null) : applyBokehFx(img, this.width, this.height, fx, 1));
+    if (!(blur > 0 || bokeh.blur > 0) || !this.depth || this.kind === 'focus') return effects(rgb);
     const scale = (this.lambdaRange[1] - this.lambdaRange[0]) / 2 / FOCUS_RANGE;
     const lambdaGrid = this.depthGrid();
-    return applyBokehFx(applyDepthOfField(rgb, this.width, this.height, lambdaGrid.lambda, lambdaGrid.width, lambdaGrid.height, lambda,
+    return effects(applyDepthOfField(rgb, this.width, this.height, lambdaGrid.lambda, lambdaGrid.width, lambdaGrid.height, lambda,
       blur * (bokeh.size ?? 1), APERTURE_RADIUS * this.pxPerLambda, {
         ...shapeOptions(bokeh),
         highlights: bokeh.highlights,
@@ -317,7 +319,7 @@ export class ProcessedPicture {
         tilt: (bokeh.tilt || [0, 0]).map((t) => t * scale),
         point: bokeh.point,
         frame: bokeh.frame || null,
-      }), this.width, this.height, fx, 1);
+      }));
   }
 
   depthGrid() {
