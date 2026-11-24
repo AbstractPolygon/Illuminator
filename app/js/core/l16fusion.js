@@ -346,8 +346,9 @@ export function halfSize(bytes, frame, { black = 42, white = 1023, gains = [1, 1
           const isRrow = (Y & 1) === ry;
           if (isR === isRrow) {
             // a red or blue site: green and the opposite color
-            const g = (2 * n4 + 4 * c - (h2 + v2)) / 8;
-            const opp = (2 * d4 + 6 * c - 1.5 * (h2 + v2)) / 8;
+            // (each value held to what a site can record, 0 to the white level: the kernels overshoot at a clipped edge, which white balance would turn pink)
+            const g = Math.min(1, Math.max(0, (2 * n4 + 4 * c - (h2 + v2)) / 8));
+            const opp = Math.min(1, Math.max(0, (2 * d4 + 6 * c - 1.5 * (h2 + v2)) / 8));
             if (isR) {
               sum[0] += c;
               sum[2] += opp;
@@ -357,8 +358,8 @@ export function halfSize(bytes, frame, { black = 42, white = 1023, gains = [1, 1
             }
             sum[1] += g;
           } else {
-            const row = (5 * c - d4 - h2 + 0.5 * v2 + 4 * (pad[j - 1] + pad[j + 1])) / 8;
-            const col = (5 * c - d4 - v2 + 0.5 * h2 + 4 * (pad[j - PW] + pad[j + PW])) / 8;
+            const row = Math.min(1, Math.max(0, (5 * c - d4 - h2 + 0.5 * v2 + 4 * (pad[j - 1] + pad[j + 1])) / 8));
+            const col = Math.min(1, Math.max(0, (5 * c - d4 - v2 + 0.5 * h2 + 4 * (pad[j - PW] + pad[j + PW])) / 8));
             sum[1] += c;
             // (a green site on the red row has red beside it)
             if (isRrow) {
