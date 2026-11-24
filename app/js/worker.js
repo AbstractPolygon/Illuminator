@@ -31,7 +31,7 @@ import { methodDepthModel, readDepthModel } from './core/depthmodels.js';
 import { releaseDepthSession, runDepthModel, fitModelDepth, shapeModelDepth, fuseModelDepth } from './core/depthmodel.js';
 import { depthStats, fillNonFinite, shapeDepthContrast, setDepthStyle, estimateDepth, estimateDepthPooled, poolable, DEPTH_FAST_SEARCH, focusAtPoint, smoothDepth, finishDepth, depthGuide, depthColorGuide, luminance, brightnessFloor, DEPTH_SEARCH, DEPTH_LCOST, DEPTH_CBCA, DEPTH_TRWS, DEPTH_COARSE, DEPTH_STEP, DEPTH_REGIONS, combineCoarse } from './core/depth.js';
 import { applyDepthOfField, smoothMap, shapeOptions } from './core/dof.js';
-import { fxOptions, applyBokehFx, fxLight, FX_KEYS } from './core/bokehfx.js';
+import { fxOptions, applyBokehFx, fxLight, addFxLight, FX_KEYS } from './core/bokehfx.js';
 import { makeLocalTone, localToneForSize, applyLocalTone, airlight } from './core/localtone.js';
 import { defringe, autoDefringe } from './core/defringe.js';
 import { makeLook, whiteBalanceGains, DEFAULT_KELVIN, solveWhiteBalance, autoWhiteBalance } from './core/color.js';
@@ -1573,6 +1573,83 @@ function checkRenderMemoryNow(sampler, scale, cpu) {
 // (what the progress says when the picture comes from one kept before, not from the sensor)
 const KEPT_LABEL = 'Applying change';
 
+// The graphics card's blur reaches at most GPU_BLUR_REACH pixels (gpu/renderer.js depthOfField): whether a picture's largest blur (`strength` per unit of depth from
+// `focus`, over the depth range of `lambda`, with the tilt, less the spread) fits in it. A picture that needs more is blurred on the processor, which has no such limit
+// (zoomed in, the blur grows with the zoom).
+const GPU_BLUR_REACH = 64;
+// The smooth (Natural) blur of the processor blurs about twice as far as the graphics card's at the same strength (two box passes of the radius, against the card's
+// ball of the radius; measured on noise at radius 5 to 40): a processed photo's blur on the card is made twice as strong there, so it looks as it did on the
+// processor. The shaped blurs (circle, blades, drawn and custom shapes) already match.
+function cardStrength(bokeh) {
+  // (bokehKernel's kind 0: any shape but these)
+  const shape = (bokeh && bokeh.shape) || 'smooth';
+  return ['circle', 'custom', 'optical', 'blades', 'hexagon', 'star', 'heart'].includes(shape) ? 1 : 2;
+}
+function blurFitsGpu(lambda, focus, strength, tilt, spread) {
+  let lo = Infinity;
+  let hi = -Infinity;
+  for (let i = 0; i < lambda.length; i++) {
+    const d = lambda[i];
+    if (d < lo) lo = d;
+    if (d > hi) hi = d;
+  }
+  const reach = Math.abs(tilt[0]) + Math.abs(tilt[1]);
+  return strength * Math.max(0, Math.max(Math.abs(hi - focus), Math.abs(lo - focus)) + reach - spread) <= GPU_BLUR_REACH;
+}
+
+// One tile of a Light L16 picture made in tiles (the Render, the zoomed-in view) with its depth of field blur on the graphics card: the picture for the viewpoint and
+// focus is made here (as ProcessedPicture.render does), blurred on the card, read back, and given its share of the whole picture's glow and flare (`light`). The
+// card's tilted plane of focus is the tile's own, so the whole picture's is put in its terms (tilt scaled by the tile's share, the turning point moved). Null where
+// there is no blur to make, no card, or the card fails (the processor makes the tile; the card is not tried again for the photo).
+function tileOnGpu(tile, { u, v, alpha, blur, bokeh, frame, light }) {
+  const gpu = state.gpu;
+  if (!gpu || state.ppGpuFailed || debugFlags().noProcessedGpu || !tile.depth || !(blur > 0 || bokeh.blur > 0)) return null;
+  try {
+    const { width: w, height: h } = tile;
+    const lambda = tile.toLambda(alpha);
+    const grid = tile.depthGrid();
+    const scale = (tile.lambdaRange[1] - tile.lambdaRange[0]) / 2 / FOCUS_RANGE;
+    const pxPer = APERTURE_RADIUS * tile.pxPerLambda;
+    const tilt = (bokeh.tilt || [0, 0]).map((t) => t * scale);
+    const point = bokeh.point || [0.5, 0.5];
+    const FW = frame ? frame.width : w;
+    const FH = frame ? frame.height : h;
+    const ox = frame ? frame.x : 0;
+    const oy = frame ? frame.y : 0;
+    const tileTilt = [tilt[0] * (w / FW), tilt[1] * (h / FH)];
+    const strength = cardStrength(bokeh) * blur * (bokeh.size ?? 1) * pxPer;
+    if (!blurFitsGpu(grid.lambda, lambda, strength, tileTilt, (bokeh.spread || 0) * scale)) return null;
+    let tex = gpu.uploadRGB(tile.base(u, v, lambda), w, h, { full: true });
+    gpu.setDepth(grid.lambda, grid.width, grid.height);
+    // (the live view's depth is no longer the one on the card)
+    state.ppDepthOnGpu = null;
+    tex = gpu.depthOfField(tex, w, h, {
+      focus: lambda,
+      strength,
+      ...shapeOptions(bokeh),
+      highlights: bokeh.highlights,
+      tilt: tileTilt,
+      point: [(point[0] * FW - ox) / w, (point[1] * FH - oy) / h],
+      spread: (bokeh.spread || 0) * scale,
+      smooth: (bokeh.smooth || 0) * scale,
+      feather: (bokeh.blur || 0) * scale * pxPer,
+      clip: 1,
+    });
+    const [r, g, b] = gpu.readChannels(tex, w, h, 3);
+    const out = new Float32Array(w * h * 3);
+    for (let i = 0; i < w * h; i++) {
+      out[3 * i] = r[i];
+      out[3 * i + 1] = g[i];
+      out[3 * i + 2] = b[i];
+    }
+    return light ? addFxLight(out, w, h, light, frame) : out;
+  } catch (e) {
+    console.warn('L16 tile on the graphics card failed; using the processor', e);
+    state.ppGpuFailed = true;
+    return null;
+  }
+}
+
 // Glow and flare for a Light L16 picture made in tiles: the effects' light made once from the whole picture (the quick picture, with the same viewpoint, focus and blur), so
 // every tile gets its share of the whole's streaks, ghosts, fog and dirt (sized and placed on the whole picture, not on each tile). Null when no effect is on.
 function wholeFxLight(top, { u, v, alpha, blur, bokeh }) {
@@ -1606,8 +1683,9 @@ async function l16Still({ id, job, scale = 1, u = 0, v = 0, alpha = 0, dof = 0, 
     renderTile: ({ data, width, height, lambda, window }) => {
       const tile = new ProcessedPicture({ kind: 'single', source: 'l16', images: [{ width, height, data }], depth: { width, height, lambda }, pitchRatio: { x: 1, y: 1 } });
       tile.lambdaRange = top.lambdaRange.map((x) => x * sOut);
-      // (`window`: where the tile sits in the whole picture, for what is placed on the whole picture: the tilted plane of focus, the glow and flare)
-      const rgb = tile.render({ u, v, alpha, blur, bokeh: { ...(bokeh || {}), frame: window, fxLight: light } });
+      // (`window`: where the tile sits in the whole picture, for what is placed on the whole picture: the tilted plane of focus, the glow and flare; the blur on the
+      // graphics card where there is one)
+      const rgb = tileOnGpu(tile, { u, v, alpha, blur, bokeh: bokeh || {}, frame: window, light }) || tile.render({ u, v, alpha, blur, bokeh: { ...(bokeh || {}), frame: window, fxLight: light } });
       return toPixels(rgb, width, height, { focus: alpha, view: { u, v }, window }, colorState(color));
     },
   });
@@ -1715,8 +1793,9 @@ async function l16Detail({ id, job, gx0, gy0, gw, gh, zs, u = 0, v = 0, alpha = 
     renderTile: ({ data, width, height, lambda, window }) => {
       const tile = new ProcessedPicture({ kind: 'single', source: 'l16', images: [{ width, height, data }], depth: { width, height, lambda }, pitchRatio: { x: 1, y: 1 } });
       tile.lambdaRange = top.lambdaRange.map((x) => x * zs);
-      // (`window`: where the tile sits in the whole picture, for what is placed on the whole picture: the tilted plane of focus, the glow and flare)
-      const rgb = tile.render({ u, v, alpha, blur, bokeh: { ...(bokeh || {}), frame: window, fxLight: light } });
+      // (`window`: where the tile sits in the whole picture, for what is placed on the whole picture: the tilted plane of focus, the glow and flare; the blur on the
+      // graphics card where there is one)
+      const rgb = tileOnGpu(tile, { u, v, alpha, blur, bokeh: bokeh || {}, frame: window, light }) || tile.render({ u, v, alpha, blur, bokeh: { ...(bokeh || {}), frame: window, fxLight: light } });
       return toPixels(rgb, width, height, { focus: alpha, view: { u, v }, window }, colorState(color));
     },
   });
@@ -4175,6 +4254,10 @@ function processedGpu(params, message) {
   // The blur from the depth map, in the picture's own units (as ProcessedPicture.render: lambda, the aperture's reach in pixels per lambda, the spread and tilt scaled)
   if ((blur > 0 || bokeh.blur > 0) && pp.depth && pp.kind !== 'focus') {
     const grid = pp.depthGrid();
+    {
+      const sc = (pp.lambdaRange[1] - pp.lambdaRange[0]) / 2 / FOCUS_RANGE;
+      if (!blurFitsGpu(grid.lambda, lambda, cardStrength(bokeh) * blur * (bokeh.size ?? 1) * APERTURE_RADIUS * pp.pxPerLambda, (bokeh.tilt || [0, 0]).map((t) => t * sc), (bokeh.spread || 0) * sc)) return false;
+    }
     if (state.ppDepthOnGpu !== grid) {
       gpu.setDepth(grid.lambda, grid.width, grid.height);
       state.ppDepthOnGpu = grid;
@@ -4183,7 +4266,7 @@ function processedGpu(params, message) {
     const pxPer = APERTURE_RADIUS * pp.pxPerLambda;
     tex = gpu.depthOfField(tex, w, h, {
       focus: lambda,
-      strength: blur * (bokeh.size ?? 1) * pxPer,
+      strength: cardStrength(bokeh) * blur * (bokeh.size ?? 1) * pxPer,
       ...shapeOptions(bokeh),
       highlights: bokeh.highlights,
       tilt: (bokeh.tilt || [0, 0]).map((t) => t * scale),
