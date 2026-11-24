@@ -6,9 +6,7 @@
 // is dropped and the tile written into the output.
 import { fuse } from './l16fusion.js';
 import { renderRegion, telephotoModules, estimateCorrections } from './l16hires.js';
-import { applyColorMatrix } from './l16photo.js';
-
-const sRGB = (v) => (v <= 0.0031308 ? 12.92 * v : 1.055 * Math.pow(v, 1 / 2.4) - 0.055);
+import { encodePicture } from './l16photo.js';
 
 // How large the picture will be: { width, height } for `scale` (output pixels per sensor pixel of the reference camera; 1 is the camera's own size).
 export function finalSize(l16, scale) {
@@ -99,12 +97,7 @@ export async function renderL16Final(l16, { scale, margin, depthLambda, renderTi
       const rw = rx1 - rx0;
       const rh = ry1 - ry0;
       const region = renderRegion(bytes, parsed, depth, wide, { x0: rx0 / (scale * grid), y0: ry0 / (scale * grid), w: rw / (scale * grid), h: rh / (scale * grid), scale: scale * grid, grid, corrections }, mods, opts, () => {}, rawCache);
-      applyColorMatrix(region.rgb, colorMatrix);
-      const data = new Uint8ClampedArray(rw * rh * 4);
-      for (let i = 0; i < rw * rh; i++) {
-        for (let c = 0; c < 3; c++) data[4 * i + c] = Math.round(255 * sRGB(Math.min(1, region.rgb[3 * i + c] * gain)));
-        data[4 * i + 3] = 255;
-      }
+      const data = encodePicture(region.rgb, rw, rh, gain, colorMatrix);
       // (`window`: where the tile sits in the whole picture, for what is placed on the whole picture: retouching spots)
       const finished = renderTile({ data, width: region.width, height: region.height, lambda: lambdaFor(rx0, ry0, region.width, region.height), window: { x: rx0, y: ry0, width: W, height: H } });
       // the tile without its margin, into the output

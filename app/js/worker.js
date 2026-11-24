@@ -72,7 +72,7 @@ import { parseSpots, resolveSpots, packSpots, applySpots } from './core/retouch.
 import { GpuRenderer } from './gpu/renderer.js';
 import { renderL16Final } from './core/l16render.js';
 import { superpixelColor, depthAtSize, synthesize, fillFromBackground, backgroundDepth, fillFromDonors } from './core/l16view.js';
-import { RIG_RADIUS_MM, applyColorMatrix, developL16, setL16DevelopGpu } from './core/l16photo.js';
+import { RIG_RADIUS_MM, developL16, setL16DevelopGpu, encodePicture } from './core/l16photo.js';
 import { cameraModel as l16CameraModel } from './core/l16geometry.js';
 import { relativePose as l16RelativePose, setL16SgmGpu } from './core/l16depth.js';
 import { lytroSplatGpu } from './gpu/lytroengine.js';
@@ -1743,12 +1743,9 @@ async function l16Holes({ id, job, u = 0, v = 0, alpha = 0, dof = 0, bokeh, colo
   const gap = Uint8Array.from(view.hole);
   fillFromDonors(view, { rgb: wide.rgb, width: w, height: h, z, K: depth.K, scale: 2 }, donors, tx, ty, backgroundDepth(view.z, view.hole, w, h));
   fillFromBackground(view, w, h);
-  applyColorMatrix(view.rgb, l16.colorMatrix);
-  const data = new Uint8ClampedArray(w * h * 4);
+  const data = encodePicture(view.rgb, w, h, l16.gain, l16.colorMatrix);
   const lambda = new Float32Array(w * h);
   for (let i = 0; i < w * h; i++) {
-    for (let c = 0; c < 3; c++) data[4 * i + c] = Math.round(255 * srgbOf(Math.min(1, view.rgb[3 * i + c] * l16.gain)));
-    data[4 * i + 3] = 255;
     lambda[i] = Number.isFinite(view.z[i]) ? l16.k * (1 / view.z[i] - l16.inv0) : 0;
   }
   const blur = processedBlur({ u: 0, v: 0, alpha, aperture: 0, dof, bokeh, color });
@@ -1775,7 +1772,6 @@ async function l16Holes({ id, job, u = 0, v = 0, alpha = 0, dof = 0, bokeh, colo
   post({ id, type: 'result', width: w, height: h, pixels: pixels.buffer }, [pixels.buffer]);
   return undefined;
 }
-const srgbOf = (x) => (x <= 0.0031308 ? 12.92 * x : 1.055 * Math.pow(x, 1 / 2.4) - 0.055);
 
 // A Light L16 photo zoomed in: only the part of the picture on the screen, made at the zoom's resolution (output pixels per pixel of the quick picture: zs) from the half size merge with
 // the longer lens cameras' detail added through the depth (core/l16render.js), with the viewpoint, blur and color of the camera view. `window` is in picture pixels (the quick picture's).

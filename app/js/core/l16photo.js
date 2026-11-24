@@ -149,10 +149,41 @@ export function nth(a, k) {
   return a[k];
 }
 
-// The sRGB encoding on the graphics card (gpu/l16develop.js l16DevelopGpu's function), or null for the processor's: set by the worker that has the card.
-let encodeOnCard = null;
-export function setL16DevelopGpu(fn) {
-  encodeOnCard = fn || null;
+// The last developing steps on the graphics card (gpu/l16develop.js l16DevelopGpu's), or null for the processor's: set by the worker that has the card.
+let developOnCard = null;
+export function setL16DevelopGpu(d) {
+  developOnCard = d || null;
+}
+const onCard = (name, args, cpu) => {
+  if (developOnCard) {
+    try {
+      return developOnCard[name](...args);
+    } catch (e) {
+      console.warn('L16 picture on the graphics card failed; making it here', e);
+      developOnCard = null;
+    }
+  }
+  return cpu();
+};
+
+// A copy of the picture (3 a pixel) through the color matrix (applyColorMatrix).
+export function colorCopy(rgb, w, h, matrix) {
+  if (!matrix) return Float32Array.from(rgb);
+  return onCard('color', [rgb, w, h, matrix], () => applyColorMatrix(Float32Array.from(rgb), matrix));
+}
+
+// The picture shown (RGBA, 8 bit sRGB) from the picture (3 a pixel, as the cameras recorded it): through the color matrix when one is given, times the exposure gain, cut at 1.
+// (`rgb` is not changed.)
+export function encodePicture(rgb, w, h, gain, matrix = null) {
+  return onCard('encode', [rgb, w, h, gain, matrix], () => {
+    const src = matrix ? applyColorMatrix(Float32Array.from(rgb), matrix) : rgb;
+    const data = new Uint8ClampedArray(w * h * 4);
+    for (let i = 0; i < w * h; i++) {
+      for (let c = 0; c < 3; c++) data[4 * i + c] = Math.round(255 * sRGB(Math.min(1, src[3 * i + c] * gain)));
+      data[4 * i + 3] = 255;
+    }
+    return data;
+  });
 }
 
 export function developL16(bytes, parsed, depth, ref, colorOptions, onProgress = () => {}, merged = null) {
@@ -161,27 +192,11 @@ export function developL16(bytes, parsed, depth, ref, colorOptions, onProgress =
   const { width: w, height: h } = color;
   const colorMatrix = colorMatrixOf(parsed, ref);
   // (the merged picture itself stays as the cameras recorded it, the zoomed-in views are made from it; the color matrix is applied to a copy for the picture shown)
-  const rgb = applyColorMatrix(Float32Array.from(color.rgb), colorMatrix);
+  const rgb = colorCopy(color.rgb, w, h, colorMatrix);
   const greens = new Float32Array(w * h);
   for (let i = 0; i < greens.length; i++) greens[i] = rgb[3 * i + 1];
   const gain = 0.9 / Math.max(1e-4, nth(greens, Math.floor(greens.length * 0.99)));
-  let data = null;
-  if (encodeOnCard) {
-    // (on the graphics card, gpu/l16develop.js; here if it fails)
-    try {
-      data = encodeOnCard(rgb, w, h, gain);
-    } catch (e) {
-      console.warn('L16 picture on the graphics card failed; making it here', e);
-      encodeOnCard = null;
-    }
-  }
-  if (!data) {
-    data = new Uint8ClampedArray(w * h * 4);
-    for (let i = 0; i < w * h; i++) {
-      for (let c = 0; c < 3; c++) data[4 * i + c] = Math.round(255 * sRGB(Math.min(1, rgb[3 * i + c] * gain)));
-      data[4 * i + 3] = 255;
-    }
-  }
+  const data = encodePicture(rgb, w, h, gain);
   return { picture: { width: w, height: h, data }, gain, colorMatrix, wide: color, used: color.used };
 }
 
