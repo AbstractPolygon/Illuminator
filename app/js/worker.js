@@ -4,6 +4,7 @@
 import { filterPremultiplied } from './core/viewblur.js';
 import { regionsGpu } from './gpu/regions.js';
 import { decodeLightField } from './core/decode.js';
+import { decodeL16Cache } from './core/l16-cache.js';
 import { normalizeGrid, measureGrid, calibrateGrid, lensCenters, lensCenter, toLocal } from './core/lenslet.js';
 import {
   buildSampler, renderView, makeDevelopParams, apertureSamples, refocus,
@@ -1021,7 +1022,7 @@ function restoreHeldGpu() {
   state.gpuHeld = null;
 }
 
-async function open({ id, bytes, synthetic, userDepth = null, depthCache = null, openSeq = null }) {
+async function open({ id, bytes, synthetic, userDepth = null, depthCache = null, l16Cache = null, openSeq = null }) {
   const { check: checkOpen } = openGuard.begin(openSeq);
   releasePhoto();
   restoreHeldGpu();
@@ -1060,9 +1061,16 @@ async function open({ id, bytes, synthetic, userDepth = null, depthCache = null,
   };
   state.pp = null;
   processedBuilt = null;
-  const decoded = await decodeLightField(data, { onProgress, hot: state.settings.hotPixels !== false });
+  // (a Light L16 photo: what an earlier opening measured, kept with the photo, core/l16-cache.js)
+  const decoded = await decodeLightField(data, { onProgress, hot: state.settings.hotPixels !== false, l16Cache: l16Cache ? decodeL16Cache(l16Cache) : null });
   checkOpen();
   state.lf = decoded;
+  // measured now: handed to the page to keep with the photo
+  if (decoded.l16 && decoded.l16.cacheOut) {
+    const out = decoded.l16.cacheOut;
+    decoded.l16.cacheOut = null;
+    post({ type: 'l16Cache', photoId: decoded.photoId, openSeq, bytes: out.buffer }, [out.buffer]);
+  }
   // The grid the photo opens with (the metadata's, or the calibrated one): depth and the pictures made from it are keyed on the grid only when it later differs (gridTag).
   state.openGrid = decoded.grid ? JSON.stringify(decoded.grid) : null;
   lap('decode');

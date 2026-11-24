@@ -41,6 +41,11 @@ export class Engine {
       if (this.onCache) this.onCache(msg);
       return;
     }
+    // A Light L16 photo's measurements, to keep with the photo (core/l16-cache.js).
+    if (msg.type === 'l16Cache') {
+      if (this.onL16Cache) this.onL16Cache(msg);
+      return;
+    }
     // The worker kept a full sensor picture (to save next to the photo), or wants one it may have saved (answered with a 'stillData' request).
     if (msg.type === 'stillKept') {
       if (this.onStillKept) this.onStillKept(msg);

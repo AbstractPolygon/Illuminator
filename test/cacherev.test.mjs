@@ -39,7 +39,7 @@ function importClosure(roots) {
 }
 
 const FILES = importClosure([...ROOTS, ...KEY_FILES]);
-const EXPECTED = { rev: 9, checksum: 'b869fc7db3838ed7' };
+const EXPECTED = { rev: 9, checksum: 'a7d0e4e31af2a8e3' };
 
 // Comments and white space do not change a result: they are left out of the checksum.
 function checksum() {
@@ -61,5 +61,5 @@ test('the checked files are the import closure of the workers and the cache key 
 test('the files that make the saved caches have not changed without a look at CACHE_REV', () => {
   assert.equal(CACHE_REV, EXPECTED.rev, 'CACHE_REV changed: record it in EXPECTED here with the new checksum');
   const actual = checksum();
-  assert.equal(actual, EXPECTED.checksum, `a file that makes the saved depth, lens centers or opening data changed (checksum is now ${actual} over ${FILES.length} files). Raise CACHE_REV in app/js/core/cacherev.js if the change can alter what is measured, then put the new checksum in EXPECTED here.`);
+  assert.equal(actual, EXPECTED.checksum, `a file that makes the saved depth, lens centers or opening data changed (checksum is now ${actual} over ${FILES.length} files). Raise CACHE_REV in app/js/core/cacherev.js if the change can alter what is measured (for the Light L16 files, core/l16*.js and core/lri.js, L16_CACHE_REV in app/js/core/l16-cache.js), then put the new checksum in EXPECTED here.`);
 });

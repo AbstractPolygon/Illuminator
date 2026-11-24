@@ -34,6 +34,7 @@ const STAGING = 'Staging';
 const PHOTOS = 'Photos';
 const LOOKS = 'Looks';
 import { PROCESSED_FILE } from '../core/processed-cache.js';
+import { L16_CACHE_FILE } from '../core/l16-cache.js';
 import { STILL_INDEX_FILE, stillFileName, touchIndex, KEPT_INDEX_FILE, KEPT_PICTURES, keptFileName } from '../core/still-cache.js';
 
 const LIGHT_FIELD = /\.(lfr|lfp|raw|lri)$/i;
@@ -456,6 +457,17 @@ export class Library {
     return this.store.writeBlob(`${PHOTOS}/${photo.id}/${PROCESSED_FILE}`, new Blob([bytes]));
   }
 
+  // A Light L16 photo's measurements kept next to it (core/l16-cache.js), as an ArrayBuffer, or null.
+  async l16Cache(photo) {
+    const f = await this.store.file(`${PHOTOS}/${photo.id}/${L16_CACHE_FILE}`).catch(() => null);
+    return f ? f.arrayBuffer() : null;
+  }
+
+  async saveL16Cache(photo, bytes) {
+    if (!this.isListed(photo)) return;
+    return this.store.writeBlob(`${PHOTOS}/${photo.id}/${L16_CACHE_FILE}`, new Blob([bytes]));
+  }
+
   // A full sensor render kept next to the photo (core/still-cache.js): its PNG file, or null.
   still(photo, hash) {
     return this.store.file(`${PHOTOS}/${photo.id}/${stillFileName(hash)}`).catch(() => null);
@@ -567,6 +579,8 @@ export class Library {
       if (edits) await this.store.writeText(`${dir}/${EDITS_FILE}`, edits);
       const processed = await this.store.file(`${PHOTOS}/${photo.id}/${PROCESSED_FILE}`).catch(() => null);
       if (processed) await this.store.writeBlob(`${dir}/${PROCESSED_FILE}`, new Blob([await processed.arrayBuffer()]));
+      const l16 = await this.store.file(`${PHOTOS}/${photo.id}/${L16_CACHE_FILE}`).catch(() => null);
+      if (l16) await this.store.writeBlob(`${dir}/${L16_CACHE_FILE}`, new Blob([await l16.arrayBuffer()]));
     } catch (err) {
       await this.store.remove(dir).catch(() => {});
       throw err;

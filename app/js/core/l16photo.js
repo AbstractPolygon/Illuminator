@@ -7,6 +7,7 @@
 // The viewpoint coordinates of the app run over -0.5 to 0.5 across the "aperture" (processed.js APERTURE_RADIUS). Here that range is the rig: a camera moved
 // by u * 2 * RIG_RADIUS_MM. A point at depth Z then moves by f * 2 * RIG_RADIUS_MM * (1 / Z - 1 / Z0) * u pixels, so lambda = 2 * RIG_RADIUS_MM * f * (1 / Z - 1 / Z0), with Z0 the depth
 // that stays still (the middle of the scene).
+import { l16CacheKey, encodeL16Cache } from './l16-cache.js';
 import { parseLri } from './lri.js';
 import { measureDepth } from './l16depth.js';
 import { fuse } from './l16fusion.js';
@@ -116,8 +117,9 @@ export function applyColorMatrix(rgb, m) {
 
 // The picture of the capture from the measured depth: the cameras merged at half size (`wide`, float, white balanced, before the color matrix), and the picture shown (8 bit sRGB,
 // the color matrix and an exposure that puts the 99th percentile of green at 0.9). Made again when a setting that changes the merge changes (Remove hot pixels).
-export function developL16(bytes, parsed, depth, ref, colorOptions, onProgress = () => {}) {
-  const color = fuse(bytes, parsed, depth, colorOptions, (stage, p) => onProgress(stage, 0.9 * p), { grid: 2 });
+// `merged`: the cameras already merged (kept with the photo, core/l16-cache.js): only the picture is made from it.
+export function developL16(bytes, parsed, depth, ref, colorOptions, onProgress = () => {}, merged = null) {
+  const color = merged || fuse(bytes, parsed, depth, colorOptions, (stage, p) => onProgress(stage, 0.9 * p), { grid: 2 });
   onProgress('Developing the picture', 0.95);
   const { width: w, height: h } = color;
   const colorMatrix = colorMatrixOf(parsed, ref);
@@ -135,8 +137,9 @@ export function developL16(bytes, parsed, depth, ref, colorOptions, onProgress =
   return { picture: { width: w, height: h, data }, gain, colorMatrix, wide: color, used: color.used };
 }
 
-// `hot`: hot and dead pixels taken out of the camera pictures (Remove hot pixels).
-export function decodeL16(bytes, onProgress = () => {}, { hot = true } = {}) {
+// `hot`: hot and dead pixels taken out of the camera pictures (Remove hot pixels). `cache`: what an earlier opening measured (decodeL16Cache), used when its key is the
+// photo's; otherwise the result carries `cacheOut`, the bytes to keep with the photo.
+export function decodeL16(bytes, onProgress = () => {}, { hot = true, cache = null } = {}) {
   onProgress('Reading the camera pictures', 0.02);
   const parsed = parseLri(bytes);
   const ref = parsed.header.image_reference_camera;
@@ -145,9 +148,11 @@ export function decodeL16(bytes, onProgress = () => {}, { hot = true } = {}) {
   const sd = parsed.header.sensor_data && parsed.header.sensor_data[0] && parsed.header.sensor_data[0].data;
   const black = sd && sd.black_level !== undefined ? sd.black_level : 42;
   const white = sd && sd.white_level !== undefined ? sd.white_level : 1023;
-  const depth = measureDepth(bytes, parsed, { ref }, (stage, p) => onProgress(stage, 0.05 + 0.8 * p));
+  const key = l16CacheKey(l16PhotoId(parsed.header), hot);
+  const kept = cache && cache.key === key && cache.depth && cache.wide ? cache : null;
+  const depth = kept ? kept.depth : measureDepth(bytes, parsed, { ref }, (stage, p) => onProgress(stage, 0.05 + 0.8 * p));
   const colorOptions = { black, white, gains: [awb.r || 1, awb.gr || 1, awb.b || 1], hot };
-  const developed = developL16(bytes, parsed, depth, ref, colorOptions, (stage, p) => onProgress(stage, 0.85 + 0.12 * p));
+  const developed = developL16(bytes, parsed, depth, ref, colorOptions, (stage, p) => onProgress(stage, (kept ? 0.5 : 0.85) + (kept ? 0.45 : 0.12) * p), kept ? kept.wide : null);
   const { picture, gain, colorMatrix, wide: color } = developed;
   // depth in lambda: relative to the middle of the scene
   const dw = depth.width;
@@ -173,6 +178,9 @@ export function decodeL16(bytes, onProgress = () => {}, { hot = true } = {}) {
     cameras: developed.used,
     // for the Info panel: { model, make, capture: { time (ms), exposure (s), iso, focalLength (m, 35 mm equivalent) } }
     camera: cameraInfoOf(parsed, ref),
+    // the bytes to keep with the photo (core/l16-cache.js), when it was measured now
+    cacheOut: kept ? null : encodeL16Cache({ key, depth, wide: developed.wide }),
+    fromCache: !!kept,
     // what the final render (core/l16render.js) works from
     bytes,
     parsed,

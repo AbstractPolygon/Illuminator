@@ -1453,8 +1453,11 @@ async function openItem(photo) {
   const bytes = await file.arrayBuffer();
   if (openSeq.superseded(my)) return;
   const { userDepth, depthCache, transfer } = await depthInputs(photo, [bytes]);
+  // (a Light L16 photo: what an earlier opening measured, kept next to it, core/l16-cache.js)
+  const l16Cache = keepsDepth() ? await state.lib.l16Cache(photo).catch(() => null) : null;
+  if (l16Cache) transfer.push(l16Cache);
   if (openSeq.superseded(my)) return;
-  await openWith({ bytes, userDepth, depthCache }, transfer, my);
+  await openWith({ bytes, userDepth, depthCache, l16Cache }, transfer, my);
   if (!openSeq.superseded(my) && state.info && state.current && state.current.photo === photo) state.lib.setPhotoId(photo, state.info.photoId).catch(() => {});
 }
 
@@ -1507,6 +1510,12 @@ const saveProcessed = (msg) => {
   processedTimer = setTimeout(flushProcessed, 1500);
 };
 engine.onCache = QUEUE_RUNNER ? holdProcessed : saveProcessed;
+// A Light L16 photo's measurements (the depth between its cameras and the merged picture): kept next to the photo, so it opens in seconds the next time.
+engine.onL16Cache = (msg) => {
+  if (QUEUE_RUNNER || staleSeq(msg.openSeq) || !keepsDepth() || !state.current || !state.current.photo) return;
+  const photo = state.current.photo;
+  state.lib.saveL16Cache(photo, msg.bytes).catch((err) => console.warn('Could not keep the L16 measurements', err));
+};
 
 // The worker made a full sensor picture before its color pass: saved next to the photo (desktop app), so a color change on a photo opened again does not render it again.
 engine.onStillKept = (msg) => {
