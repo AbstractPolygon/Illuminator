@@ -1628,8 +1628,10 @@ async function l16Detail({ id, job, gx0, gy0, gw, gh, zs, u = 0, v = 0, alpha = 
     wide: l16.wide,
     grid: 2,
     window: { x: Math.round(gx0 * zs), y: Math.round(gy0 * zs), w: Math.max(1, Math.round(gw * zs)), h: Math.max(1, Math.round(gh * zs)) },
-    tile: 512,
+    tile: 384,
     onProgress: (stage, p) => post({ id, type: 'progress', stage, progress: p }),
+    // (each tile shows as soon as it is made)
+    onTile: (t) => post({ id, type: 'frame', tile: true, x: t.x, y: t.y, width: t.width, height: t.height, pixels: t.pixels.buffer }, [t.pixels.buffer]),
     cancelled: () => state.jobs.detail !== job,
     renderTile: ({ data, width, height, lambda, window }) => {
       const tile = new ProcessedPicture({ kind: 'single', source: 'l16', images: [{ width, height, data }], depth: { width, height, lambda }, pitchRatio: { x: 1, y: 1 } });

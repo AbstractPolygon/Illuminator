@@ -21,7 +21,7 @@ export function finalSize(l16, scale) {
 // (the worker's camera render); `margin` (output pixels) is what a tile needs around it. `cancelled()` stops the render. Returns { width, height, pixels: Uint8ClampedArray }.
 // `wide` (the merged wide picture, float, as core/l16fusion.js makes it) and `grid` (sensor pixels per pixel of it) can be given, for a picture made from the half size merge; `window` ({ x, y, w, h },
 // output pixels) makes only that part of the picture (what is returned is the window).
-export async function renderL16Final(l16, { scale, margin, depthLambda, renderTile, onProgress = () => {}, cancelled = () => false, tile = 768, wide: givenWide = null, grid = 1, window = null }) {
+export async function renderL16Final(l16, { scale, margin, depthLambda, renderTile, onProgress = () => {}, cancelled = () => false, tile = 768, wide: givenWide = null, grid = 1, window = null, onTile = null }) {
   const { bytes, parsed, measured: depth, colorOptions: opts, gain, colorMatrix } = l16;
   const mods = telephotoModules(parsed, depth.ref, [2, Infinity]);
   // each camera's registration corrected for this capture (once a photo; measured on the half size merge): the wide cameras for the full size merge, the longer lens ones for the detail
@@ -91,6 +91,12 @@ export async function renderL16Final(l16, { scale, margin, depthLambda, renderTi
       for (let y = 0; y < th; y++) {
         const src = 4 * ((Y0 - ry0 + y) * rwp + (X0 - rx0));
         out.set(finished.subarray(src, src + 4 * tw), 4 * ((Y0 - win.y + y) * win.w + (X0 - win.x)));
+      }
+      // (each finished tile, without its margin, as soon as it is made: { x, y (in the window), width, height, pixels })
+      if (onTile) {
+        const px = new Uint8ClampedArray(tw * th * 4);
+        for (let y = 0; y < th; y++) px.set(out.subarray(4 * ((Y0 - win.y + y) * win.w + (X0 - win.x)), 4 * ((Y0 - win.y + y) * win.w + (X0 - win.x) + tw)), 4 * y * tw);
+        onTile({ x: X0 - win.x, y: Y0 - win.y, width: tw, height: th, pixels: px });
       }
       done++;
       // let the worker's messages (cancel, other requests) through between tiles

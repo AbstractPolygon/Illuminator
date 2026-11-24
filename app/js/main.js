@@ -3817,22 +3817,29 @@ async function runDetail() {
   try {
     // (the progress shows what is being made, where the camera's other work shows: the first time it includes lining the cameras up)
     const gen = openSeq.current();
-    const { promise } = engine.job('l16Detail', 'detail', { ...cameraParams({ live: true }), gx0: x0 * k, gy0: y0 * k, gw, gh, zs }, {
-      onProgress: (stage, p) => {
-        if (token === detailToken && !openSeq.superseded(gen)) showProgress(stage === 'Rendering' ? 'Adding detail' : stage, p);
-      },
-    });
-    const msg = await promise;
-    if (token !== detailToken || !msg || !(msg.pixels || msg.bitmap)) return;
-    const img = toImageData(msg);
-    detailLayer.width = img.width;
-    detailLayer.height = img.height;
-    detailLayer.getContext('2d').putImageData(img, 0, 0);
+    // The layer is laid over the picture at once (empty), and each piece shows as soon as it is made, so the sharper picture fills in instead of appearing only at the end.
+    detailLayer.width = Math.max(1, Math.round(gw * zs));
+    detailLayer.height = Math.max(1, Math.round(gh * zs));
+    const lctx = detailLayer.getContext('2d');
+    lctx.clearRect(0, 0, detailLayer.width, detailLayer.height);
     detailLayer.style.left = `${left + x0 * scale}px`;
     detailLayer.style.top = `${top + y0 * scale}px`;
     detailLayer.style.width = `${(x1 - x0) * scale}px`;
     detailLayer.style.height = `${(y1 - y0) * scale}px`;
     detailLayer.hidden = false;
+    const { promise } = engine.job('l16Detail', 'detail', { ...cameraParams({ live: true }), gx0: x0 * k, gy0: y0 * k, gw, gh, zs }, {
+      onProgress: (stage, p) => {
+        if (token === detailToken && !openSeq.superseded(gen)) showProgress(stage === 'Rendering' ? 'Adding detail' : stage, p);
+      },
+      onFrame: (f) => {
+        if (token !== detailToken || !f || !f.tile || !f.pixels) return;
+        lctx.putImageData(new ImageData(new Uint8ClampedArray(f.pixels), f.width, f.height), f.x, f.y);
+      },
+    });
+    const msg = await promise;
+    if (token !== detailToken || !msg || !(msg.pixels || msg.bitmap)) return;
+    const img = toImageData(msg);
+    if (img.width === detailLayer.width && img.height === detailLayer.height) lctx.putImageData(img, 0, 0);
   } catch (err) {
     console.warn('Zoomed-in detail failed', err);
   } finally {
