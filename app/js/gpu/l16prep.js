@@ -166,13 +166,65 @@ void main() {
   outColor = vec4(r, c.g, b, 1.0);
 }`;
 
+// The color fringe measurement's sums (core/l16fusion.js tileSums), one fragment for each row of each tile: x is the row within the tile, y the tile. Each sums its row
+// (green and the channel over the whole row; the gradient sums over the inside of the tile only); the rows are added up on the processor.
+const SUMS = `#version 300 es
+precision highp float;
+precision highp int;
+uniform highp sampler2D uSrc;
+uniform highp sampler2D uTiles;   // T x 1: the tiles' x0, y0
+uniform int uN;
+uniform int uC;
+layout(location = 0) out vec4 out0;
+layout(location = 1) out vec4 out1;
+layout(location = 2) out vec4 out2;
+float ch(vec4 t) { return uC == 0 ? t.r : t.b; }
+void main() {
+  int j = int(gl_FragCoord.x);
+  int t = int(gl_FragCoord.y);
+  ivec2 o = ivec2(texelFetch(uTiles, ivec2(t, 0), 0).xy);
+  int y = o.y + j;
+  float mg = 0.0;
+  float mv = 0.0;
+  for (int x = o.x; x < o.x + uN; x++) {
+    vec4 q = texelFetch(uSrc, ivec2(x, y), 0);
+    mg += q.g;
+    mv += ch(q);
+  }
+  float sxx = 0.0;
+  float sxy = 0.0;
+  float syy = 0.0;
+  float sxv = 0.0;
+  float sxg = 0.0;
+  float syv = 0.0;
+  float syg = 0.0;
+  if (j >= 1 && j <= uN - 2) {
+    for (int x = o.x + 1; x < o.x + uN - 1; x++) {
+      float gx = (texelFetch(uSrc, ivec2(x + 1, y), 0).g - texelFetch(uSrc, ivec2(x - 1, y), 0).g) / 2.0;
+      float gy = (texelFetch(uSrc, ivec2(x, y + 1), 0).g - texelFetch(uSrc, ivec2(x, y - 1), 0).g) / 2.0;
+      vec4 q = texelFetch(uSrc, ivec2(x, y), 0);
+      float v = ch(q);
+      sxx += gx * gx;
+      sxy += gx * gy;
+      syy += gy * gy;
+      sxv += gx * v;
+      sxg += gx * q.g;
+      syv += gy * v;
+      syg += gy * q.g;
+    }
+  }
+  out0 = vec4(mg, mv, sxx, sxy);
+  out1 = vec4(syy, sxv, sxg, syv);
+  out2 = vec4(syg, 0.0, 0.0, 0.0);
+}`;
+
 // The camera picture preparation on `gpu` (a GpuRenderer): prep({ plane, W, H, w, h, red, mono, hot, gains, full }) -> { rgb, unshift(ca, k) -> rgb, release() }.
 // `plane`: the sensor values (0 at black, 1 at white), W x H = 2w x 2h; the picture made is w x h, or W x H with `full` (every sensor pixel demosaiced).
 export function l16PrepGpu(gpu) {
   const gl = gpu.gl;
   let progs = null;
   const programs = () => {
-    if (!progs) progs = { hot: program(gl, HOT), half: program(gl, HALF), full: program(gl, FULL), unshift: program(gl, UNSHIFT) };
+    if (!progs) progs = { hot: program(gl, HOT), half: program(gl, HALF), full: program(gl, FULL), unshift: program(gl, UNSHIFT), sums: program(gl, SUMS) };
     return progs;
   };
   const read = (tex, w, h) => {
@@ -223,10 +275,12 @@ export function l16PrepGpu(gpu) {
       gpu.draw();
       const rgb = read(half, w, h);
       let out = null;
+      // (the picture as it now stands: the unshifted one, or the last unshift)
+      let latest = half;
       return {
         rgb,
-        // The picture with red and blue shifted by `ca` ({ r, b }: { s, tx, ty } each) times k, from the unshifted one.
-        unshift(ca, k = 1) {
+        // The picture with red and blue shifted by `ca` ({ r, b }: { s, tx, ty } each) times k, from the unshifted one (read back unless `readBack` is false).
+        unshift(ca, k = 1, readBack = true) {
           if (!out) out = tex(w, h, gl.RGBA32F);
           gpu.target(out, w, h);
           gl.useProgram(P.unshift.p);
@@ -235,7 +289,69 @@ export function l16PrepGpu(gpu) {
           gl.uniform4f(P.unshift.u.uR, ca.r.s, ca.r.tx, ca.r.ty, k);
           gl.uniform4f(P.unshift.u.uB, ca.b.s, ca.b.tx, ca.b.ty, k);
           gpu.draw();
-          return read(out, w, h);
+          latest = out;
+          return readBack ? read(out, w, h) : null;
+        },
+        // The picture as it now stands, read back.
+        current() {
+          return read(latest, w, h);
+        },
+        // The color fringe sums of the picture as it now stands (core/l16fusion.js measureChroma's sumsOf): CHROMA_SUMS (9) a tile, the rows added in double precision.
+        chromaSums(c, tiles, n) {
+          const T = tiles.length;
+          const local = [];
+          try {
+            const td = new Float32Array(4 * T);
+            tiles.forEach(([x0, y0], t) => {
+              td[4 * t] = x0;
+              td[4 * t + 1] = y0;
+            });
+            const tilesTex = gpu.texture(T, 1, gl.RGBA32F);
+            local.push(tilesTex);
+            gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, T, 1, gl.RGBA, gl.FLOAT, td);
+            const outs = [0, 1, 2].map(() => {
+              const t = gpu.texture(n, T, gl.RGBA32F);
+              local.push(t);
+              return t;
+            });
+            const fb = gl.createFramebuffer();
+            const parts = [];
+            try {
+              gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
+              outs.forEach((t, i) => gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0 + i, gl.TEXTURE_2D, t, 0));
+              gl.drawBuffers([gl.COLOR_ATTACHMENT0, gl.COLOR_ATTACHMENT1, gl.COLOR_ATTACHMENT2]);
+              gl.viewport(0, 0, n, T);
+              gl.useProgram(P.sums.p);
+              gl.uniform1i(P.sums.u.uSrc, 1);
+              gpu.bindTex(1, latest);
+              gl.uniform1i(P.sums.u.uTiles, 2);
+              gpu.bindTex(2, tilesTex);
+              gl.uniform1i(P.sums.u.uN, n);
+              gl.uniform1i(P.sums.u.uC, c);
+              gpu.draw();
+              for (let i = 0; i < 3; i++) {
+                const buf = new Float32Array(4 * n * T);
+                gl.readBuffer(gl.COLOR_ATTACHMENT0 + i);
+                gl.readPixels(0, 0, n, T, gl.RGBA, gl.FLOAT, buf);
+                parts.push(buf);
+              }
+              gl.readBuffer(gl.COLOR_ATTACHMENT0);
+            } finally {
+              gl.drawBuffers([gl.COLOR_ATTACHMENT0]);
+              gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+              gl.deleteFramebuffer(fb);
+            }
+            // (the 9 sums are the first 9 of the 12 values the three outputs hold)
+            const sums = new Float64Array(9 * T);
+            for (let t = 0; t < T; t++) {
+              for (let j = 0; j < n; j++) {
+                for (let q = 0; q < 9; q++) sums[9 * t + q] += parts[q >> 2][4 * (t * n + j) + (q & 3)];
+              }
+            }
+            return sums;
+          } finally {
+            for (const t of local) gl.deleteTexture(t);
+          }
         },
         release() {
           for (const t of made) gl.deleteTexture(t);

@@ -74,33 +74,62 @@ function removeSpecks(px, W, H, step) {
 // center ({ r, b }: pixels at the corner, of the picture it was measured on). Kept per camera frame.
 const chromaOf = new WeakMap();
 export const chromaFor = (frame) => chromaOf.get(frame) || null;
-function tileShift(rgb, W, H, c, x0, y0, n) {
+// The tiles the shift is measured over (n x n pixels each, at x0, y0), in the order the fit takes them.
+export function chromaTiles(W, H) {
+  const n = Math.max(16, Math.round(W / 16));
+  const tiles = [];
+  for (let ty = 1; ty < 11; ty++) {
+    for (let tx = 1; tx < 15; tx++) {
+      const x0 = Math.round((tx * W) / 16);
+      const y0 = Math.round((ty * H) / 12);
+      if (x0 + n >= W - 1 || y0 + n >= H - 1) continue;
+      tiles.push([x0, y0]);
+    }
+  }
+  return { n, tiles };
+}
+// A tile's sums, for red (c 0) or blue (c 2) against green: [green, the channel (both over the tile), and over its inside (the green gradient gx, gy, the channel v and
+// green g): gx gx, gx gy, gy gy, gx v, gx g, gy v, gy g].
+export const CHROMA_SUMS = 9;
+function tileSums(rgb, W, c, x0, y0, n) {
   let mg = 0;
   let mv = 0;
   for (let y = y0; y < y0 + n; y++) for (let x = x0; x < x0 + n; x++) {
     mg += rgb[3 * (y * W + x) + 1];
     mv += rgb[3 * (y * W + x) + c];
   }
-  if (!(mv > 1e-6) || !(mg > 1e-6)) return null;
-  const k = mg / mv;
   let sxx = 0;
   let sxy = 0;
   let syy = 0;
-  let sxt = 0;
-  let syt = 0;
+  let sxv = 0;
+  let sxg = 0;
+  let syv = 0;
+  let syg = 0;
   for (let y = y0 + 1; y < y0 + n - 1; y++) {
     for (let x = x0 + 1; x < x0 + n - 1; x++) {
       const i = y * W + x;
       const gx = (rgb[3 * (i + 1) + 1] - rgb[3 * (i - 1) + 1]) / 2;
       const gy = (rgb[3 * (i + W) + 1] - rgb[3 * (i - W) + 1]) / 2;
-      const dt = rgb[3 * i + c] * k - rgb[3 * i + 1];
+      const v = rgb[3 * i + c];
+      const g = rgb[3 * i + 1];
       sxx += gx * gx;
       sxy += gx * gy;
       syy += gy * gy;
-      sxt += gx * dt;
-      syt += gy * dt;
+      sxv += gx * v;
+      sxg += gx * g;
+      syv += gy * v;
+      syg += gy * g;
     }
   }
+  return [mg, mv, sxx, sxy, syy, sxv, sxg, syv, syg];
+}
+// The shift of the channel against green over a tile, from its sums (least squares of the channel, scaled to green's level, against green moved by the shift), or null
+// where the tile has too little detail or the shift found is implausible.
+function shiftFromSums([mg, mv, sxx, sxy, syy, sxv, sxg, syv, syg], n) {
+  if (!(mv > 1e-6) || !(mg > 1e-6)) return null;
+  const k = mg / mv;
+  const sxt = k * sxv - sxg;
+  const syt = k * syv - syg;
   const det = sxx * syy - sxy * sxy;
   const mean = mg / (n * n);
   if (det < 1e-12 || (sxx + syy) / (n * n) < 1e-4 * mean * mean) return null;
@@ -108,11 +137,13 @@ function tileShift(rgb, W, H, c, x0, y0, n) {
   const dy = (sxx * syt - sxy * sxt) / det;
   return Math.hypot(dx, dy) < 3 ? [dx, dy] : null;
 }
-function measureChroma(rgb, W, H) {
+// `sumsOf(c, tiles, n)`: every tile's sums for channel c (CHROMA_SUMS each, in order), here or on the graphics card.
+function measureChroma(rgb, W, H, sumsOf = null) {
   const out = {};
   const R = Math.hypot(W / 2, H / 2);
+  const { n, tiles } = chromaTiles(W, H);
   for (const [key, c] of [['r', 0], ['b', 2]]) {
-    const n = Math.max(16, Math.round(W / 16));
+    const sums = sumsOf ? sumsOf(c, tiles, n) : null;
     // shift = s * (position - middle) / R + t, fitted over the tiles in both directions (s: the spread, pixels at the corner; t: where the lens's center is, in effect)
     let suu = 0;
     let su = 0;
@@ -121,24 +152,19 @@ function measureChroma(rgb, W, H) {
     let rx = 0;
     let ry = 0;
     let used = 0;
-    for (let ty = 1; ty < 11; ty++) {
-      for (let tx = 1; tx < 15; tx++) {
-        const x0 = Math.round((tx * W) / 16);
-        const y0 = Math.round((ty * H) / 12);
-        if (x0 + n >= W - 1 || y0 + n >= H - 1) continue;
-        const d = tileShift(rgb, W, H, c, x0, y0, n);
-        if (!d) continue;
-        const u = (x0 + n / 2 - W / 2) / R;
-        const v = (y0 + n / 2 - H / 2) / R;
-        suu += u * u + v * v;
-        su += u;
-        sv += v;
-        rs += u * d[0] + v * d[1];
-        rx += d[0];
-        ry += d[1];
-        used++;
-      }
-    }
+    tiles.forEach(([x0, y0], t) => {
+      const d = shiftFromSums(sums ? Array.from(sums.subarray(t * CHROMA_SUMS, (t + 1) * CHROMA_SUMS)) : tileSums(rgb, W, c, x0, y0, n), n);
+      if (!d) return;
+      const u = (x0 + n / 2 - W / 2) / R;
+      const v = (y0 + n / 2 - H / 2) / R;
+      suu += u * u + v * v;
+      su += u;
+      sv += v;
+      rs += u * d[0] + v * d[1];
+      rx += d[0];
+      ry += d[1];
+      used++;
+    });
     if (used < 30) {
       out[key] = { s: 0, tx: 0, ty: 0 };
       continue;
@@ -184,15 +210,15 @@ function correctChroma(frame, rgb, W, H, scale, measureHere, card = null) {
     if (!ca && measureHere) {
       const add = (p, q) => ({ s: p.s + q.s, tx: p.tx + q.tx, ty: p.ty + q.ty });
       ca = { r: { s: 0, tx: 0, ty: 0 }, b: { s: 0, tx: 0, ty: 0 } };
-      let cur = rgb;
+      // (measured on the card too, on the picture as it stands after each round; read back once at the end)
       for (let round = 0; round < 3; round++) {
-        const m = measureChroma(cur, W, H);
+        const m = measureChroma(null, W, H, card.chromaSums);
         ca = { r: add(ca.r, m.r), b: add(ca.b, m.b) };
-        cur = card.unshift(ca, scale);
+        card.unshift(ca, scale, false);
         if (Math.max(...[m.r, m.b].flatMap((q) => [q.s, q.tx, q.ty].map(Math.abs))) < 0.02) break;
       }
       chromaOf.set(frame, ca);
-      rgb.set(cur);
+      rgb.set(card.current());
       return;
     }
     if (ca) rgb.set(card.unshift(ca, scale));
