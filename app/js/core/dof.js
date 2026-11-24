@@ -733,7 +733,12 @@ export function softEdge(excess, smooth) {
 // ([x, y], normalized).
 export function applyDepthOfField(rgb, w, h, depth, dw, dh, focus, strength, pxPerUnit = 14, options = {}) {
   if (!(strength > 0)) return rgb;
-  const { feather = 0, highlights = 0, clip = 1, spread = 0, smooth = 0, tilt = [0, 0], point = [0.5, 0.5] } = options;
+  // (`frame` { x, y, width, height }: the picture is a tile of a bigger one, whose corner sits at x, y of a width x height whole; the tilted plane of focus is the whole's)
+  const { feather = 0, highlights = 0, clip = 1, spread = 0, smooth = 0, tilt = [0, 0], point = [0.5, 0.5], frame = null } = options;
+  const fx0 = frame ? frame.x : 0;
+  const fy0 = frame ? frame.y : 0;
+  const FW = frame ? frame.width : w;
+  const FH = frame ? frame.height : h;
   const kernel = bokehKernel(options);
   const src = boostHighlights(rgb, clip, highlights);
   const out = new Float32Array(rgb.length);
@@ -744,10 +749,10 @@ export function applyDepthOfField(rgb, w, h, depth, dw, dh, focus, strength, pxP
   let radius = new Float32Array(w * h);
   for (let y = 0; y < h; y++) {
     const dy = Math.min(dh - 1, Math.floor((y + 0.5) * sy));
-    const rowFocus = focus + tilt[1] * ((y + 0.5) / h - point[1]);
+    const rowFocus = focus + tilt[1] * ((y + 0.5 + fy0) / FH - point[1]);
     for (let x = 0; x < w; x++) {
       const d = depth[dy * dw + Math.min(dw - 1, Math.floor((x + 0.5) * sx))];
-      const f = rowFocus + tilt[0] * ((x + 0.5) / w - point[0]);
+      const f = rowFocus + tilt[0] * ((x + 0.5 + fx0) / FW - point[0]);
       // (a depth that is not a number, or a huge blur, must not stretch the stack of copies without end: no pixel blurs by more than half the picture's diagonal)
       const rr = strength * softEdge(Math.abs(d - f) - spread, smooth) * pxPerUnit;
       radius[y * w + x] = rr > maxRadius ? maxRadius : rr > 0 ? rr : 0;

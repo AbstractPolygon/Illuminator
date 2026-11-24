@@ -64,3 +64,30 @@ test('vignetting softness: 50 is the earlier fade, lower is sharper, higher gent
   assert.ok(g(10, 0.7) > g(50, 0.7) && g(50, 0.7) > g(100, 0.7));
   assert.equal(g(0, 0.3), 1);
 });
+
+test('the tilted plane of focus on a tile is the whole picture\'s', async () => {
+  const { applyDepthOfField } = await import('../app/js/core/dof.js');
+  const W2 = 64;
+  const H2 = 48;
+  const rgb = new Float32Array(W2 * H2 * 3);
+  for (let i = 0; i < rgb.length; i++) rgb[i] = ((i * 2654435761) % 1000) / 1000;
+  const depth = new Float32Array(W2 * H2).fill(0);
+  const opts = { tilt: [0, 3], point: [0.5, 0.5] };
+  const whole = applyDepthOfField(rgb, W2, H2, depth, W2, H2, 0, 1, 2, opts);
+  // a tile: the lower half (with the whole width, so the blur sees the same neighbors in x)
+  const y0 = 24;
+  const th = 24;
+  const tile = rgb.slice(y0 * W2 * 3, (y0 + th) * W2 * 3);
+  const out = applyDepthOfField(tile, W2, th, depth.slice(0, W2 * th), W2, th, 0, 1, 2, { ...opts, frame: { x: 0, y: y0, width: W2, height: H2 } });
+  const naive = applyDepthOfField(tile, W2, th, depth.slice(0, W2 * th), W2, th, 0, 1, 2, opts);
+  // (the middle rows of the tile, away from its cut edges)
+  let dFrame = 0;
+  let dNaive = 0;
+  for (let y = 8; y < 16; y++) for (let x = 8; x < W2 - 8; x++) for (let c = 0; c < 3; c++) {
+    const a = whole[((y + y0) * W2 + x) * 3 + c];
+    dFrame = Math.max(dFrame, Math.abs(out[(y * W2 + x) * 3 + c] - a));
+    dNaive = Math.max(dNaive, Math.abs(naive[(y * W2 + x) * 3 + c] - a));
+  }
+  assert.ok(dFrame < 0.02, `tile with its frame differs by ${dFrame}`);
+  assert.ok(dNaive > 0.05, `the test needs a tilt that shows (${dNaive})`);
+});

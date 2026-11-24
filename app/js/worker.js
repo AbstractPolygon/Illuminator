@@ -1554,7 +1554,8 @@ async function l16Still({ id, job, scale = 1, u = 0, v = 0, alpha = 0, dof = 0, 
     renderTile: ({ data, width, height, lambda, window }) => {
       const tile = new ProcessedPicture({ kind: 'single', source: 'l16', images: [{ width, height, data }], depth: { width, height, lambda }, pitchRatio: { x: 1, y: 1 } });
       tile.lambdaRange = top.lambdaRange.map((x) => x * sOut);
-      const rgb = tile.render({ u, v, alpha, blur, bokeh: bokeh || {} });
+      // (`window`: where the tile sits in the whole picture, for what is placed on the whole picture: the tilted plane of focus)
+      const rgb = tile.render({ u, v, alpha, blur, bokeh: { ...(bokeh || {}), frame: window } });
       return toPixels(rgb, width, height, { focus: alpha, view: { u, v }, window }, colorState(color));
     },
   });
@@ -1661,7 +1662,8 @@ async function l16Detail({ id, job, gx0, gy0, gw, gh, zs, u = 0, v = 0, alpha = 
     renderTile: ({ data, width, height, lambda, window }) => {
       const tile = new ProcessedPicture({ kind: 'single', source: 'l16', images: [{ width, height, data }], depth: { width, height, lambda }, pitchRatio: { x: 1, y: 1 } });
       tile.lambdaRange = top.lambdaRange.map((x) => x * zs);
-      const rgb = tile.render({ u, v, alpha, blur, bokeh: bokeh || {} });
+      // (`window`: where the tile sits in the whole picture, for what is placed on the whole picture: the tilted plane of focus)
+      const rgb = tile.render({ u, v, alpha, blur, bokeh: { ...(bokeh || {}), frame: window } });
       return toPixels(rgb, width, height, { focus: alpha, view: { u, v }, window }, colorState(color));
     },
   });

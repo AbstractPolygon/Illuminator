@@ -316,6 +316,7 @@ export class ProcessedPicture {
         blur: (bokeh.blur || 0) * scale * APERTURE_RADIUS * this.pxPerLambda,
         tilt: (bokeh.tilt || [0, 0]).map((t) => t * scale),
         point: bokeh.point,
+        frame: bokeh.frame || null,
       }), this.width, this.height, fx, 1);
   }
 
