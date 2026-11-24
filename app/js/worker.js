@@ -44,7 +44,7 @@ import { nrFilterGpu, nrFilterTex } from './gpu/enginenr.js';
 import { engineDepthMap, engineLabels, fillBlownDepth } from './core/enginedepth.js';
 import { engineCostVolumeGpu, engineCostVolumeResident } from './gpu/enginecost.js';
 import { mergeViews, mergeSigma } from './core/mvdenoise.js';
-import { ProcessedPicture, decodeDepth } from './core/processed.js';
+import { ProcessedPicture, decodeDepth, FOCUS_RANGE, APERTURE_RADIUS } from './core/processed.js';
 import { cameraInfo } from './core/raw.js';
 import { parseRayWarp, FOCUS_FIELD } from './core/raywarp.js';
 import { parseGeometryTable, geometryAt } from './core/geometrytable.js';
@@ -979,7 +979,8 @@ function releasePhoto({ all = false } = {}) {
   state.sampler = null;
   for (const k of ['depth', 'depthRaw', 'depthPlain', 'depthParts', 'depthParallax', 'depth5', 'depthEngine', 'depthExact', 'depthOwn', 'depthOwnF', 'modelDepth', 'modelJob', 'objects', 'userDepth', 'depthJob',
     'rawOriginal', 'rawFixed', 'rawWhite', 'rayWarp', 'rayWarpEdof', 'geoTable', 'geoTableExact', 'reconSource', 'rayField', 'refocusViews', 'kept', 'vignetting', 'center', 'exactOffsets',
-    'lensOffsets', 'lensShiftFor', 'lensOut', 'lensCacheIn', 'depthCacheIn', 'depthCacheOut', 'openOut', 'usmDepth', 'usmMap', 'engineScale', 'engineWb', 'scratch']) state[k] = null;
+    'lensOffsets', 'lensShiftFor', 'lensOut', 'lensCacheIn', 'depthCacheIn', 'depthCacheOut', 'openOut', 'usmDepth', 'usmMap', 'engineScale', 'engineWb', 'scratch', 'ppGpuFailed', 'ppDepthOnGpu']) state[k] = null;
+  processedBase = null;
   state.engineViews = undefined;
   state.modulation = undefined;
   state.photoWhite = undefined;
@@ -1089,6 +1090,11 @@ async function open({ id, bytes, synthetic, userDepth = null, depthCache = null,
     checkOpen();
     state.pp = built;
     state.pp.setSmoothing(state.settings.depthSmoothing ?? 0.3);
+    // (the graphics card for its blur, effects and color pass, processedGpu: made here when no raw photo has made it yet)
+    if (state.gpu === null && state.settings.gpu !== false) {
+      state.gpu = GpuRenderer.create({ width: built.width, height: built.height }) || false;
+      if (state.gpu && state.lut) state.gpu.setLut(state.lut);
+    }
     updateColor();
   }
   if (state.lf.raw) {
@@ -4069,6 +4075,7 @@ function updateProcessedColor() {
   else if (!state.veil || state.veilOf !== pp.images[0]) state.veil = estimateVeil(center, pp.width, pp.height);
   state.veilOf = state.veil ? pp.images[0] : null;
   state.veilAmount = state.veil ? s.flare.amount : 0;
+  if (state.gpu) state.gpu.setVeil(state.veil);
   setLocalAndSpots(s);
   applyAutoDefringe(center, pp.width, pp.height);
 }
@@ -4120,7 +4127,78 @@ function processedPixels(params, { reuse = false } = {}) {
   return pixels;
 }
 
+// A processed photo (a Light L16 photo or a finished .lfp) on the graphics card: the picture for the viewpoint and focus is made here (pp.base), then the blur from the
+// depth map, the lens effects, detail, local tone, retouching, local adjustments and the color pass run on the card, as for a raw photo (presentGpu). Posts
+// `message` with the picture and returns true; false (nothing posted) where the card cannot, and the processor path makes it.
+let processedBase = null;
+function processedGpu(params, message) {
+  const gpu = state.gpu;
+  if (!gpu || !state.pp || debugFlags().noProcessedGpu) return false;
+  const pp = state.pp.levelFor(params.maxWidth);
+  const { width: w, height: h } = pp;
+  const u = params.u || 0;
+  const v = params.v || 0;
+  const alpha = params.alpha || 0;
+  const lambda = pp.toLambda(alpha);
+  // (the picture for the viewpoint and focus, kept while only the blur or the colors change)
+  const baseKey = `${u},${v},${alpha}`;
+  if (!processedBase || processedBase.pp !== pp || processedBase.key !== baseKey) processedBase = { pp, key: baseKey, rgb: pp.base(u, v, lambda) };
+  let tex = gpu.uploadRGB(processedBase.rgb, w, h);
+  const bokeh = params.bokeh || {};
+  const blur = processedBlur(params);
+  // The blur from the depth map, in the picture's own units (as ProcessedPicture.render: lambda, the aperture's reach in pixels per lambda, the spread and tilt scaled)
+  if ((blur > 0 || bokeh.blur > 0) && pp.depth && pp.kind !== 'focus') {
+    const grid = pp.depthGrid();
+    if (state.ppDepthOnGpu !== grid) {
+      gpu.setDepth(grid.lambda, grid.width, grid.height);
+      state.ppDepthOnGpu = grid;
+    }
+    const scale = (pp.lambdaRange[1] - pp.lambdaRange[0]) / 2 / FOCUS_RANGE;
+    const pxPer = APERTURE_RADIUS * pp.pxPerLambda;
+    tex = gpu.depthOfField(tex, w, h, {
+      focus: lambda,
+      strength: blur * (bokeh.size ?? 1) * pxPer,
+      ...shapeOptions(bokeh),
+      highlights: bokeh.highlights,
+      tilt: (bokeh.tilt || [0, 0]).map((t) => t * scale),
+      point: bokeh.point || [0.5, 0.5],
+      spread: (bokeh.spread || 0) * scale,
+      smooth: (bokeh.smooth || 0) * scale,
+      feather: (bokeh.blur || 0) * scale * pxPer,
+      clip: 1,
+    });
+  }
+  const lensFx = fxOptions(bokeh);
+  if (lensFx) tex = gpu.bokehFx(tex, w, h, lensFx, 1);
+  if (state.detail) tex = gpu.details(tex, w, h, detailForSize(state.detail, w, lensColumns()));
+  if (state.localTone) tex = gpu.localTone(tex, w, h, localToneForSize(state.localTone, w, lensColumns()));
+  const ctx = { focus: alpha, view: { u, v } };
+  const spots = spotsFor(ctx, w, h);
+  if (spots && spots.length) tex = gpu.retouch(tex, w, h, packSpots(spots));
+  const packed = packedMasks(ctx);
+  if (packed && packed.spatial) tex = gpu.localSpatial(tex, w, h, packed);
+  finishGpu(tex, w, h, packed, message, colorState(params.color), false, ctx);
+  return true;
+}
+
+// The graphics card's path, or the processor's where the card cannot (or fails: the processor makes the picture, and the card is not tried again for the photo).
+function processedOnGpu(params, message) {
+  if (state.ppGpuFailed) return false;
+  try {
+    return processedGpu(params, message);
+  } catch (e) {
+    console.warn('Processed photo on the graphics card failed; using the processor', e);
+    state.ppGpuFailed = true;
+    return false;
+  }
+}
+
 async function processedView({ id, holes, ...params }) {
+  {
+    const level = state.pp.levelFor(params.maxWidth);
+    const unseen = holes ? level.holes(params.u || 0, params.v || 0) : null;
+    if (processedOnGpu(params, { id, type: 'result', ...(unseen ? { holes: unseen } : {}) })) return undefined;
+  }
   const pixels = processedPixels(params, { reuse: true });
   const pp = pixels.level;
   const unseen = holes ? pp.holes(params.u || 0, params.v || 0) : null;
@@ -4132,6 +4210,14 @@ async function processedFrames({ id, job, list, kind, holes = false }) {
   state.jobs[kind] = job;
   for (let i = 0; i < list.length; i++) {
     if (state.jobs[kind] !== job) return { cancelled: true };
+    {
+      const level = state.pp.levelFor(list[i].maxWidth);
+      const unseen = holes ? level.holes(list[i].u || 0, list[i].v || 0) : null;
+      if (processedOnGpu(list[i], { id, type: 'frame', index: i, ...(unseen ? { holes: unseen } : {}) })) {
+        await tick();
+        continue;
+      }
+    }
     const pixels = processedPixels(list[i]);
     const pp = pixels.level;
     const unseen = holes ? pp.holes(list[i].u || 0, list[i].v || 0) : null;

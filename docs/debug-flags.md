@@ -66,6 +66,7 @@ Read with `debugFlags().name`. In the worker, a harness usually prepends a line 
 | `noLutBlack` | turns a stage off | app/js/core/raw.js |  |
 | `noModulation` | turns a stage off | app/js/worker.js |  |
 | `noNotch` | turns a stage off | app/js/worker.js |  |
+| `noProcessedGpu` | turns a stage off | app/js/worker.js |  |
 | `noRegions` | turns a stage off | app/js/core/depth.js |  |
 | `noTable` | turns a stage off | app/js/worker.js |  |
 | `noWbCct` | turns a stage off | app/js/worker.js |  |
