@@ -264,9 +264,16 @@ export function depthCostStep(job, zi, mods = job.mods) {
     }
   }
   for (let i = 0; i < w * h; i++) diff[i] = cnt[i] ? sum[i] / cnt[i] : CAP;
+  return costFromDiff(diff, w, h);
+}
+
+// The cost of one depth step from its mean capped differences (w x h, 0 .. DEPTH_CAP): gathered over a 5 x 5 window, scaled to 0..255. (Shared with the graphics
+// card's step, gpu/l16cost.js, which makes the differences.)
+export const DEPTH_CAP = 1.2;
+export function costFromDiff(diff, w, h) {
   const agg = boxBlur(diff, w, h, 2);
   const out = new Uint8Array(w * h);
-  for (let i = 0; i < w * h; i++) out[i] = Math.min(255, Math.round((agg[i] / CAP) * 255 * 2));
+  for (let i = 0; i < w * h; i++) out[i] = Math.min(255, Math.round((agg[i] / DEPTH_CAP) * 255 * 2));
   return out;
 }
 

@@ -7,6 +7,7 @@ import { decodeLightField } from './core/decode.js';
 import { decodeL16Cache } from './core/l16-cache.js';
 import { isLri } from './core/lri.js';
 import { createL16DepthPool, l16DepthHelperCount } from './l16depthpool.js';
+import { l16CostGpu } from './gpu/l16cost.js';
 import { normalizeGrid, measureGrid, calibrateGrid, lensCenters, lensCenter, toLocal } from './core/lenslet.js';
 import {
   buildSampler, renderView, makeDevelopParams, apertureSamples, refocus,
@@ -1066,7 +1067,32 @@ async function open({ id, bytes, synthetic, userDepth = null, depthCache = null,
   processedBuilt = null;
   // (a Light L16 photo: what an earlier opening measured, kept with the photo, core/l16-cache.js; its depth's steps made by helper workers side by side,
   // js/l16depthpool.js, which are shut down after)
-  const l16Pool = data && isLri(data) ? createL16DepthPool(l16DepthHelperCount((self.navigator && self.navigator.hardwareConcurrency) || 0)) : null;
+  let l16Pool = null;
+  if (data && isLri(data)) {
+    // The depth's steps on the graphics card when there is one (gpu/l16cost.js), else (or where it fails) on helper workers side by side, else here.
+    if (state.gpu === null && state.settings.gpu !== false) state.gpu = GpuRenderer.create({ width: 4160, height: 3120 }) || false;
+    const helpers = createL16DepthPool(l16DepthHelperCount((self.navigator && self.navigator.hardwareConcurrency) || 0));
+    const gpu = state.gpu && !debugFlags().noGpuL16Depth ? state.gpu : null;
+    l16Pool = {
+      async run(job, steps, onSlice) {
+        const onCard = gpu ? l16CostGpu(gpu, job) : null;
+        if (onCard) {
+          try {
+            await onCard.run(job, steps, onSlice);
+            return;
+          } catch (e) {
+            console.warn('L16 depth on the graphics card failed; using the processor', e);
+          } finally {
+            onCard.close();
+          }
+        }
+        if (helpers) await helpers.run(job, steps, onSlice);
+      },
+      close() {
+        if (helpers) helpers.close();
+      },
+    };
+  }
   let decoded;
   try {
     decoded = await decodeLightField(data, { onProgress, hot: state.settings.hotPixels !== false, l16Cache: l16Cache ? decodeL16Cache(l16Cache) : null, l16Pool });
