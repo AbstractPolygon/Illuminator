@@ -315,6 +315,12 @@ export async function measureDepthPooled(bytes, parsed, options = {}, onProgress
   return depthFinish(setup, cost, onProgress);
 }
 
+// The smoothing on the graphics card (gpu/l16sgm.js l16SgmGpu's function), or null for the processor's: set by the worker that has the card.
+let sgmOnCard = null;
+export function setL16SgmGpu(fn) {
+  sgmOnCard = fn || null;
+}
+
 // The last part: semi-global smoothing of the cost volume, the depth with its confidence, the filling of unsure pixels and the border.
 function depthFinish(setup, cost, onProgress) {
   const { ref, refId, group, w, h, S, NZ, K, invMin, invMax, near, far, options } = setup;
@@ -369,13 +375,34 @@ function depthFinish(setup, cost, onProgress) {
       }
     }
   };
-  path(0, 0, 1, 0);
-  onProgress('Smoothing depth', 0.7);
-  path(w - 1, 0, -1, 0);
-  onProgress('Smoothing depth', 0.8);
-  path(0, 0, 0, 1);
-  onProgress('Smoothing depth', 0.9);
-  path(0, h - 1, 0, -1);
+  let onCard = false;
+  if (sgmOnCard) {
+    // (on the graphics card, gpu/l16sgm.js: the same integer steps; here if it fails)
+    try {
+      const floorP2 = (g) => {
+        const out = new Uint32Array(w * h);
+        for (let i = 0; i < w * h; i++) out[i] = Math.floor(p2of(g[i]));
+        return out;
+      };
+      const progress = [0.7, 0.8, 0.9, 0.9];
+      let dir = 0;
+      total.set(sgmOnCard({ cost, w, h, NZ, P1, edgeX: floorP2(gx), edgeY: floorP2(gy), onDirection: () => onProgress('Smoothing depth', progress[dir++]) }));
+      onCard = true;
+    } catch (err) {
+      console.warn('L16 depth smoothing on the graphics card failed; smoothing here', err);
+      sgmOnCard = null;
+      total.fill(0);
+    }
+  }
+  if (!onCard) {
+    path(0, 0, 1, 0);
+    onProgress('Smoothing depth', 0.7);
+    path(w - 1, 0, -1, 0);
+    onProgress('Smoothing depth', 0.8);
+    path(0, 0, 0, 1);
+    onProgress('Smoothing depth', 0.9);
+    path(0, h - 1, 0, -1);
+  }
   // winner, refined between steps by a parabola through the neighbours; confidence from how much better it is than the runner up
   const invZ = new Float32Array(w * h);
   const confidence = new Float32Array(w * h);
