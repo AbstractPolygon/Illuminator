@@ -499,7 +499,10 @@
         </details>
         <details class="subpanel">
           <summary><h3>Perspective</h3></summary>
-          <label title="Drag on the picture to move the viewpoint">Viewpoint <output id="viewpoint">Center</output></label>
+          <div class="viewpoint-row">
+            <label title="Drag on the picture to move the viewpoint; double-click the picture to center it">Viewpoint <output id="viewpoint">Center</output></label>
+            <button id="view-center" type="button" class="small" title="Moves the viewpoint back to the center" hidden>Reset</button>
+          </div>
           <label title="How far the viewpoint can move, as a share of the lens opening. Past what the camera recorded, depth fills in">Reach <output data-for="view-reach" for="view-reach">100%</output>
             <input id="view-reach" type="range" min="100" max="300" step="10" value="100" data-default="100">
           </label>

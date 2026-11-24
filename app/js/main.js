@@ -1576,6 +1576,7 @@ function resetView() {
   state.lensPicture = null;
   lensView.x = lensView.y = null;
   state.camera = { u: 0, v: 0 };
+  showViewpoint();
   state.focusPoint = { x: 0.5, y: 0.5 };
   lastClick = null; // (a click on the photo before is not applied again to the depth of this one)
   showFocusPoint();
@@ -1948,7 +1949,10 @@ function viewReach() {
 function showViewpoint() {
   const r = (state.info && state.info.radius) || 1;
   const { u, v } = state.camera;
-  $('viewpoint').textContent = Math.abs(u) < 1e-3 && Math.abs(v) < 1e-3 ? 'Center' : `${Math.round((100 * u) / r)}%, ${Math.round((100 * v) / r)}%`;
+  const centered = Math.abs(u) < 1e-3 && Math.abs(v) < 1e-3;
+  $('viewpoint').textContent = centered ? 'Center' : `${Math.round((100 * u) / r)}%, ${Math.round((100 * v) / r)}%`;
+  // (Reset shows only while the viewpoint is moved)
+  $('view-center').hidden = centered;
 }
 
 function showFocusPoint() {
@@ -4253,6 +4257,7 @@ canvas.addEventListener('pointerdown', (event) => {
     }
     state.camera.u = u;
     state.camera.v = v;
+    showViewpoint();
     if (!state.depthShown) renderCamera();
   };
   canvas.onpointerup = () => {
@@ -4266,12 +4271,15 @@ canvas.addEventListener('pointerdown', (event) => {
   };
 });
 
-canvas.addEventListener('dblclick', () => {
+// The viewpoint back to the center: a double-click on the picture, or Camera > Perspective > Reset.
+function centerViewpoint() {
   if (state.mode !== 'camera' || !canDrag()) return;
   state.camera.u = 0;
   state.camera.v = 0;
   cameraChanged({ final: true });
-});
+}
+canvas.addEventListener('dblclick', centerViewpoint);
+$('view-center').onclick = centerViewpoint;
 
 // A camera setting changed: update the picture and drop stale animation
 // frames. `final` is false while a slider is being dragged.
@@ -6267,6 +6275,7 @@ async function applyEdits(info, saved) {
     }
     resetTemperature(info, { keep: !!saved });
     state.camera = { ...view };
+    showViewpoint();
     state.focusPoint = { ...focusPoint };
     // Lytro Desktop's living filter: ours like it, around the focus.
     if (saved && saved.lytroFilter) {
