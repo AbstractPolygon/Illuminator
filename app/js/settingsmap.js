@@ -46,6 +46,7 @@ export const COLOR_SETTINGS = [
   ['lens.distortion', 'lens-distortion', 'num'],
   ['lens.vignetting', 'lens-vignetting', 'num'],
   ['lens.midpoint', 'lens-midpoint', 'num'],
+  ['lens.softness', 'lens-softness', 'num'],
   ['defringe.on', 'fringe-on', 'bool'],
   ['defringe.auto', 'fringe-auto', 'bool'],
   ['defringe.radius', 'fringe-radius', 'num'],

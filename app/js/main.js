@@ -3721,7 +3721,10 @@ let forceFullLevel = false;
 function wantedWidth(draft = false) {
   if (forceFullLevel) return 1e9;
   const shown = (parseFloat(canvas.style.width) || canvas.width) * (window.devicePixelRatio || 1);
-  return Math.ceil(shown * (draft ? 0.6 : 1));
+  // (through a crop, straighten or turn the canvas is not the picture: the picture's width is what is wanted)
+  const g = state.geom;
+  const per = g ? g.srcW / canvas.width : 1;
+  return Math.ceil(shown * per * (draft ? 0.6 : 1));
 }
 // The level that wantedWidth selects (the smallest that is wide enough), and the level of the picture on the canvas.
 function levelIndexFor(width) {
@@ -3745,15 +3748,19 @@ async function ensureFullLevel() {
 }
 let levelTimer = 0;
 // After a zoom: when the picture on the canvas is not the size the zoom needs, make the right one (once the zoom has stopped).
+// The width of the picture on the canvas (before its crop, straighten and turn).
+function shownLevelWidth() {
+  return state.geom ? state.geom.srcW : canvas.width;
+}
 function watchLevel() {
   const widths = levelWidths();
   if (!widths || !showsCamera()) return;
-  const have = widths.indexOf(canvas.width);
+  const have = widths.indexOf(shownLevelWidth());
   if (have < 0 || have === levelIndexFor(wantedWidth())) return;
   clearTimeout(levelTimer);
   levelTimer = setTimeout(() => {
     const widths2 = levelWidths();
-    if (widths2 && showsCamera() && widths2.indexOf(canvas.width) !== levelIndexFor(wantedWidth())) cameraChanged({ final: true });
+    if (widths2 && showsCamera() && widths2.indexOf(shownLevelWidth()) !== levelIndexFor(wantedWidth())) cameraChanged({ final: true });
   }, 250);
 }
 
@@ -3767,10 +3774,9 @@ let detailToken = 0;
 let detailRunning = false;
 const DETAIL_DELAY = 700;
 const DETAIL_MAX_SCALE = 6;
-const DETAIL_MAX_PIXELS = 9e6;
 function detailWanted() {
   return !!(state.info && state.info.processed && state.info.processed.hires && state.info.processed.levelWidths && (!navigator.webdriver || window.__forceDetail)
-    && showsCamera() && !state.geom && state.lastImage && !state.lastImage.pair && canvas.width > 0);
+    && showsCamera() && state.lastImage && !state.lastImage.pair && canvas.width > 0 && !(state.showingFrames && state.frameScale && state.frameScale !== 1));
 }
 function hideDetail() {
   detailToken++;
@@ -3795,52 +3801,100 @@ async function runDetail() {
     detailTimer = setTimeout(runDetail, DETAIL_DELAY);
     return;
   }
+  // The canvas shows the picture through its geometry (orientation, straighten, crop): G maps the picture's pixels (srcW x srcH) to the canvas's.
+  const g = state.geom;
+  const G = g ? g.matrix : [1, 0, 0, 1, 0, 0];
+  const inv = g ? g.inverse : G;
+  const srcW = g ? g.srcW : canvas.width;
+  const srcH = g ? g.srcH : canvas.height;
+  const mag = Math.sqrt(Math.abs(G[0] * G[3] - G[1] * G[2]));
   const full = Math.max(...state.info.processed.levelWidths);
-  const k = full / canvas.width;
+  const k = full / srcW;
   const scale = fitScale() * view.k;
-  let zs = (scale * (window.devicePixelRatio || 1)) / k;
+  // (screen pixels per pixel of the largest level)
+  let zs = (scale * mag * (window.devicePixelRatio || 1)) / k;
   if (zs <= 1.05) return;
   const left = parseFloat(canvas.style.left) || 0;
   const top = parseFloat(canvas.style.top) || 0;
   const vw = viewer.clientWidth;
   const vh = viewer.clientHeight;
+  // The part of the canvas on the screen (canvas pixels) ...
   const x0 = Math.max(0, -left / scale);
   const y0 = Math.max(0, -top / scale);
   const x1 = Math.min(canvas.width, (vw - left) / scale);
   const y1 = Math.min(canvas.height, (vh - top) / scale);
   if (!(x1 > x0 && y1 > y0)) return;
-  // (in the quick picture's pixels, at the largest level's size)
-  const gw = (x1 - x0) * k;
-  const gh = (y1 - y0) * k;
-  zs = Math.min(DETAIL_MAX_SCALE, zs, Math.sqrt(DETAIL_MAX_PIXELS / (gw * gh)));
+  // ... and the part of the picture under it (the picture's pixels, a box round the turned corners).
+  const corners = [[x0, y0], [x1, y0], [x0, y1], [x1, y1]].map(([x, y]) => applyMatrix(inv, x, y));
+  const sx0 = Math.max(0, Math.floor(Math.min(...corners.map((c) => c[0]))));
+  const sy0 = Math.max(0, Math.floor(Math.min(...corners.map((c) => c[1]))));
+  const sx1 = Math.min(srcW, Math.ceil(Math.max(...corners.map((c) => c[0]))));
+  const sy1 = Math.min(srcH, Math.ceil(Math.max(...corners.map((c) => c[1]))));
+  if (!(sx1 > sx0 && sy1 > sy0)) return;
+  // (in the largest level's pixels; made at the screen's full resolution, however large the screen: the layer is made in tiles)
+  const gw = (sx1 - sx0) * k;
+  const gh = (sy1 - sy0) * k;
+  zs = Math.min(DETAIL_MAX_SCALE, zs);
   const token = ++detailToken;
   detailRunning = true;
+  const gen = openSeq.current();
+  // (the message shows at once: the first time on a photo the cameras are lined up first, which takes a while)
+  showProgress('Adding detail', 0);
   try {
-    // (the progress shows what is being made, where the camera's other work shows: the first time it includes lining the cameras up)
-    const gen = openSeq.current();
-    // The layer is laid over the picture at once (empty), and each piece shows as soon as it is made, so the sharper picture fills in instead of appearing only at the end.
-    detailLayer.width = Math.max(1, Math.round(gw * zs));
-    detailLayer.height = Math.max(1, Math.round(gh * zs));
+    // The layer covers the part of the canvas on the screen, at the screen's resolution (r layer pixels per canvas pixel); the sharper picture is made in the picture's own
+    // frame (dw x dh) and drawn onto the layer through the geometry, each piece as soon as it is made, so it fills in instead of appearing only at the end.
+    const r = (scale * (window.devicePixelRatio || 1));
+    detailLayer.width = Math.max(1, Math.round((x1 - x0) * r));
+    detailLayer.height = Math.max(1, Math.round((y1 - y0) * r));
     const lctx = detailLayer.getContext('2d');
+    lctx.setTransform(1, 0, 0, 1, 0, 0);
     lctx.clearRect(0, 0, detailLayer.width, detailLayer.height);
     detailLayer.style.left = `${left + x0 * scale}px`;
     detailLayer.style.top = `${top + y0 * scale}px`;
     detailLayer.style.width = `${(x1 - x0) * scale}px`;
     detailLayer.style.height = `${(y1 - y0) * scale}px`;
     detailLayer.hidden = false;
-    const { promise } = engine.job('l16Detail', 'detail', { ...cameraParams({ live: true }), gx0: x0 * k, gy0: y0 * k, gw, gh, zs }, {
+    const dw = Math.max(1, Math.round(gw * zs));
+    const dh = Math.max(1, Math.round(gh * zs));
+    const made = document.createElement('canvas');
+    made.width = dw;
+    made.height = dh;
+    const mctx = made.getContext('2d');
+    // made pixel -> picture pixel: sx0 + x * (sx1 - sx0) / dw; then G to the canvas, then to the layer.
+    const ax = (sx1 - sx0) / dw;
+    const ay = (sy1 - sy0) / dh;
+    const T = [r * G[0] * ax, r * G[1] * ax, r * G[2] * ay, r * G[3] * ay, r * (G[0] * sx0 + G[2] * sy0 + G[4] - x0), r * (G[1] * sx0 + G[3] * sy0 + G[5] - y0)];
+    let pending = 0;
+    const paint = () => {
+      pending = 0;
+      if (token !== detailToken) return;
+      lctx.setTransform(1, 0, 0, 1, 0, 0);
+      lctx.clearRect(0, 0, detailLayer.width, detailLayer.height);
+      lctx.setTransform(...T);
+      lctx.imageSmoothingEnabled = true;
+      lctx.imageSmoothingQuality = 'high';
+      lctx.drawImage(made, 0, 0);
+      lctx.setTransform(1, 0, 0, 1, 0, 0);
+    };
+    const { promise } = engine.job('l16Detail', 'detail', { ...cameraParams({ live: true }), gx0: sx0 * k, gy0: sy0 * k, gw, gh, zs }, {
       onProgress: (stage, p) => {
         if (token === detailToken && !openSeq.superseded(gen)) showProgress(stage === 'Rendering' ? 'Adding detail' : stage, p);
       },
       onFrame: (f) => {
         if (token !== detailToken || !f || !f.tile || !f.pixels) return;
-        lctx.putImageData(new ImageData(new Uint8ClampedArray(f.pixels), f.width, f.height), f.x, f.y);
+        mctx.putImageData(new ImageData(new Uint8ClampedArray(f.pixels), f.width, f.height), f.x, f.y);
+        if (!pending) pending = requestAnimationFrame(paint);
       },
     });
     const msg = await promise;
     if (token !== detailToken || !msg || !(msg.pixels || msg.bitmap)) return;
     const img = toImageData(msg);
-    if (img.width === detailLayer.width && img.height === detailLayer.height) lctx.putImageData(img, 0, 0);
+    if (img.width === dw && img.height === dh) {
+      if (img instanceof ImageData) mctx.putImageData(img, 0, 0);
+      else mctx.drawImage(img, 0, 0);
+    }
+    if (pending) cancelAnimationFrame(pending);
+    paint();
   } catch (err) {
     console.warn('Zoomed-in detail failed', err);
   } finally {
@@ -6454,6 +6508,7 @@ function showSliderValue(input) {
   else if (input.id === 'frame-zoom') out.textContent = `${Math.round(v)}%`;
   else if (input.id === 'frame-pan-x' || input.id === 'frame-pan-y') out.textContent = `${Math.round(v) > 0 ? '+' : Math.round(v) < 0 ? '−' : ''}${Math.abs(Math.round(v))}`;
   else if (input.id === 'view-reach' || input.id === 'lent-depth') out.textContent = `${v}%`;
+  else if (input.id === 'highlights') out.textContent = `${Math.round(v * 100)}%`;
   else if (input.id === 'video-quality') out.textContent = `${v} Mbit/s`;
   else if (['photo-quality', 'bokeh-blades', 'stereo-baseline', 'upscale-sharpen', 'upscale-strength', 'upscale-lobes', 'upscale-denoise', 'upscale-grain', 'depth-model-smooth', 'depth-model-curve', 'lattice-strength', 'lattice-detect'].includes(input.id)) out.textContent = `${v}`;
   else if (input.id === 'mx-strength' || input.id === 'lut-amount') out.textContent = `${v}%`;
@@ -6495,7 +6550,7 @@ $('flare-on').onchange = () => {
   applySettings();
 };
 $('lens-auto').onchange = applySettings;
-for (const id of ['lens-distortion', 'lens-vignetting', 'lens-midpoint']) {
+for (const id of ['lens-distortion', 'lens-vignetting', 'lens-midpoint', 'lens-softness']) {
   $(id).oninput = () => {
     showSliderValue($(id));
     applySettingsSoon();

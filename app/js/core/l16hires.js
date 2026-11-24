@@ -150,7 +150,7 @@ function flowOffsets(a, b, W, H, ds = 4, block = 6, R = 2) {
 // +-48 sensor pixels, coarse to fine, between steps by a parabola); the shifts of the patches that match well are fitted with an affine function of the place on the sensor (by weighted least squares,
 // patches far off the fit dropped and the fit made again). Returns { [module id]: { ax: [a0, a1, a2], ay: [...] , n, rms } } where the sensor point (sx, sy) of the camera becomes
 // (sx + ax0 + ax1 u + ax2 v, ...) with u = sx / 4160, v = sy / 3120; a module that could not be measured is left out.
-export function estimateCorrections(bytes, parsed, depth, wide, grid, modules, opts) {
+export function estimateCorrections(bytes, parsed, depth, wide, grid, modules, opts, onProgress = () => {}) {
   const refCam = cameraModel(parsed.header, parsed.modules[depth.ref][0]);
   const K = refCam.K;
   const W = wide.width;
@@ -174,7 +174,10 @@ export function estimateCorrections(bytes, parsed, depth, wide, grid, modules, o
   const step = Math.max(1, Math.round(T / 12)); // a 12 x 12 sample of it
   const R = 48; // search, sensor pixels
   const out = {};
+  let done = 0;
   for (const id of modules) {
+    // (how far along: one step per camera module)
+    onProgress(done++ / modules.length);
     let cam;
     try {
       cam = cameraModel(parsed.header, parsed.modules[id][0]);

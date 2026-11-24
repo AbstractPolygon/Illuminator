@@ -112,7 +112,8 @@
     "auto": true,
     "distortion": 0,
     "midpoint": 50,
-    "vignetting": 0
+    "vignetting": 0,
+    "softness": 50
    },
    "lensCentres": "auto",
    "local": {
@@ -353,7 +354,8 @@
    "view-reach": "100",
    "wb-temperature": "5500",
    "wb-tint": "0",
-   "tone-recovery": "0"
+   "tone-recovery": "0",
+   "lens-softness": "50"
   }
  },
  {
@@ -477,7 +479,8 @@
     "auto": true,
     "distortion": -23,
     "midpoint": 42,
-    "vignetting": 85
+    "vignetting": 85,
+    "softness": 50
    },
    "lensCentres": "off",
    "local": {
@@ -718,7 +721,8 @@
    "view-reach": "130",
    "wb-temperature": "5150",
    "wb-tint": "-6",
-   "tone-recovery": "0"
+   "tone-recovery": "0",
+   "lens-softness": "50"
   }
  },
  {
@@ -842,7 +846,8 @@
     "auto": true,
     "distortion": -91,
     "midpoint": 72,
-    "vignetting": -64
+    "vignetting": -64,
+    "softness": 50
    },
    "lensCentres": "photo",
    "local": {
@@ -1083,7 +1088,8 @@
    "view-reach": "200",
    "wb-temperature": "3200",
    "wb-tint": "76",
-   "tone-recovery": "0"
+   "tone-recovery": "0",
+   "lens-softness": "50"
   }
  },
  {
@@ -1207,7 +1213,8 @@
     "auto": true,
     "distortion": 42,
     "midpoint": 1,
-    "vignetting": -13
+    "vignetting": -13,
+    "softness": 50
    },
    "lensCentres": "photo",
    "local": {
@@ -1448,7 +1455,8 @@
    "view-reach": "260",
    "wb-temperature": "9250",
    "wb-tint": "-142",
-   "tone-recovery": "0"
+   "tone-recovery": "0",
+   "lens-softness": "50"
   }
  },
  {
@@ -1582,7 +1590,8 @@
     "auto": false,
     "distortion": -52,
     "midpoint": 24,
-    "vignetting": 96
+    "vignetting": 96,
+    "softness": 50
    },
    "lensCentres": "photo",
    "local": {
@@ -1823,7 +1832,8 @@
    "view-reach": "270",
    "wb-temperature": "8250",
    "wb-tint": "-25",
-   "tone-recovery": "0"
+   "tone-recovery": "0",
+   "lens-softness": "50"
   }
  }
 ]

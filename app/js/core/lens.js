@@ -112,13 +112,15 @@ export function lensParams(s = {}, cam = null) {
   const k = ((s.distortion || 0) / 100) * 0.25;
   const vig = (s.vignetting || 0) / 100;
   const start = (((s.midpoint ?? 50) / 100)) * 0.9;
+  // Softness: how wide the fade from the midpoint is (50, the default: out to the corners; 0: a hard edge; 100: twice as wide, so the corners get only part of it).
+  const width = Math.max(0.02, (1 - start) * ((s.softness ?? 50) / 50));
   const auto = s.auto !== false && cam ? cam.distortionFit || (cam.capture ? autoDistortion(cam.capture.zoomStep) : null) : null;
   const sc = auto ? 1 + auto.scale : 1;
   const k2 = auto ? auto.k2 / sc : 0;
   const kk = (k + (auto ? auto.k1 : 0)) / sc;
   const edge = auto ? auto.edge / sc : 0;
   if (!kk && !k2 && !vig) return null;
-  return { k: kk, k2, edge, zoom: (k > 0 ? 1 / (1 + k) : 1) * sc, vig, start };
+  return { k: kk, k2, edge, zoom: (k > 0 ? 1 / (1 + k) : 1) * sc, vig, start, width };
 }
 
 // Source position (pixels) for output pixel center (x, y).
@@ -141,7 +143,7 @@ export function lensGain(p, x, y, w, h) {
   const cx = w / 2;
   const cy = h / 2;
   const r = Math.hypot(x - cx, y - cy) / Math.hypot(cx, cy);
-  const t = Math.min(1, Math.max(0, (r - p.start) / (1 - p.start)));
+  const t = Math.min(1, Math.max(0, (r - p.start) / (p.width ?? 1 - p.start)));
   const s = t * t * (3 - 2 * t);
   return Math.max(0, 1 + 1.5 * p.vig * s);
 }

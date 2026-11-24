@@ -1708,6 +1708,7 @@ uniform float uVeilAmount;
 uniform vec4 uLens;        // core/lens.js: k, zoom, vignetting, start (0 0 0 0: off)
 uniform float uLensK2;     // r^4 term of the distortion
 uniform float uLensEdge;   // easing of the correction past r = 0.75
+uniform float uLensWidth;  // width of the vignetting's fade from its start (core/lens.js: softness)
 // Local adjustments (core/local.js).
 uniform int uMaskCount;
 uniform int uMaskKind[${MAX_MASKS}];  // 0 radial, 1 linear, 2 depth, 3 brush
@@ -1783,7 +1784,7 @@ vec3 colorAt(ivec2 q) {
   if (uVeilAmount > 0.0) c = max(c - uVeilAmount * texture(uVeil, pos / size).rgb, vec3(0.0));
   if (uLens.z != 0.0) {
     float r = length(pos - size * 0.5) / length(size * 0.5);
-    float t = smoothstep(0.0, 1.0, clamp((r - uLens.w) / (1.0 - uLens.w), 0.0, 1.0));
+    float t = smoothstep(0.0, 1.0, clamp((r - uLens.w) / max(0.02, uLensWidth), 0.0, 1.0));
     c *= max(0.0, 1.0 + 1.5 * uLens.z * t);
   }
   if (uFirst == 1) c = clamp(c * uFirstGain - vec3(uFirstOff), 0.0, 1.0);
@@ -5537,6 +5538,7 @@ export class GpuRenderer {
     gl.uniform4f(P.u.uLens, lens ? lens.k : 0, lens ? lens.zoom : 1, lens ? lens.vig : 0, lens ? lens.start : 0);
     gl.uniform1f(P.u.uLensK2, lens && lens.k2 ? lens.k2 : 0);
     gl.uniform1f(P.u.uLensEdge, lens && lens.edge ? lens.edge : 0);
+    gl.uniform1f(P.u.uLensWidth, lens ? lens.width ?? 1 - lens.start : 1);
     gl.uniform1i(P.u.uVeil, 2);
     this.bindTex(2, veil ? this.veilTex : src);
     const f = (fringe && fringe.colors) || [];

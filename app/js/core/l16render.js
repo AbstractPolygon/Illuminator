@@ -27,7 +27,7 @@ export async function renderL16Final(l16, { scale, margin, depthLambda, renderTi
   // each camera's registration corrected for this capture (once a photo; measured on the half size merge): the wide cameras for the full size merge, the longer lens ones for the detail
   if (!l16.corrections && l16.wide) {
     onProgress('Aligning the cameras', 0.01);
-    l16.corrections = estimateCorrections(bytes, parsed, depth, l16.wide, 2, [...depth.modules, ...mods], opts);
+    l16.corrections = estimateCorrections(bytes, parsed, depth, l16.wide, 2, [...depth.modules, ...mods], opts, (p) => onProgress('Aligning the cameras', p));
   }
   const corrections = l16.corrections || null;
   let wide = givenWide;

@@ -54,3 +54,13 @@ test('local adjustments on a tile match the whole picture', () => {
     for (let c = 0; c < 3; c++) assert.ok(Math.abs(tile[(y * 16 + x) * 4 + c] - ref[(y * 16 + x) * 4 + c]) <= 1, `${x},${y}`);
   }
 });
+
+test('vignetting softness: 50 is the earlier fade, lower is sharper, higher gentler', async () => {
+  const { lensGain } = await import('../app/js/core/lens.js');
+  const g = (softness, r) => lensGain(lensParams({ vignetting: 100, midpoint: 50, softness }, null), 50 + r * 50, 50 + r * 50, 100, 100);
+  const start = 0.45;
+  const t = (0.7 - start) / (1 - start);
+  assert.ok(Math.abs(g(50, 0.7) - (1 + 1.5 * t * t * (3 - 2 * t))) < 1e-9);
+  assert.ok(g(10, 0.7) > g(50, 0.7) && g(50, 0.7) > g(100, 0.7));
+  assert.equal(g(0, 0.3), 1);
+});
