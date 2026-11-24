@@ -9,7 +9,26 @@ import { cameraModel } from './l16geometry.js';
 import { relativePose } from './l16depth.js';
 import { demosaic, halfSize } from './l16fusion.js';
 
-const gauss = (src, w, h, sigma) => {
+// The filters on the graphics card (gpu/l16filters.js l16FiltersGpu's), or null for the processor's: set by the worker that has the card. Where one fails there, the
+// processor's is used from then on.
+let filtersOnCard = null;
+export function setL16FiltersGpu(f) {
+  filtersOnCard = f || null;
+}
+const onCard = (name, args, cpu) => {
+  if (filtersOnCard) {
+    try {
+      return filtersOnCard[name](...args);
+    } catch (e) {
+      console.warn('L16 detail filter on the graphics card failed; using the processor', e);
+      filtersOnCard = null;
+    }
+  }
+  return cpu(...args);
+};
+
+const gauss = (src, w, h, sigma) => onCard('gauss', [src, w, h, sigma], gaussCpu);
+const gaussCpu = (src, w, h, sigma) => {
   // separable gaussian blur of a 3 channel float picture (edges clamped)
   const r = Math.max(1, Math.ceil(sigma * 2.5));
   const k = new Float32Array(2 * r + 1);
@@ -407,6 +426,9 @@ function bilinear(img, w, h, sx, sy, o) {
 
 // Per channel minimum and maximum of a picture (3 per pixel) within `r` pixels (a square window), as two pictures.
 function localBounds(a, W, H, r) {
+  return onCard('localBounds', [a, W, H, r], localBoundsCpu);
+}
+function localBoundsCpu(a, W, H, r) {
   const pass = (src, w, h, horizontal, isMin) => {
     const out = new Float32Array(src.length);
     for (let y = 0; y < h; y++) {
@@ -447,6 +469,9 @@ export function telephotoModules(parsed, refId, [lo, hi]) {
 
 // A box blur of one value per pixel (w x h), radius r, twice (close to a Gaussian).
 function boxBlur1(src, w, h, r) {
+  return onCard('boxBlur1', [src, w, h, r], boxBlur1Cpu);
+}
+function boxBlur1Cpu(src, w, h, r) {
   let a = src;
   for (let pass = 0; pass < 2; pass++) {
     const tmp = new Float32Array(w * h);
