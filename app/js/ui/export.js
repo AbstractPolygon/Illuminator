@@ -342,7 +342,6 @@ export function initExport({ ensureFullLevel = async () => {}, state, $, canvas,
     $('photo-quality-row').hidden = !jpeg;
     // (the HDR files are always sRGB: their highlight map is worked out in sRGB colors)
     $('photo-colorspace').disabled = isHdrFormat(format);
-    $('png-btn').textContent = format === 'jpeghdr' ? 'Save HDR JPEG' : format === 'tiffhdr' ? 'Save HDR TIFF' : jpeg ? 'Save JPEG' : format === 'png16' ? 'Save 16-bit PNG' : 'Save PNG';
   }
   $('photo-format').addEventListener('change', showPhotoFormat);
   $('photo-quality').oninput = () => showSliderValue($('photo-quality'));
