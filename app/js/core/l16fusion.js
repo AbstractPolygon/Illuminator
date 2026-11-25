@@ -34,17 +34,30 @@ export function demosaic(bytes, frame, { black = 42, white = 1023, gains = [1, 1
 
 // Hot and dead pixels: a pixel far brighter than every neighbour of its own color (or far darker than all of them) is replaced by their mean. `step` is the distance to the neighbours of the same
 // color (2 on a Bayer mosaic, 1 on the monochrome sensor). Without this a hot pixel becomes a colored square after the demosaic, and the telephoto detail would copy it into the picture.
-function removeSpecks(px, W, H, step) {
+// A long exposure (over a quarter second): its warm pixels, a few steps of the sensor's 1023 brighter than their neighbors, which a dark photo's brightening shows as colored
+// dots, are found too.
+const HOT_OFFSET = 0.008;
+const LONG_EXPOSURE_NS = 2.5e8;
+export const isLongExposure = (frame) => (frame.module.sensor_exposure || 0) > LONG_EXPOSURE_NS;
+function removeSpecks(px, W, H, step, long = false) {
   const out = [];
   const at = (x, y) => px[Math.min(H - 1, Math.max(0, y)) * W + Math.min(W - 1, Math.max(0, x))];
+  // A hot pixel is brighter than 1.5 times its brightest neighbor of its color and 0.03 more; on a long exposure than 1.5 times its second brightest and HOT_OFFSET more (the
+  // second: two warm pixels side by side are found too, while a thin bright line, which has two neighbors on it, is not). A dead one is darker than 0.3 times its darkest.
+  // It takes the mean of its side neighbors (on a long exposure, but the brightest).
   const test = (i, v, a, b, c, d, e, f, g, h) => {
-    let hi = a > b ? a : b;
-    let lo = a < b ? a : b;
-    for (const n of [c, d, e, f, g, h]) {
-      if (n > hi) hi = n;
+    let m1 = -1;
+    let m2 = -1;
+    let lo = Infinity;
+    for (const n of [a, b, c, d, e, f, g, h]) {
+      if (n > m1) {
+        m2 = m1;
+        m1 = n;
+      } else if (n > m2) m2 = n;
       if (n < lo) lo = n;
     }
-    if (v > hi * 1.5 + 0.03 || (lo > 0.12 && v < lo * 0.3)) out.push(i, (a + b + c + d) / 4);
+    const hot = long ? v > m2 * 1.5 + HOT_OFFSET : v > m1 * 1.5 + 0.03;
+    if (hot || (lo > 0.12 && v < lo * 0.3)) out.push(i, long ? (a + b + c + d - Math.max(a, b, c, d)) / 3 : (a + b + c + d) / 4);
   };
   // The edge rows and columns (neighbours past the edge are the edge's pixels), then the inside, where every neighbour is in the picture: read straight, with no
   // bounds to check (most of the time of this step was the checks).
@@ -65,9 +78,15 @@ function removeSpecks(px, W, H, step) {
       const d = px[i + dn];
       // (most pixels pass at once: a hot pixel is brighter than 1.5 times its brightest side neighbour and more, a dead one darker than 0.3 times its darkest; only the
       // rest are tested against all eight)
-      const m4 = a > b ? (a > c ? (a > d ? a : d) : c > d ? c : d) : b > c ? (b > d ? b : d) : c > d ? c : d;
-      const n4 = a < b ? (a < c ? (a < d ? a : d) : c < d ? c : d) : b < c ? (b < d ? b : d) : c < d ? c : d;
-      if (v <= m4 * 1.5 + 0.03 && v >= n4 * 0.3) continue;
+      // (the second brightest of the four sides is at most the second brightest of all eight)
+      const hiAB = a > b ? a : b;
+      const loAB = a < b ? a : b;
+      const hiCD = c > d ? c : d;
+      const loCD = c < d ? c : d;
+      const s4 = hiAB > hiCD ? (loAB > hiCD ? loAB : hiCD) : hiAB > loCD ? hiAB : loCD;
+      const n4 = loAB < loCD ? loAB : loCD;
+      const m4 = hiAB > hiCD ? hiAB : hiCD;
+      if ((long ? v <= s4 * 1.5 + HOT_OFFSET : v <= m4 * 1.5 + 0.03) && v >= n4 * 0.3) continue;
       test(i, v, a, b, c, d, px[i + up - step], px[i + up + step], px[i + dn - step], px[i + dn + step]);
     }
     for (let x = Math.max(step, W - step); x < W; x++) edge(x, y);
@@ -270,7 +289,7 @@ function fullOnCard(input, frame, W, H, { gains, hot }) {
   const mono = o.x < 0;
   let card = null;
   try {
-    card = prepOnCard({ ...input, W, H, w: W >> 1, h: H >> 1, red: o, mono, hot, gains, full: true });
+    card = prepOnCard({ ...input, W, H, w: W >> 1, h: H >> 1, red: o, mono, hot: hot && isLongExposure(frame) ? 'long' : hot, gains, full: true });
     const out = card.rgb;
     if (!mono) correctChroma(frame, out, W, H, 2, false, card);
     return { width: W, height: H, rgb: out };
@@ -322,13 +341,13 @@ function demosaicRaw(decoded, frame, { black, white, gains, hot = true }) {
     // the monochrome module: one value for all three
     const mv = new Float32Array(W * H);
     for (let i = 0; i < W * H; i++) mv[i] = Math.max(0, (data[i] - black) * scale);
-    if (hot) removeSpecks(mv, W, H, 1);
+    if (hot) removeSpecks(mv, W, H, 1, isLongExposure(frame));
     for (let i = 0; i < W * H; i++) rgb[3 * i] = rgb[3 * i + 1] = rgb[3 * i + 2] = mv[i];
     return { width: W, height: H, rgb };
   }
   const px = new Float32Array(W * H);
   for (let i = 0; i < px.length; i++) px[i] = Math.max(0, (data[i] - black) * scale);
-  if (hot) removeSpecks(px, W, H, 2);
+  if (hot) removeSpecks(px, W, H, 2, isLongExposure(frame));
   const at = (x, y) => px[Math.min(H - 1, Math.max(0, y)) * W + Math.min(W - 1, Math.max(0, x))];
   const rx = o.x;
   const ry = o.y;
@@ -440,7 +459,7 @@ export function halfSize(bytes, frame, { black = 42, white = 1023, gains = [1, 1
     try {
       const packed = packedRows(bytes, frame);
       const input = packed ? { packed: { ...packed, x0: sx0, y0: sy0, black, scale } } : { plane: planeOf() };
-      card = prepOnCard({ ...input, W, H, w, h, red: o, mono, hot, gains });
+      card = prepOnCard({ ...input, W, H, w, h, red: o, mono, hot: hot && isLongExposure(frame) ? 'long' : hot, gains });
       const out = card.rgb;
       if (!crop && !mono) correctChroma(frame, out, w, h, 1, true, card);
       return crop ? { width: w, height: h, rgb: out, ox: cx, oy: cy } : { width: w, height: h, rgb: out };
@@ -452,7 +471,7 @@ export function halfSize(bytes, frame, { black = 42, white = 1023, gains = [1, 1
     }
   }
   const plane = planeOf();
-  if (hot) removeSpecks(plane, W, H, mono ? 1 : 2);
+  if (hot) removeSpecks(plane, W, H, mono ? 1 : 2, isLongExposure(frame));
   if (mono) {
     for (let y = 0; y < h; y++) {
       for (let x = 0; x < w; x++) {
@@ -630,6 +649,95 @@ function mergeShare(refUnd, smp, ok, W, H, S, mono, g) {
   }
   return { rgb, weight };
 }
+// What is left of hot pixels after the merge: a pixel whose color channel is more than twice its second brightest neighbor's (and HOT_OFFSET more), one or two pixels wide,
+// takes the mean of its side neighbors but the brightest. A cluster of warm pixels in one camera that its own filter let through shows as such a dot of one color.
+function removeMergedSpecks(rgb, W, H) {
+  const fix = [];
+  for (let c = 0; c < 3; c++) {
+    for (let y = 1; y < H - 1; y++) {
+      for (let x = 1; x < W - 1; x++) {
+        const i = 3 * (y * W + x) + c;
+        const v = rgb[i];
+        const a = rgb[i - 3];
+        const b = rgb[i + 3];
+        const u = rgb[i - 3 * W];
+        const d = rgb[i + 3 * W];
+        // (quick pass: the second brightest side is at most the second brightest of all eight)
+        const hiAB = a > b ? a : b;
+        const loAB = a < b ? a : b;
+        const hiUD = u > d ? u : d;
+        const loUD = u < d ? u : d;
+        const s4 = hiAB > hiUD ? (loAB > hiUD ? loAB : hiUD) : hiAB > loUD ? hiAB : loUD;
+        if (v <= s4 * 2 + HOT_OFFSET) continue;
+        let m1 = -1;
+        let m2 = -1;
+        for (const n of [a, b, u, d, rgb[i - 3 * W - 3], rgb[i - 3 * W + 3], rgb[i + 3 * W - 3], rgb[i + 3 * W + 3]]) {
+          if (n > m1) {
+            m2 = m1;
+            m1 = n;
+          } else if (n > m2) m2 = n;
+        }
+        // (a dot of one color: a white speck, a light, stays)
+        const p = i - c;
+        if (v > m2 * 2 + HOT_OFFSET && v > 2 * Math.max(c === 0 ? 0 : rgb[p], c === 1 ? 0 : rgb[p + 1], c === 2 ? 0 : rgb[p + 2])) fix.push(i, (a + b + u + d - Math.max(a, b, u, d)) / 3);
+      }
+    }
+  }
+  for (let k = 0; k < fix.length; k += 2) rgb[fix[k]] = fix[k + 1];
+  removeColorBlobs(rgb, W, H);
+}
+
+// Small soft spots of a strong color (up to about 5 pixels across): one color much brighter than in the ring of pixels 3 away, and rising far more than the others (a white
+// light rises in all three alike and stays). Reflections in a camera's mirror, and warm pixels a camera's picture spread when it was lined up. In the spot every color takes
+// the ring's median where it is above the ring.
+function removeColorBlobs(rgb, W, H) {
+  const R = 3;
+  const ring = [];
+  for (let dy = -R; dy <= R; dy++) for (let dx = -R; dx <= R; dx++) if (Math.max(Math.abs(dx), Math.abs(dy)) === R) ring.push((dy * W + dx) * 3);
+  const vals = new Float32Array(ring.length);
+  const hiOf = (q, o) => {
+    let hi = 0;
+    for (const r of ring) if (rgb[q + r + o] > hi) hi = rgb[q + r + o];
+    return hi;
+  };
+  const spots = [];
+  for (let c = 0; c < 3; c++) {
+    for (let y = R; y < H - R; y++) {
+      for (let x = R; x < W - R; x++) {
+        const q = 3 * (y * W + x);
+        const v = rgb[q + c];
+        // (only a local peak of the color)
+        if (v <= rgb[q - 3 + c] || v < rgb[q + 3 + c] || v <= rgb[q - 3 * W + c] || v < rgb[q + 3 * W + c]) continue;
+        const hi = hiOf(q, c);
+        if (!(v > hi * 2.5 + HOT_OFFSET)) continue;
+        const rise = v / Math.max(1e-4, hi);
+        let least = Infinity;
+        for (let o = 0; o < 3; o++) if (o !== c) least = Math.min(least, rgb[q + o] / Math.max(1e-4, hiOf(q, o)));
+        if (least > rise * 0.4) continue;
+        // (and the spot is that color: twice either other at its peak)
+        if (!(v > 2 * Math.max(c === 0 ? 0 : rgb[q], c === 1 ? 0 : rgb[q + 1], c === 2 ? 0 : rgb[q + 2]))) continue;
+        spots.push(q);
+      }
+    }
+  }
+  for (const q of spots) {
+    for (let o = 0; o < 3; o++) {
+      let hi = 0;
+      for (let k = 0; k < ring.length; k++) {
+        vals[k] = rgb[q + ring[k] + o];
+        if (vals[k] > hi) hi = vals[k];
+      }
+      const med = Float32Array.from(vals).sort()[ring.length >> 1];
+      for (let dy = 1 - R; dy < R; dy++) {
+        for (let dx = 1 - R; dx < R; dx++) {
+          const p = q + (dy * W + dx) * 3 + o;
+          if (rgb[p] > hi) rgb[p] = med;
+        }
+      }
+    }
+  }
+}
+
 // Box blurs (edges clamped): of 3 values a pixel, and of 1.
 function boxBlur3(src, W, H, r) {
   const tmp = new Float32Array(src.length);
@@ -837,5 +945,6 @@ export function fuse(bytes, parsed, depth, { black = 42, white = 1023, gains = [
       out[3 * i + 2] /= w;
     }
   }
+  if (hot && isLongExposure(refFrame)) removeMergedSpecks(out, W, H);
   return { width: W, height: H, rgb: out, used: donors.length + 1, merged };
 }

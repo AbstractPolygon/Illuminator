@@ -31,6 +31,7 @@ precision highp float;
 precision highp int;
 uniform highp sampler2D uPlane;
 uniform int uStep;
+uniform int uLong;   // a long exposure: its warm pixels are found too (core/l16fusion.js removeSpecks)
 out vec4 outColor;
 float at(ivec2 q, ivec2 size) { return texelFetch(uPlane, clamp(q, ivec2(0), size - 1), 0).r; }
 void main() {
@@ -46,9 +47,18 @@ void main() {
   float f = at(p + ivec2(s, -s), size);
   float g = at(p + ivec2(-s, s), size);
   float h = at(p + ivec2(s, s), size);
-  float hi = max(max(max(a, b), max(c, d)), max(max(e, f), max(g, h)));
+  // (the second brightest neighbor: two hot pixels side by side are found too, and a thin bright line, which has two neighbors on it, is not)
+  float n[8] = float[8](a, b, c, d, e, f, g, h);
+  float m1 = -1.0;
+  float m2 = -1.0;
+  for (int k = 0; k < 8; k++) {
+    if (n[k] > m1) { m2 = m1; m1 = n[k]; }
+    else if (n[k] > m2) m2 = n[k];
+  }
   float lo = min(min(min(a, b), min(c, d)), min(min(e, f), min(g, h)));
-  if (v > hi * 1.5 + 0.03 || (lo > 0.12 && v < lo * 0.3)) v = (a + b + c + d) / 4.0;
+  float m4 = max(max(a, b), max(c, d));
+  bool hot = uLong == 1 ? v > m2 * 1.5 + 0.008 : v > m1 * 1.5 + 0.03;
+  if (hot || (lo > 0.12 && v < lo * 0.3)) v = uLong == 1 ? (a + b + c + d - m4) / 3.0 : (a + b + c + d) / 4.0;
   outColor = vec4(v, 0.0, 0.0, 1.0);
 }`;
 
@@ -262,6 +272,7 @@ export function l16PrepGpu(gpu) {
   };
   // `packed` in place of `plane`: { bytes, start, stride, x0, y0, black, scale }, the file's packed rows (core/lri.js), the plane being W x H from sensor pixel x0, y0.
   return function prep({ plane, packed, W, H, w: hw, h: hh, red, mono, hot, gains, full = false }) {
+    // (`hot` 'long': a long exposure's rules)
     const w = full ? W : hw;
     const h = full ? H : hh;
     const P = programs();
@@ -319,6 +330,7 @@ export function l16PrepGpu(gpu) {
         gl.uniform1i(P.hot.u.uPlane, 1);
         gpu.bindTex(1, raw);
         gl.uniform1i(P.hot.u.uStep, mono ? 1 : 2);
+        gl.uniform1i(P.hot.u.uLong, hot === 'long' ? 1 : 0);
         gpu.draw();
         src = clean;
       }
