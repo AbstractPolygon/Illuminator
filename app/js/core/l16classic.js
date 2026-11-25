@@ -142,14 +142,7 @@ function matchColors(pic, ref) {
   const n = pic.mono ? 1 : 3;
   const sw = stats(pic.yuv, n);
   const sr = stats(ref.yuv, n);
-  let A;
-  if (n === 1) A = [Math.sqrt(sr.cov[0] / sw.cov[0]), 0, 0, 0, 0, 0, 0, 0, 0];
-  else {
-    const Lr = cholesky(sr.cov);
-    const Lwi = inverseLower(cholesky(sw.cov));
-    A = new Float64Array(9);
-    for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) for (let k = 0; k < 3; k++) A[3 * i + j] += Lr[3 * i + k] * Lwi[3 * k + j];
-  }
+  const A = transferOf(sw, sr, n);
   const y = pic.yuv;
   for (let i = 0; i < y.length; i += 3) {
     if (y[i] !== y[i]) continue;
@@ -158,6 +151,31 @@ function matchColors(pic, ref) {
     const d2 = y[i + 2] - sw.mean[2];
     for (let a = 0; a < n; a++) y[i + a] = A[3 * a] * d0 + A[3 * a + 1] * d1 + A[3 * a + 2] * d2 + sr.mean[a];
   }
+}
+
+// The map (3 x 3) that gives pixels of mean and covariance `sw` the mean and covariance `sr`: A = L_ref L_work^-1 (brightness alone for n = 1).
+function transferOf(sw, sr, n) {
+  let A;
+  if (n === 1) A = [Math.sqrt(sr.cov[0] / sw.cov[0]), 0, 0, 0, 0, 0, 0, 0, 0];
+  else {
+    const Lr = cholesky(sr.cov);
+    const Lwi = inverseLower(cholesky(sw.cov));
+    A = new Float64Array(9);
+    for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) for (let k = 0; k < 3; k++) A[3 * i + j] += Lr[3 * i + k] * Lwi[3 * k + j];
+  }
+  return A;
+}
+
+// stats() from the sums the graphics card makes: [y, u, v, count, yy, uu, vv, yu, yv, uv].
+function statsFromSums(s, n) {
+  const N = Math.max(1, s[3]);
+  const mean = [0, 0, 0];
+  for (let a = 0; a < n; a++) mean[a] = s[a] / N;
+  const second = [[s[4], s[7], s[8]], [s[7], s[5], s[9]], [s[8], s[9], s[6]]];
+  const cov = new Float64Array(9);
+  for (let a = 0; a < n; a++) for (let b = 0; b < n; b++) cov[3 * a + b] = second[a][b] / N - mean[a] * mean[b];
+  for (let k = 0; k < 9; k += 4) cov[k] += 0.001;
+  return { mean, cov };
 }
 
 // 8 bits (the color axes about 128; outside the frame 0), then the 3 x 3 box (the part of it inside the picture).
@@ -405,7 +423,13 @@ function runLayer(ctx, L, onRow) {
       if (onRow) onRow(0.6);
     } catch (e) {
       console.warn('Classic Depth costs on the graphics card failed; measuring here', e);
+      try {
+        ctx.card.close();
+      } catch {
+        // (already gone with the card)
+      }
       ctx.card = null;
+      if (!ctx.others[0].img) ctx.picturesHere();
       raw = null;
     }
   }
@@ -547,34 +571,90 @@ export function classicDepth(bytes, parsed, options = {}, onProgress = () => {})
   if (!group.length) throw new Error('No other camera module of the same kind to measure depth with');
   const opts = { black: options.black ?? 42, white: options.white ?? 1023, gains: options.gains || [1, 1, 1], hot: options.hot ?? true };
   onProgress('Reading the camera pictures', 0);
-  const refCam = cameraModel(parsed.header, parsed.modules[refId][0]);
-  const refPic = viewPicture(bytes, parsed.modules[refId][0], refCam, opts);
-  const { w: W, h: H } = refPic;
-  const ref = filtered(refPic);
+  const ids = [refId, ...group];
+  const frames = ids.map((id) => parsed.modules[id][0]);
+  const cams = frames.map((f) => cameraModel(parsed.header, f));
+  const monoOf = (f) => (f.module.sensor_bayer_red_override || { x: 0 }).x < 0;
+  const refCam = cams[0];
+  // the cameras' poses and numbers for the cost, and the longest baseline
   let baseline = 0;
   const others = group.map((id, k) => {
-    const cam = cameraModel(parsed.header, parsed.modules[id][0]);
-    const pic = viewPicture(bytes, parsed.modules[id][0], cam, opts);
-    matchColors(pic, refPic);
+    const cam = cams[k + 1];
     const { R, T } = relativePose(refCam, cam);
     // (the module's center in the reference's frame: -R' T)
     const cx = -(R[0] * T[0] + R[3] * T[1] + R[6] * T[2]);
     const cy = -(R[1] * T[0] + R[4] * T[1] + R[7] * T[2]);
     const cz = -(R[2] * T[0] + R[5] * T[1] + R[8] * T[2]);
     baseline = Math.max(baseline, Math.hypot(cx, cy, cz));
-    onProgress('Reading the camera pictures', (0.1 * (k + 1)) / group.length);
-    return { img: filtered(pic), iw: pic.w, ih: pic.h, R, T, k0: cam.K[0], k2: cam.K[2], k4: cam.K[4], k5: cam.K[5], wq: pic.mono ? WEIGHT_GRAY : WEIGHT_COLOR };
+    return { img: null, iw: 0, ih: 0, R, T, k0: cam.K[0], k2: cam.K[2], k4: cam.K[4], k5: cam.K[5], wq: monoOf(frames[k + 1]) ? WEIGHT_GRAY : WEIGHT_COLOR };
   });
   const K = refCam.K;
   const planes = depthPlanes(NEAR, FAR, baseline, K[0] / 2);
-  const ctx = { ref, W, H, others, planes, K, block: new Uint8Array(27), card: null };
-  if (costOnCard) {
+  // The pictures: on the graphics card where there is one (gpu/l16classic.js: the views, their colors matched and filtered there, and kept there for the costs; only the
+  // reference's comes back, for the smoothing's guide), else here.
+  let ref = null;
+  let W = 0;
+  let H = 0;
+  let card = null;
+  if (costOnCard && costOnCard.views) {
     try {
-      ctx.card = costOnCard.open({ ref, W, H, mods: others, planes, K });
+      const [U, V] = colorAxes();
+      const pics = frames.map((f, k) => {
+        const pic = halfSize(bytes, f, opts);
+        onProgress('Reading the camera pictures', (0.1 * (k + 1)) / frames.length);
+        return { rgb: pic.rgb, w: pic.width, h: pic.height, dist: cams[k].distort.params || null, mono: monoOf(f), luma: LUMA, axisU: U, axisV: V };
+      });
+      const v = costOnCard.views(pics);
+      const transforms = pics.map((pic, k) => {
+        if (k === 0) return { A: [1, 0, 0, 0, 1, 0, 0, 0, 1], from: [0, 0, 0], to: [0, 0, 0] };
+        const n = pic.mono ? 1 : 3;
+        const sw = statsFromSums(v.stats[k].sums, n);
+        const sr = statsFromSums(v.stats[0].sums, n);
+        return { A: Array.from(transferOf(sw, sr, n)), from: sw.mean, to: sr.mean };
+      });
+      const made = v.filter(transforms);
+      ref = made.ref;
+      W = pics[0].w;
+      H = pics[0].h;
+      for (const o of others) {
+        o.iw = W;
+        o.ih = H;
+      }
+      card = made.open({ mods: others, planes, K });
     } catch (e) {
-      console.warn('Classic Depth on the graphics card could not start; measuring here', e);
+      console.warn('Classic Depth pictures on the graphics card failed; making them here', e);
+      card = null;
     }
   }
+  // (here: also when a step on the card fails later and the costs are made here)
+  const picturesHere = () => {
+    const refPic = viewPicture(bytes, frames[0], refCam, opts);
+    W = refPic.w;
+    H = refPic.h;
+    ref = filtered(refPic);
+    others.forEach((o, k) => {
+      const pic = viewPicture(bytes, frames[k + 1], cams[k + 1], opts);
+      matchColors(pic, refPic);
+      o.img = filtered(pic);
+      o.iw = pic.w;
+      o.ih = pic.h;
+      onProgress('Reading the camera pictures', (0.1 * (k + 1)) / others.length);
+    });
+  };
+  if (!card) {
+    picturesHere();
+    if (costOnCard) {
+      try {
+        card = costOnCard.open({ ref, W, H, mods: others, planes, K });
+      } catch (e) {
+        console.warn('Classic Depth on the graphics card could not start; measuring here', e);
+      }
+    }
+  }
+  const ctx = { ref, W, H, others, planes, K, block: new Uint8Array(27), card, picturesHere: () => {
+    picturesHere();
+    ctx.ref = ref;
+  } };
   let prev = null;
   let result = null;
   SCALES.forEach((sc, li) => {

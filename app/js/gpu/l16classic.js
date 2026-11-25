@@ -111,14 +111,116 @@ void main() {
   outColor = raw;
 }`;
 
+// The pictures, as core/l16classic.js viewPicture makes them: a camera's half size picture (linear RGB, RGBA32F) through its lens's distortion into its pinhole view,
+// then its brightness and two color axes, gamma encoded (255 at white, the color axes signed); alpha 1 inside the camera's frame, 0 outside (where the rest is 0).
+const VIEW = `#version 300 es
+precision highp float;
+precision highp int;
+uniform highp sampler2D uRGB;
+uniform float uDist[9];   // k1, k2, k3, p1, p2, nx, ny, cx, cy
+uniform int uMono;
+uniform vec3 uLuma;
+uniform vec3 uAxisU;
+uniform vec3 uAxisV;
+out vec4 outColor;
+float gam(float v) { return v < 0.0 ? -255.0 * pow(-v, 1.0 / 2.2) : 255.0 * pow(v, 1.0 / 2.2); }
+void main() {
+  ivec2 size = textureSize(uRGB, 0);
+  vec2 X = (floor(gl_FragCoord.xy) + 0.5) * 2.0;
+  float u = (X.x - uDist[7]) / uDist[5];
+  float v = (X.y - uDist[8]) / uDist[6];
+  float rr = u * u + v * v;
+  float uv2 = 2.0 * u * v;
+  float k = 1.0 + ((uDist[2] * rr + uDist[1]) * rr + uDist[0]) * rr;
+  float sx = uDist[7] + uDist[5] * (uDist[3] * uv2 + uDist[4] * (rr + 2.0 * u * u) + k * u);
+  float sy = uDist[8] + uDist[6] * (uDist[4] * uv2 + uDist[3] * (rr + 2.0 * v * v) + k * v);
+  float bx = sx / 2.0 - 0.5;
+  float by = sy / 2.0 - 0.5;
+  if (!(bx >= 0.0 && by >= 0.0 && bx < float(size.x - 1) && by < float(size.y - 1))) {
+    outColor = vec4(0.0);
+    return;
+  }
+  ivec2 i0 = ivec2(bx, by);
+  vec2 f = vec2(bx, by) - vec2(i0);
+  vec3 c = (texelFetch(uRGB, i0, 0).rgb * (1.0 - f.x) + texelFetch(uRGB, i0 + ivec2(1, 0), 0).rgb * f.x) * (1.0 - f.y)
+    + (texelFetch(uRGB, i0 + ivec2(0, 1), 0).rgb * (1.0 - f.x) + texelFetch(uRGB, i0 + ivec2(1, 1), 0).rgb * f.x) * f.y;
+  if (uMono == 1) outColor = vec4(gam((c.r + c.g + c.b) / 3.0), 0.0, 0.0, 1.0);
+  else outColor = vec4(gam(dot(uLuma, c)), gam(dot(uAxisU, c)), gam(dot(uAxisV, c)), 1.0);
+}`;
+
+// The sums for a picture's mean and covariance: each 16 x 16 block of the picture (uKind 0: y, u, v, inside; 1: yy, uu, vv; 2: yu, yv, uv; outside the frame nothing),
+// then the same sums of 16 x 16 blocks of sums (uKind 3), until the processor adds up what is left.
+const SUMS = `#version 300 es
+precision highp float;
+precision highp int;
+uniform highp sampler2D uSrc;
+uniform int uKind;
+out vec4 outColor;
+void main() {
+  ivec2 size = textureSize(uSrc, 0);
+  ivec2 o = ivec2(gl_FragCoord.xy) * 16;
+  vec4 s = vec4(0.0);
+  for (int y = 0; y < 16; y++) {
+    for (int x = 0; x < 16; x++) {
+      ivec2 q = o + ivec2(x, y);
+      if (q.x >= size.x || q.y >= size.y) continue;
+      vec4 c = texelFetch(uSrc, q, 0);
+      if (uKind == 3) s += c;
+      else if (c.a > 0.5) s += uKind == 0 ? c : uKind == 1 ? vec4(c.rgb * c.rgb, 0.0) : vec4(c.r * c.g, c.r * c.b, c.g * c.b, 0.0);
+    }
+  }
+  outColor = s;
+}`;
+
+// The colors matched to the reference's (core/l16classic.js matchColors: x -> A (x - mean) + the reference's mean), in 8 bits (the color axes about 128, the monochrome
+// camera's brightness in all three; outside the frame 0), then the 3 x 3 box over the part of it inside the picture, rounded.
+const FILTER = `#version 300 es
+precision highp float;
+precision highp int;
+uniform highp sampler2D uView;
+uniform mat3 uA;
+uniform vec3 uFrom;
+uniform vec3 uTo;
+uniform int uMono;
+out uvec4 outColor;
+float rnd(float v) { return floor(v + 0.5); }
+vec3 bytes(ivec2 q) {
+  vec4 c = texelFetch(uView, q, 0);
+  if (c.a < 0.5) return vec3(0.0);
+  vec3 y = uA * (c.rgb - uFrom) + uTo;
+  float b = clamp(rnd(y.x), 0.0, 255.0);
+  if (uMono == 1) return vec3(b);
+  return vec3(b, clamp(rnd(y.y + 128.0), 0.0, 255.0), clamp(rnd(y.z + 128.0), 0.0, 255.0));
+}
+void main() {
+  ivec2 size = textureSize(uView, 0);
+  ivec2 p = ivec2(gl_FragCoord.xy);
+  vec3 s = vec3(0.0);
+  float n = 0.0;
+  for (int dy = -1; dy <= 1; dy++) {
+    for (int dx = -1; dx <= 1; dx++) {
+      ivec2 q = p + ivec2(dx, dy);
+      if (q.x < 0 || q.y < 0 || q.x >= size.x || q.y >= size.y) continue;
+      s += bytes(q);
+      n += 1.0;
+    }
+  }
+  outColor = uvec4(uvec3(floor(s / n + 0.5)), 0u);
+}`;
+
 const TW = 2048;
 
-// On `gpu` (a GpuRenderer): open({ ref (Uint8Array, 3 per pixel), W, H, mods: [{ img, iw, ih, R, T, k0, k2, k4, k5, wq }], planes, K }) -> { costs(layer), close() }, where
-// costs({ w, scale, start, count, skip, off }) fills and returns raw (Uint8Array of off[w * h]) as core/l16classic.js runLayer lays it out (the planes past a pixel's
-// count, 255; a pixel only smoothed into, 0).
+// On `gpu` (a GpuRenderer):
+//   open({ ref, W, H, mods, planes, K }): the pictures made on the processor (ref and mods[i].img: Uint8Array, 3 per pixel) -> session
+//   views(pics): pics = [{ rgb (Float32Array, 3 per pixel), w, h, dist (the distortion's params), mono }], the reference first -> { stats, filter(transforms) }, where
+//     stats[i] = { sums: [y, u, v, n, yy, uu, vv, yu, yv, uv] } over the picture's frame, and filter([{ A (9), from (3), to (3) }] per picture) -> { ref (Uint8Array, 3 per
+//     pixel, for the smoothing's guide), open({ mods, planes, K }) -> session }
+//   session: { costs({ w, scale, start, count, skip, off }) -> raw, close() }: raw (Uint8Array of off[w * h]) as core/l16classic.js runLayer lays it out (the planes past a
+//     pixel's count, 255; a pixel only smoothed into, 0).
 export function l16ClassicGpu(gpu) {
   const gl = gpu.gl;
-  let prog = null;
+  const progs = {};
+  const prog = (name, src) => (progs[name] = progs[name] || program(gl, src));
   const rgba = (src, n) => {
     const out = new Uint8Array(4 * n);
     for (let i = 0; i < n; i++) {
@@ -128,101 +230,233 @@ export function l16ClassicGpu(gpu) {
     }
     return out;
   };
+  const arrayTex = (iw, ih, layers) => {
+    const t = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D_ARRAY, t);
+    gl.texStorage3D(gl.TEXTURE_2D_ARRAY, 1, gl.RGBA8UI, iw, ih, layers);
+    for (const [k, v] of [[gl.TEXTURE_MIN_FILTER, gl.NEAREST], [gl.TEXTURE_MAG_FILTER, gl.NEAREST], [gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE], [gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE]]) gl.texParameteri(gl.TEXTURE_2D_ARRAY, k, v);
+    return t;
+  };
+  // the cost session on the pictures on the card
+  const session = (refTex, modTex, owned, { mods, planes, K }) => {
+    const P = prog('cost', COST);
+    const kept = [...owned];
+    const planeTex = gpu.texture(planes.length, 1, gl.R32F);
+    kept.push(planeTex);
+    gl.bindTexture(gl.TEXTURE_2D, planeTex);
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, planes.length, 1, gl.RED, gl.FLOAT, Float32Array.from(planes));
+    const pd = new Float32Array(16 * mods.length);
+    mods.forEach((m, i) => pd.set([...m.R, ...m.T, m.k0, m.k2, m.k4, m.k5], 16 * i));
+    const paramTex = gpu.texture(4, mods.length, gl.RGBA32F);
+    kept.push(paramTex);
+    gl.bindTexture(gl.TEXTURE_2D, paramTex);
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, 4, mods.length, gl.RGBA, gl.FLOAT, pd);
+    const wq = new Int32Array(3 * MAX_MODULES);
+    mods.forEach((m, i) => wq.set(m.wq, 3 * i));
+    return {
+      costs({ w, scale, start, count, skip, off }) {
+        const npx = skip.length;
+        const raw = new Uint8Array(off[npx]);
+        // the blocks of four planes of every measured pixel
+        let B = 0;
+        for (let i = 0; i < npx; i++) {
+          for (let k = count[i]; k < off[i + 1] - off[i]; k++) raw[off[i] + k] = 255;
+          if (!skip[i]) B += Math.ceil(count[i] / 4);
+        }
+        if (!B) return raw;
+        const rows = Math.ceil(B / TW);
+        const blocks = new Uint32Array(4 * TW * rows);
+        let b = 0;
+        for (let i = 0; i < npx; i++) {
+          if (skip[i]) continue;
+          for (let k = 0; k < count[i]; k += 4, b++) blocks.set([i, start[i], k, count[i]], 4 * b);
+        }
+        const made = [];
+        try {
+          const blockTex = gpu.texture(TW, rows, gl.RGBA32UI);
+          made.push(blockTex);
+          gl.bindTexture(gl.TEXTURE_2D, blockTex);
+          gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, TW, rows, gl.RGBA_INTEGER, gl.UNSIGNED_INT, blocks);
+          const outTex = gpu.texture(TW, rows, gl.RGBA8UI);
+          made.push(outTex);
+          gpu.target(outTex, TW, rows);
+          gl.useProgram(P.p);
+          const u = P.u;
+          gl.uniform1i(u.uRef, 1);
+          gpu.bindTex(1, refTex);
+          gl.activeTexture(gl.TEXTURE2);
+          gl.bindTexture(gl.TEXTURE_2D_ARRAY, modTex);
+          gl.uniform1i(u.uMods, 2);
+          gl.uniform1i(u.uPlanes, 3);
+          gpu.bindTex(3, planeTex);
+          gl.uniform1i(u.uParams, 4);
+          gpu.bindTex(4, paramTex);
+          gl.uniform1i(u.uBlocks, 5);
+          gpu.bindTex(5, blockTex);
+          gl.uniform1i(u.uM, mods.length);
+          gl.uniform3iv(gl.getUniformLocation(P.p, 'uWq'), wq);
+          gl.uniform1i(u.uBlockCount, B);
+          gl.uniform1i(u.uW, w);
+          gl.uniform1i(u.uScale, scale);
+          gl.uniform4f(u.uK, K[0], K[2], K[4], K[5]);
+          gl.uniform1f(u.uNorm, 1 / 27 / mods.length);
+          gpu.draw();
+          const out = new Uint32Array(4 * TW * rows);
+          gl.readPixels(0, 0, TW, rows, gl.RGBA_INTEGER, gl.UNSIGNED_INT, out);
+          b = 0;
+          for (let i = 0; i < npx; i++) {
+            if (skip[i]) continue;
+            const o = off[i];
+            for (let k = 0; k < count[i]; k += 4, b++) for (let j = 0; j < 4 && k + j < count[i]; j++) raw[o + k + j] = out[4 * b + j];
+          }
+          return raw;
+        } finally {
+          for (const t of made) gl.deleteTexture(t);
+        }
+      },
+      close() {
+        for (const t of kept) gl.deleteTexture(t);
+        gl.deleteTexture(modTex);
+      },
+    };
+  };
+  // the sums of a picture (RGBA32F, w x h) of the kind asked, to the processor
+  const sumsOf = (src, w, h, kind) => {
+    const P = prog('sums', SUMS);
+    const made = [];
+    try {
+      let cur = src;
+      let cw = w;
+      let ch = h;
+      let k = kind;
+      while (cw > 64 || ch > 64 || k !== 3) {
+        const nw = Math.ceil(cw / 16);
+        const nh = Math.ceil(ch / 16);
+        const t = gpu.texture(nw, nh, gl.RGBA32F);
+        made.push(t);
+        gpu.target(t, nw, nh);
+        gl.useProgram(P.p);
+        gl.uniform1i(P.u.uSrc, 1);
+        gpu.bindTex(1, cur);
+        gl.uniform1i(P.u.uKind, k);
+        gpu.draw();
+        cur = t;
+        cw = nw;
+        ch = nh;
+        k = 3;
+      }
+      const buf = new Float32Array(4 * cw * ch);
+      gl.readPixels(0, 0, cw, ch, gl.RGBA, gl.FLOAT, buf);
+      const s = [0, 0, 0, 0];
+      for (let i = 0; i < cw * ch; i++) for (let c = 0; c < 4; c++) s[c] += buf[4 * i + c];
+      return s;
+    } finally {
+      for (const t of made) gl.deleteTexture(t);
+    }
+  };
   return {
     open({ ref, W, H, mods, planes, K }) {
       if (mods.length > MAX_MODULES) throw new Error('too many cameras for the graphics card');
       const iw = mods[0].iw;
       const ih = mods[0].ih;
       if (mods.some((m) => m.iw !== iw || m.ih !== ih)) throw new Error('the cameras’ pictures differ in size');
-      prog = prog || program(gl, COST);
-      const kept = [];
       const refTex = gpu.texture(W, H, gl.RGBA8UI);
-      kept.push(refTex);
       gl.bindTexture(gl.TEXTURE_2D, refTex);
       gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, W, H, gl.RGBA_INTEGER, gl.UNSIGNED_BYTE, rgba(ref, W * H));
-      const modTex = gl.createTexture();
-      gl.bindTexture(gl.TEXTURE_2D_ARRAY, modTex);
-      gl.texStorage3D(gl.TEXTURE_2D_ARRAY, 1, gl.RGBA8UI, iw, ih, mods.length);
+      const modTex = arrayTex(iw, ih, mods.length);
       for (let m = 0; m < mods.length; m++) gl.texSubImage3D(gl.TEXTURE_2D_ARRAY, 0, 0, 0, m, iw, ih, 1, gl.RGBA_INTEGER, gl.UNSIGNED_BYTE, rgba(mods[m].img, iw * ih));
-      for (const [k, v] of [[gl.TEXTURE_MIN_FILTER, gl.NEAREST], [gl.TEXTURE_MAG_FILTER, gl.NEAREST], [gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE], [gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE]]) gl.texParameteri(gl.TEXTURE_2D_ARRAY, k, v);
-      const planeTex = gpu.texture(planes.length, 1, gl.R32F);
-      kept.push(planeTex);
-      gl.bindTexture(gl.TEXTURE_2D, planeTex);
-      gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, planes.length, 1, gl.RED, gl.FLOAT, Float32Array.from(planes));
-      const pd = new Float32Array(16 * mods.length);
-      mods.forEach((m, i) => pd.set([...m.R, ...m.T, m.k0, m.k2, m.k4, m.k5], 16 * i));
-      const paramTex = gpu.texture(4, mods.length, gl.RGBA32F);
-      kept.push(paramTex);
-      gl.bindTexture(gl.TEXTURE_2D, paramTex);
-      gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, 4, mods.length, gl.RGBA, gl.FLOAT, pd);
-      const wq = new Int32Array(3 * MAX_MODULES);
-      mods.forEach((m, i) => wq.set(m.wq, 3 * i));
-      return {
-        costs({ w, scale, start, count, skip, off }) {
-          const npx = skip.length;
-          const raw = new Uint8Array(off[npx]);
-          // the blocks of four planes of every measured pixel
-          let B = 0;
-          for (let i = 0; i < npx; i++) {
-            for (let k = count[i]; k < off[i + 1] - off[i]; k++) raw[off[i] + k] = 255;
-            if (!skip[i]) B += Math.ceil(count[i] / 4);
+      return session(refTex, modTex, [refTex], { mods, planes, K });
+    },
+    views(pics) {
+      if (pics.length - 1 > MAX_MODULES) throw new Error('too many cameras for the graphics card');
+      const { w: iw, h: ih } = pics[0];
+      if (pics.some((p) => p.w !== iw || p.h !== ih)) throw new Error('the cameras’ pictures differ in size');
+      const views = [];
+      try {
+        const P = prog('view', VIEW);
+        for (const pic of pics) {
+          if (!pic.dist) throw new Error('a camera without the polynomial distortion');
+          const src = gpu.texture(iw, ih, gl.RGBA32F);
+          const data = new Float32Array(4 * iw * ih);
+          for (let i = 0; i < iw * ih; i++) {
+            data[4 * i] = pic.rgb[3 * i];
+            data[4 * i + 1] = pic.rgb[3 * i + 1];
+            data[4 * i + 2] = pic.rgb[3 * i + 2];
           }
-          if (!B) return raw;
-          const rows = Math.ceil(B / TW);
-          const blocks = new Uint32Array(4 * TW * rows);
-          let b = 0;
-          for (let i = 0; i < npx; i++) {
-            if (skip[i]) continue;
-            for (let k = 0; k < count[i]; k += 4, b++) blocks.set([i, start[i], k, count[i]], 4 * b);
-          }
-          const made = [];
-          try {
-            const blockTex = gpu.texture(TW, rows, gl.RGBA32UI);
-            made.push(blockTex);
-            gl.bindTexture(gl.TEXTURE_2D, blockTex);
-            gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, TW, rows, gl.RGBA_INTEGER, gl.UNSIGNED_INT, blocks);
-            const outTex = gpu.texture(TW, rows, gl.RGBA8UI);
-            made.push(outTex);
-            gpu.target(outTex, TW, rows);
-            gl.useProgram(prog.p);
-            const u = prog.u;
-            gl.uniform1i(u.uRef, 1);
-            gpu.bindTex(1, refTex);
-            gl.activeTexture(gl.TEXTURE2);
-            gl.bindTexture(gl.TEXTURE_2D_ARRAY, modTex);
-            gl.uniform1i(u.uMods, 2);
-            gl.uniform1i(u.uPlanes, 3);
-            gpu.bindTex(3, planeTex);
-            gl.uniform1i(u.uParams, 4);
-            gpu.bindTex(4, paramTex);
-            gl.uniform1i(u.uBlocks, 5);
-            gpu.bindTex(5, blockTex);
-            gl.uniform1i(u.uM, mods.length);
-            gl.uniform3iv(gl.getUniformLocation(prog.p, 'uWq'), wq);
-            gl.uniform1i(u.uBlockCount, B);
-            gl.uniform1i(u.uW, w);
-            gl.uniform1i(u.uScale, scale);
-            gl.uniform4f(u.uK, K[0], K[2], K[4], K[5]);
-            gl.uniform1f(u.uNorm, 1 / 27 / mods.length);
-            gpu.draw();
-            const out = new Uint32Array(4 * TW * rows);
-            gl.readPixels(0, 0, TW, rows, gl.RGBA_INTEGER, gl.UNSIGNED_INT, out);
-            b = 0;
-            for (let i = 0; i < npx; i++) {
-              if (skip[i]) continue;
-              const o = off[i];
-              for (let k = 0; k < count[i]; k += 4, b++) for (let j = 0; j < 4 && k + j < count[i]; j++) raw[o + k + j] = out[4 * b + j];
+          gl.bindTexture(gl.TEXTURE_2D, src);
+          gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, iw, ih, gl.RGBA, gl.FLOAT, data);
+          const view = gpu.texture(iw, ih, gl.RGBA32F);
+          views.push(view);
+          gpu.target(view, iw, ih);
+          gl.useProgram(P.p);
+          gl.uniform1i(P.u.uRGB, 1);
+          gpu.bindTex(1, src);
+          const d = pic.dist;
+          gl.uniform1fv(gl.getUniformLocation(P.p, 'uDist'), [d.k1, d.k2, d.k3, d.p1, d.p2, d.nx, d.ny, d.cx, d.cy]);
+          gl.uniform1i(P.u.uMono, pic.mono ? 1 : 0);
+          gl.uniform3fv(P.u.uLuma, pic.luma);
+          gl.uniform3fv(P.u.uAxisU, pic.axisU);
+          gl.uniform3fv(P.u.uAxisV, pic.axisV);
+          gpu.draw();
+          gl.deleteTexture(src);
+        }
+        const stats = views.map((v) => ({ sums: [...sumsOf(v, iw, ih, 0), ...sumsOf(v, iw, ih, 1).slice(0, 3), ...sumsOf(v, iw, ih, 2).slice(0, 3)] }));
+        return {
+          stats,
+          filter(transforms) {
+            const F = prog('filter', FILTER);
+            const refTex = gpu.texture(iw, ih, gl.RGBA8UI);
+            const modTex = arrayTex(iw, ih, pics.length - 1);
+            const tmp = gpu.texture(iw, ih, gl.RGBA8UI);
+            try {
+              pics.forEach((pic, k) => {
+                const t = transforms[k];
+                const out = k === 0 ? refTex : tmp;
+                gpu.target(out, iw, ih);
+                gl.useProgram(F.p);
+                gl.uniform1i(F.u.uView, 1);
+                gpu.bindTex(1, views[k]);
+                // (column-major: the uniform's columns are A's columns)
+                gl.uniformMatrix3fv(F.u.uA, false, [t.A[0], t.A[3], t.A[6], t.A[1], t.A[4], t.A[7], t.A[2], t.A[5], t.A[8]]);
+                gl.uniform3fv(F.u.uFrom, t.from);
+                gl.uniform3fv(F.u.uTo, t.to);
+                gl.uniform1i(F.u.uMono, pic.mono ? 1 : 0);
+                gpu.draw();
+                if (k > 0) {
+                  // (into the camera's layer of the array the costs read)
+                  gl.bindTexture(gl.TEXTURE_2D_ARRAY, modTex);
+                  gl.copyTexSubImage3D(gl.TEXTURE_2D_ARRAY, 0, 0, 0, k - 1, 0, 0, iw, ih);
+                }
+              });
+              // the reference's, for the smoothing's guide on the processor
+              gpu.target(refTex, iw, ih);
+              const buf = new Uint32Array(4 * iw * ih);
+              gl.readPixels(0, 0, iw, ih, gl.RGBA_INTEGER, gl.UNSIGNED_INT, buf);
+              const ref = new Uint8Array(3 * iw * ih);
+              for (let i = 0; i < iw * ih; i++) {
+                ref[3 * i] = buf[4 * i];
+                ref[3 * i + 1] = buf[4 * i + 1];
+                ref[3 * i + 2] = buf[4 * i + 2];
+              }
+              return { ref, open: (setup) => session(refTex, modTex, [refTex], setup) };
+            } catch (e) {
+              gl.deleteTexture(refTex);
+              gl.deleteTexture(modTex);
+              throw e;
+            } finally {
+              gl.deleteTexture(tmp);
+              for (const v of views) gl.deleteTexture(v);
+              views.length = 0;
             }
-            return raw;
-          } finally {
-            for (const t of made) gl.deleteTexture(t);
-          }
-        },
-        close() {
-          for (const t of kept) gl.deleteTexture(t);
-          gl.deleteTexture(modTex);
-        },
-      };
+          },
+          close() {
+            for (const v of views) gl.deleteTexture(v);
+          },
+        };
+      } catch (e) {
+        for (const v of views) gl.deleteTexture(v);
+        throw e;
+      }
     },
   };
 }
