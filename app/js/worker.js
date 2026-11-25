@@ -9,7 +9,8 @@ import { isLri } from './core/lri.js';
 import { createL16DepthPool, l16DepthHelperCount } from './l16depthpool.js';
 import { l16CostGpu } from './gpu/l16cost.js';
 import { l16PrepGpu } from './gpu/l16prep.js';
-import { setL16PrepGpu, setL16FuseGpu, removeMergedSpecks, isLongExposure } from './core/l16fusion.js';
+import { setL16PrepGpu, setL16FuseGpu, setL16SpecksGpu, removeMergedSpecks, isLongExposure } from './core/l16fusion.js';
+import { l16SpecksGpu } from './gpu/l16specks.js';
 import { l16FuseGpu } from './gpu/l16fuse.js';
 import { l16DevelopGpu } from './gpu/l16develop.js';
 import { l16FiltersGpu } from './gpu/l16filters.js';
@@ -1108,6 +1109,7 @@ async function open({ id, bytes, synthetic, userDepth = null, depthCache = null,
     // (the smoothing is thousands of small steps: on a software renderer, which runs them on the processor, it is slower than the processor's)
     setL16SgmGpu(hardwareGpu() && !debugFlags().noGpuL16Smooth ? l16SgmGpu(state.gpu) : null);
     setL16ClassicGpu(state.gpu && !debugFlags().noGpuL16Classic ? l16ClassicGpu(state.gpu) : null);
+    setL16SpecksGpu(state.gpu && !debugFlags().noGpuL16Specks ? l16SpecksGpu(state.gpu) : null);
     // (thousands of small steps, as the smoothing above: on a real graphics card only)
     setL16ClassicSmoothGpu(hardwareGpu() && !debugFlags().noGpuL16ClassicSmooth ? l16ClassicSgmGpu(state.gpu) : null);
     l16Pool = {
@@ -4616,6 +4618,7 @@ function recoverGpu({ keepPhoto = true } = {}) {
   setL16SgmGpu(null);
   setL16ClassicGpu(null);
   setL16ClassicSmoothGpu(null);
+  setL16SpecksGpu(null);
   dropKeptStills();
   if (!keepPhoto || !state.lf) return false; // a photo opened next makes its own renderer
   state.gpu = GpuRenderer.create(state.lf.cam) || false;

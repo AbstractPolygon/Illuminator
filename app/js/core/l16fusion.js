@@ -651,8 +651,25 @@ function mergeShare(refUnd, smp, ok, W, H, S, mono, g) {
 }
 // What is left of hot pixels after the merge: a pixel whose color channel is more than twice its second brightest neighbor's (and HOT_OFFSET more), one or two pixels wide,
 // takes the mean of its side neighbors but the brightest. A cluster of warm pixels in one camera that its own filter let through shows as such a dot of one color.
+// The cleanup on the graphics card (gpu/l16specks.js l16SpecksGpu's), or null for the processor's: set by the worker that has the card.
+let specksOnCard = null;
+export function setL16SpecksGpu(f) {
+  specksOnCard = f || null;
+}
+
 // `scale`: the picture's pixels per pixel of the half size one (a dot is that much larger).
 export function removeMergedSpecks(rgb, W, H, scale = 1) {
+  const R = Math.max(3, Math.round(3 * scale));
+  if (specksOnCard) {
+    // (on the graphics card, gpu/l16specks.js: the same steps; here if it fails)
+    try {
+      specksOnCard(rgb, W, H, R, HOT_OFFSET);
+      return;
+    } catch (e) {
+      console.warn('The dots\u2019 cleanup on the graphics card failed; cleaning here', e);
+      specksOnCard = null;
+    }
+  }
   const fix = [];
   for (let c = 0; c < 3; c++) {
     for (let y = 1; y < H - 1; y++) {
@@ -685,7 +702,7 @@ export function removeMergedSpecks(rgb, W, H, scale = 1) {
     }
   }
   for (let k = 0; k < fix.length; k += 2) rgb[fix[k]] = fix[k + 1];
-  removeColorBlobs(rgb, W, H, Math.max(3, Math.round(3 * scale)));
+  removeColorBlobs(rgb, W, H, R);
 }
 
 // Small soft spots of a strong color (up to about 5 pixels across): one color much brighter than in the ring of pixels 3 away, and rising far more than the others (a white
