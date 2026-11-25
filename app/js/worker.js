@@ -79,7 +79,7 @@ import { renderL16Final } from './core/l16render.js';
 import { superpixelColor, depthAtSize, synthesize, fillFromBackground, backgroundDepth, fillFromDonors } from './core/l16view.js';
 import { RIG_RADIUS_MM, developL16, setL16DevelopGpu, encodePicture } from './core/l16photo.js';
 import { cameraModel as l16CameraModel } from './core/l16geometry.js';
-import { relativePose as l16RelativePose, setL16SgmGpu, setL16ReduceGpu, setL16DepthFinishGpu } from './core/l16depth.js';
+import { relativePose as l16RelativePose, setL16SgmGpu, setL16ReduceGpu, setL16DepthFinishGpu, measureDepth as measureL16Depth } from './core/l16depth.js';
 import { lytroSplatGpu } from './gpu/lytroengine.js';
 import { debugFlags, hook, setHook } from './core/debugflags.js';
 import { withExtension, depthRange, searchSteps, reachProfile, reachToward, uncoveredMask, setUncoveredGpu } from './core/viewextend.js';
@@ -2820,6 +2820,16 @@ async function settings({ id, settings: s }) {
       state.pp = built;
       state.pp.setSmoothing(state.settings.depthSmoothing ?? 0.3);
     }
+    // A Light L16 photo's depth method: Classic Depth (the depth measured when it opened) or Illuminator (its cameras' cost volume with a raw photo's smoothing, measured on
+    // first use and kept).
+    if (state.lf && state.lf.l16 && (await l16DepthMethod(id))) {
+      const built = await buildProcessed(state.lf);
+      state.pp = built;
+      state.pp.setSmoothing(state.settings.depthSmoothing ?? 0.3);
+      state.ppDepthOnGpu = null;
+      state.ppMaskDepth = null;
+      post({ type: 'depthReady', reapply: true, openSeq: state.openSeq });
+    }
     updateColor();
     return summary();
   }
@@ -4223,6 +4233,27 @@ function removeHotPixelsRgba(d, w, h) {
     }
   }
   for (let j = 0; j < fix.length; j += 2) d[fix[j]] = fix[j + 1];
+}
+
+// Puts the L16 photo's depth for the chosen Depth method in place (lf.l16.depth, in lambda about the same pivot as the one it opened with). True when it changed.
+async function l16DepthMethod(id) {
+  const l16 = state.lf.l16;
+  const want = state.settings.depthStyle === 'classic' ? 'illuminator' : 'classic';
+  if ((l16.depthMethod || 'classic') === want) return false;
+  let measured = l16.measured;
+  if (want === 'illuminator') {
+    if (!l16.illuminatorDepth) {
+      const progress = (stage, p) => post({ id, type: 'progress', stage, progress: p });
+      await tick();
+      l16.illuminatorDepth = measureL16Depth(l16.bytes, l16.parsed, { ref: l16.ref, style: 'illuminator' }, progress);
+    }
+    measured = l16.illuminatorDepth;
+  }
+  const lambda = new Float32Array(measured.invZ.length);
+  for (let i = 0; i < lambda.length; i++) lambda[i] = l16.k * (measured.invZ[i] - l16.inv0);
+  l16.depth = { width: measured.width, height: measured.height, lambda };
+  l16.depthMethod = want;
+  return true;
 }
 
 async function buildProcessed(lf) {

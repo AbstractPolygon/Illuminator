@@ -7,6 +7,7 @@
 // Depth is measured as inverse distance (1 / mm) in equal steps, so the steps are equal in how far the picture moves.
 import { cameraModel } from './l16geometry.js';
 import { decodeFrame } from './lri.js';
+import { smoothDepth } from './depth.js';
 
 const mul3 = (a, b) => {
   const o = new Array(9);
@@ -349,6 +350,45 @@ export function setL16DepthFinishGpu(fn) {
   finishOnCard = fn || null;
 }
 
+function depthFinishIlluminator(setup, cost, onProgress) {
+  const { ref, w, h, NZ, invMin, invMax } = setup;
+  onProgress('Smoothing depth', 0.7);
+  const invZ = new Float32Array(w * h);
+  const confidence = new Float32Array(w * h);
+  // (the steps as a position 0..1 of the range, for the smoothing; back to inverse depth after)
+  const pos01 = new Float32Array(w * h);
+  for (let i = 0; i < w * h; i++) {
+    const base = i * NZ;
+    let best = 0;
+    let bc = Infinity;
+    for (let k = 0; k < NZ; k++) {
+      const v = cost[base + k];
+      if (v < bc) {
+        bc = v;
+        best = k;
+      }
+    }
+    let second = Infinity;
+    for (let k = 0; k < NZ; k++) if ((k < best - 1 || k > best + 1) && cost[base + k] < second) second = cost[base + k];
+    let pos = best;
+    if (best > 0 && best < NZ - 1) {
+      const a = cost[base + best - 1];
+      const c = cost[base + best + 1];
+      const den = a - 2 * bc + c;
+      if (den > 0) pos += Math.max(-0.5, Math.min(0.5, (a - c) / (2 * den)));
+    }
+    pos01[i] = pos / (NZ - 1);
+    confidence[i] = second > 0 && second < Infinity ? Math.max(0, Math.min(1, 1 - bc / second)) : 0;
+  }
+  // (the guide: the reference picture's brightness, its local contrast as the depth was measured on it)
+  const guide = new Float32Array(3 * w * h);
+  for (let i = 0; i < w * h; i++) guide[3 * i] = guide[3 * i + 1] = guide[3 * i + 2] = Math.max(0, Math.min(1, 0.5 + 0.12 * ref.g[i]));
+  const smooth = smoothDepth(pos01, w, h, guide, { amount: 0.5, confidence });
+  for (let i = 0; i < w * h; i++) invZ[i] = invMin + (invMax - invMin) * Math.max(0, Math.min(1, smooth[i]));
+  onProgress('Smoothing depth', 0.9);
+  return depthCleanup(setup, invZ, confidence, onProgress);
+}
+
 // The smoothing on the graphics card (gpu/l16sgm.js l16SgmGpu's function), or null for the processor's: set by the worker that has the card.
 let sgmOnCard = null;
 export function setL16SgmGpu(fn) {
@@ -357,7 +397,11 @@ export function setL16SgmGpu(fn) {
 
 // The last part: semi-global smoothing of the cost volume, the depth with its confidence, the filling of unsure pixels and the border.
 function depthFinish(setup, cost, onProgress) {
-  const { ref, refId, group, w, h, S, NZ, K, invMin, invMax, near, far, options } = setup;
+  const { ref, w, h, NZ, invMin, invMax, options } = setup;
+  // Illuminator's way (Camera > Depth > Depth method: Illuminator), as for a raw photo: each pixel's best step straight from the cost volume (refined between steps, its
+  // confidence from how much better it is than the runner up), then the picture-guided smoothing of a raw photo's depth (core/depth.js smoothDepth), instead of the
+  // smoothing along four directions.
+  if (options.style === 'illuminator') return depthFinishIlluminator(setup, cost, onProgress);
   // semi-global smoothing along four directions
   // (made only when the smoothing is done here)
   let total = null;
@@ -476,6 +520,12 @@ function depthFinish(setup, cost, onProgress) {
   }
   // Where the match is no better than its runner up (dark or flat areas), the depth is a guess: it is taken from the surer pixels round it (the mean of their depth, by confidence, over a
   // window), and a pixel that is sure keeps its own.
+  return depthCleanup(setup, invZ, confidence, onProgress);
+}
+
+// The filling of unsure pixels, the border and the median after each pixel's depth is picked; returns measureDepth's result.
+function depthCleanup(setup, invZ, confidence, onProgress) {
+  const { refId, group, w, h, S, NZ, K, near, far } = setup;
   const BORDER = Math.max(4, Math.round(48 / S));
   if (finishOnCard) {
     // (the filling, the border and the median on the graphics card, gpu/l16depthfinish.js; here if it fails)

@@ -2263,13 +2263,15 @@ function canRender() {
   return !!(state.info && (state.info.hasRaw || state.info.processed));
 }
 
-// A photo that carries its depth (a Light L16 photo, a Lytro file saved with a depth map): its depth is the file's, so Depth method shows From the file, alone; a raw
-// photo's are the measured ones (and a raw photo that had From the file gets Classic Desktop, the default).
+// A photo that carries its depth (a Light L16 photo, a Lytro file saved with a depth map) has its own choices: Classic Depth (its depth as it opens, the default) and, for a
+// Light L16 photo, Illuminator (Illuminator's raw-photo way of measuring, on its cameras); a raw photo has the measured ones (and one that had Classic Depth gets Classic
+// Desktop, the default).
 function showDepthMethods() {
   const select = $('depth-style');
   const own = !!(state.info && !state.info.hasRaw && state.info.processed && state.info.processed.hasDepth);
-  for (const o of select.options) o.hidden = own ? o.value !== 'file' : o.value === 'file';
-  if (own && select.value !== 'file') select.value = 'file';
+  const allowed = own ? (isL16() ? ['file', 'classic'] : ['file']) : null;
+  for (const o of select.options) o.hidden = allowed ? !allowed.includes(o.value) : o.value === 'file';
+  if (allowed && !allowed.includes(select.value)) select.value = 'file';
   else if (!own && select.value === 'file') select.value = 'match';
   $('depth-blend-row').hidden = select.value !== 'combined';
   showDepthModelControls();
