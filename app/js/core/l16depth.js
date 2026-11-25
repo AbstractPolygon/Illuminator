@@ -406,6 +406,12 @@ export function setL16DepthFinishGpu(fn) {
   finishOnCard = fn || null;
 }
 
+// The Illuminator method's smoothing on the graphics card (the renderer's smoothDepth, as a raw photo's depth uses), or null for the processor's: set by the worker.
+let illuminatorSmoothOnCard = null;
+export function setL16IlluminatorSmoothGpu(f) {
+  illuminatorSmoothOnCard = f || null;
+}
+
 function depthFinishIlluminator(setup, cost, onProgress) {
   const { ref, w, h, NZ, invMin, invMax } = setup;
   onProgress('Smoothing depth', 0.7);
@@ -439,7 +445,17 @@ function depthFinishIlluminator(setup, cost, onProgress) {
   // (the guide: the reference picture's brightness, its local contrast as the depth was measured on it)
   const guide = new Float32Array(3 * w * h);
   for (let i = 0; i < w * h; i++) guide[3 * i] = guide[3 * i + 1] = guide[3 * i + 2] = Math.max(0, Math.min(1, 0.5 + 0.12 * ref.g[i]));
-  const smooth = smoothDepth(pos01, w, h, guide, { amount: 0.5, confidence });
+  // (the picture-guided smoothing on the graphics card where there is one, as for a raw photo; here if it fails)
+  let smooth = null;
+  if (illuminatorSmoothOnCard) {
+    try {
+      smooth = illuminatorSmoothOnCard(pos01, w, h, guide, { amount: 0.5, confidence });
+    } catch (e) {
+      console.warn('L16 depth smoothing on the graphics card failed; smoothing here', e);
+      illuminatorSmoothOnCard = null;
+    }
+  }
+  if (!smooth) smooth = smoothDepth(pos01, w, h, guide, { amount: 0.5, confidence });
   for (let i = 0; i < w * h; i++) invZ[i] = invMin + (invMax - invMin) * Math.max(0, Math.min(1, smooth[i]));
   onProgress('Smoothing depth', 0.9);
   return depthCleanup(setup, invZ, confidence, onProgress);

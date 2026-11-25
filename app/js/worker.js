@@ -83,7 +83,7 @@ import { renderL16Final } from './core/l16render.js';
 import { superpixelColor, depthAtSize, synthesize, fillFromBackground, backgroundDepth, fillFromDonors } from './core/l16view.js';
 import { RIG_RADIUS_MM, developL16, setL16DevelopGpu, encodePicture } from './core/l16photo.js';
 import { cameraModel as l16CameraModel } from './core/l16geometry.js';
-import { relativePose as l16RelativePose, setL16SgmGpu, setL16ReduceGpu, setL16DepthFinishGpu, measureDepth as measureL16Depth } from './core/l16depth.js';
+import { relativePose as l16RelativePose, setL16SgmGpu, setL16ReduceGpu, setL16DepthFinishGpu, setL16IlluminatorSmoothGpu, measureDepthPooled as measureL16DepthPooled } from './core/l16depth.js';
 import { lytroSplatGpu } from './gpu/lytroengine.js';
 import { debugFlags, hook, setHook } from './core/debugflags.js';
 import { withExtension, depthRange, searchSteps, reachProfile, reachToward, uncoveredMask, setUncoveredGpu } from './core/viewextend.js';
@@ -4333,7 +4333,23 @@ async function l16DepthMethod(id) {
     if (!l16.illuminatorDepth) {
       const progress = (stage, p) => post({ id, type: 'progress', stage, progress: p });
       await tick();
-      l16.illuminatorDepth = measureL16Depth(l16.bytes, l16.parsed, { ref: l16.ref, style: 'illuminator' }, progress);
+      // (its depth steps on the graphics card where there is one, gpu/l16cost.js, as an opening's; the processor's where it fails)
+      const gpu = state.gpu && !debugFlags().noGpuL16Depth ? state.gpu : null;
+      const pool = gpu
+        ? {
+            async run(job, steps, onSlice) {
+              const onCard = l16CostGpu(gpu, job);
+              if (!onCard) throw new Error('no depth steps on the graphics card');
+              try {
+                await onCard.run(job, steps, onSlice);
+              } finally {
+                onCard.close();
+              }
+            },
+          }
+        : null;
+      setL16IlluminatorSmoothGpu(state.gpu && !debugFlags().noGpuL16IlluminatorSmooth ? state.gpu.smoothDepth.bind(state.gpu) : null);
+      l16.illuminatorDepth = await measureL16DepthPooled(l16.bytes, l16.parsed, { ref: l16.ref, style: 'illuminator' }, progress, pool);
     }
     measured = l16.illuminatorDepth;
   }
