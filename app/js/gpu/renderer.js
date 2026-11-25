@@ -1539,6 +1539,38 @@ const MASK_WEIGHT = `float maskWeight(int i, vec2 n, float aspect) {
 
 // Spatial effects of local adjustments (core/local.js applySpatial): blur,
 // pixelate and sketch, before the picture is finished.
+// A box blur pass (core/local.js boxBlur: radius uR along uDir, the edges clamped) and the block means of pixelate (each block's pixels inside the picture).
+const SPATIAL_BOX = `#version 300 es
+precision highp float;
+precision highp int;
+uniform sampler2D uSrc;
+uniform ivec2 uDir;
+uniform int uR;
+out vec4 outColor;
+void main() {
+  ivec2 size = textureSize(uSrc, 0);
+  ivec2 p = ivec2(gl_FragCoord.xy);
+  vec3 acc = vec3(0.0);
+  for (int d = -uR; d <= uR; d++) acc += texelFetch(uSrc, clamp(p + d * uDir, ivec2(0), size - 1), 0).rgb;
+  outColor = vec4(acc / float(2 * uR + 1), 1.0);
+}`;
+const SPATIAL_BLOCKS = `#version 300 es
+precision highp float;
+precision highp int;
+uniform sampler2D uSrc;
+uniform ivec2 uBlockOrigin;
+uniform int uBlock;
+out vec4 outColor;
+void main() {
+  ivec2 size = textureSize(uSrc, 0);
+  ivec2 b0 = uBlockOrigin + ivec2(gl_FragCoord.xy) * uBlock;
+  ivec2 lo = max(b0, ivec2(0));
+  ivec2 hi = min(b0 + uBlock, size);
+  vec3 acc = vec3(0.0);
+  for (int y = lo.y; y < hi.y; y++) for (int x = lo.x; x < hi.x; x++) acc += texelFetch(uSrc, ivec2(x, y), 0).rgb;
+  outColor = vec4(acc / float(max(1, (hi.x - lo.x) * (hi.y - lo.y))), 1.0);
+}`;
+
 const LOCAL_SPATIAL = `#version 300 es
 precision highp float;
 precision highp int;
@@ -1553,6 +1585,11 @@ uniform vec4 uMaskFx3[${MAX_MASKS}];  // denoise
 uniform sampler2D uBrush;  // painted masks' coverage, one per channel
 uniform highp sampler2D uDepth;
 uniform int uDepthOn;
+uniform int uOnly;         // the mask this pass applies (core/local.js applySpatial: one after another, each on the last one's result)
+uniform sampler2D uBlurred; // the picture box-blurred twice at the mask's radius (its blur)
+uniform sampler2D uBlocks;  // the mean of each block (its pixelate), lined up with the whole picture's blocks
+uniform ivec2 uBlockOrigin; // where the first block starts in the picture (0 or less)
+uniform float uBlock;       // the blocks' size
 out vec4 outColor;
 ${MASK_WEIGHT}
 vec3 at(vec2 q, ivec2 size) {
@@ -1574,6 +1611,7 @@ void main() {
   vec2 fp = vec2(p) + 0.5;
   for (int i = 0; i < ${MAX_MASKS}; i++) {
     if (i >= uMaskCount) break;
+    if (i != uOnly) continue;
     vec4 e = uMaskFx2[i];
     float dn = uMaskFx3[i].x;
     if (e.y <= 0.0 && e.z <= 0.0 && e.w <= 0.0 && dn <= 0.0) continue;
@@ -1599,21 +1637,10 @@ void main() {
       }
       c = mix(c, acc / sw, w);
     }
-    if (e.y > 0.0) {
-      float r = e.y * 0.02 * big;
-      vec3 acc = vec3(0.0);
-      for (int k = 0; k < 32; k++) {
-        float a = float(k) * 2.39996;
-        acc += at(fp + vec2(cos(a), sin(a)) * r * sqrt((float(k) + 0.5) / 32.0), size);
-      }
-      c = mix(c, acc / 32.0, w);
-    }
+    if (e.y > 0.0) c = mix(c, texelFetch(uBlurred, p, 0).rgb, w);
     if (e.z > 0.0) {
-      float b = max(2.0, floor(e.z * 0.04 * big));
-      vec2 cell = floor(vec2(p) / b) * b;
-      vec3 acc = vec3(0.0);
-      for (int y = 0; y < 4; y++) for (int x = 0; x < 4; x++) acc += at(cell + (vec2(x, y) + 0.5) * b / 4.0, size);
-      c = mix(c, acc / 16.0, w);
+      ivec2 j = (p - uBlockOrigin) / int(uBlock);
+      c = mix(c, texelFetch(uBlocks, j, 0).rgb, w);
     }
     if (e.w > 0.0) {
       float gx = logLum(p + ivec2(1, -1), size) + 2.0 * logLum(p + ivec2(1, 0), size) + logLum(p + ivec2(1, 1), size)
@@ -3267,6 +3294,8 @@ export class GpuRenderer {
       usmApply: program(gl, USM_APPLY),
       present: program(gl, PRESENT),
       localSpatial: program(gl, LOCAL_SPATIAL),
+      spatialBox: program(gl, SPATIAL_BOX),
+      spatialBlocks: program(gl, SPATIAL_BLOCKS),
       retouch: program(gl, RETOUCH),
       splat: program(gl, SPLAT_FRAGMENT, SPLAT_VERTEX),
       lensProbe: program(gl, LENS_PROBE_FRAGMENT, SPLAT_VERTEX),
@@ -5489,27 +5518,94 @@ export class GpuRenderer {
   // packMasks): returns a new texture.
   localSpatial(src, w, h, local, frame = null) {
     const gl = this.gl;
-    const out = this.scratch(w, h, 'localSpatial');
-    const P = this.programs.localSpatial;
-    this.target(out, w, h);
-    gl.useProgram(P.p);
-    // (a tile of a bigger picture: the masks and sizes are the whole picture's)
-    gl.uniform4f(P.u.uFrame, frame ? frame.x : 0, frame ? frame.y : 0, frame ? frame.width : w, frame ? frame.height : h);
-    gl.uniform1i(P.u.uSrc, 1);
-    this.bindTex(1, src);
-    gl.uniform1i(P.u.uMaskCount, local.count);
-    gl.uniform1iv(P.u.uMaskKind, local.kinds);
-    gl.uniform4fv(P.u.uMaskShape, local.shape);
-    gl.uniform4fv(P.u.uMaskExtra, local.extra);
-    gl.uniform4fv(P.u.uMaskFx2, local.fx2);
-    gl.uniform4fv(P.u.uMaskFx3, local.fx3);
-    gl.uniform1i(P.u.uDepthOn, this.depthTex ? 1 : 0);
-    gl.uniform1i(P.u.uDepth, 3);
-    this.bindTex(3, this.depthTex || src);
-    this.bindBrush(P, local, src);
-    this.draw();
-    return out;
+    const fr = frame || { x: 0, y: 0, width: w, height: h };
+    const big = Math.max(fr.width, fr.height);
+    const made = [];
+    const tex = () => {
+      const t = this.texture(w, h, gl.RGBA32F);
+      made.push(t);
+      return t;
+    };
+    const run = (P, out, tw, th, set) => {
+      this.target(out, tw, th);
+      gl.useProgram(P.p);
+      set(P.u);
+      this.draw();
+    };
+    let cur = src;
+    try {
+      // (one mask after another, each on the last one's result, as core/local.js applySpatial; the last into the scratch texture the callers expect)
+      const active = [];
+      for (let i = 0; i < local.count; i++) if (local.fx2[4 * i + 1] > 0 || local.fx2[4 * i + 2] > 0 || local.fx2[4 * i + 3] > 0 || local.fx3[4 * i] > 0) active.push(i);
+      for (const i of active) {
+        const blur = local.fx2[4 * i + 1];
+        const pixelate = local.fx2[4 * i + 2];
+        // the blur: a box blur of radius r, twice
+        let blurred = cur;
+        if (blur > 0) {
+          const r = Math.max(1, Math.round(blur * 0.02 * big * 0.5));
+          for (let pass = 0; pass < 4; pass++) {
+            const out = tex();
+            const from = blurred;
+            run(this.programs.spatialBox, out, w, h, (u) => {
+              gl.uniform1i(u.uSrc, 1);
+              this.bindTex(1, from);
+              gl.uniform2i(u.uDir, pass % 2 === 0 ? 1 : 0, pass % 2 === 0 ? 0 : 1);
+              gl.uniform1i(u.uR, r);
+            });
+            blurred = out;
+          }
+        }
+        // the pixelate blocks, lined up with the whole picture's
+        const bs = pixelate > 0 ? Math.max(2, Math.floor(pixelate * 0.04 * big)) : 2;
+        const origin = [-(((fr.x % bs) + bs) % bs), -(((fr.y % bs) + bs) % bs)];
+        let blocks = cur;
+        if (pixelate > 0) {
+          const nx = Math.ceil((w - origin[0]) / bs);
+          const ny = Math.ceil((h - origin[1]) / bs);
+          blocks = this.texture(nx, ny, gl.RGBA32F);
+          made.push(blocks);
+          run(this.programs.spatialBlocks, blocks, nx, ny, (u) => {
+            gl.uniform1i(u.uSrc, 1);
+            this.bindTex(1, cur);
+            gl.uniform2i(u.uBlockOrigin, origin[0], origin[1]);
+            gl.uniform1i(u.uBlock, bs);
+          });
+        }
+        const out = i === active[active.length - 1] ? this.scratch(w, h, 'localSpatial') : tex();
+        const from = cur;
+        run(this.programs.localSpatial, out, w, h, (u) => {
+          const P = this.programs.localSpatial;
+          gl.uniform1i(u.uSrc, 1);
+          this.bindTex(1, from);
+          // (a tile of a bigger picture: the masks and sizes are the whole picture's)
+          gl.uniform4f(u.uFrame, fr.x, fr.y, fr.width, fr.height);
+          gl.uniform1i(u.uMaskCount, local.count);
+          gl.uniform1iv(u.uMaskKind, local.kinds);
+          gl.uniform4fv(u.uMaskShape, local.shape);
+          gl.uniform4fv(u.uMaskExtra, local.extra);
+          gl.uniform4fv(u.uMaskFx2, local.fx2);
+          gl.uniform4fv(u.uMaskFx3, local.fx3);
+          gl.uniform1i(u.uDepthOn, this.depthTex ? 1 : 0);
+          gl.uniform1i(u.uDepth, 3);
+          this.bindTex(3, this.depthTex || from);
+          this.bindBrush(P, local, from);
+          gl.uniform1i(u.uOnly, i);
+          gl.uniform1i(u.uBlurred, 2);
+          this.bindTex(2, blurred);
+          gl.uniform1i(u.uBlocks, 4);
+          this.bindTex(4, blocks);
+          gl.uniform2i(u.uBlockOrigin, origin[0], origin[1]);
+          gl.uniform1f(u.uBlock, bs);
+        });
+        cur = out;
+      }
+      return cur;
+    } finally {
+      for (const t of made) gl.deleteTexture(t);
+    }
   }
+
 
   // The painted masks' coverage (`local.brush` from packMasks) on unit 5, uploaded again only when it changes (without any, `fallback` stands in).
   bindBrush(P, local, fallback) {

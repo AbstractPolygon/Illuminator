@@ -1692,8 +1692,6 @@ function tilePixelsOnGpu(tile, opts, ctx, cs) {
   const { width: w, height: h } = tile;
   const gl = gpu.gl;
   let out = null;
-  // (with masks the processor's finish for now: the card's does not place them on a tile as the processor does yet)
-  if (packedMasks(ctx)) return null;
   try {
     let tex = tileTexOnGpu(tile, opts);
     if (state.detail) tex = gpu.details(tex, w, h, detailForSize(state.detail, w, lensColumns()));
