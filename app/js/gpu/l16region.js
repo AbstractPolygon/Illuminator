@@ -7,7 +7,7 @@ import { l16FilterTextures } from './l16filters.js';
 import { cameraModel } from '../core/l16geometry.js';
 import { relativePose } from '../core/l16depth.js';
 import { demosaic } from '../core/l16fusion.js';
-import { flowShifts } from '../core/l16hires.js';
+import { flowShifts, CLIP_LEVEL } from '../core/l16hires.js';
 
 const HEAD = `#version 300 es
 precision highp float;
@@ -76,6 +76,7 @@ void main() {
 const ROWGAIN = `${HEAD}
 uniform sampler2D uUp;
 uniform sampler2D uSamp;
+uniform sampler2D uClip;
 layout(location = 0) out vec4 outUp;
 layout(location = 1) out vec4 outSamp;
 void main() {
@@ -86,7 +87,7 @@ void main() {
   for (int x = 0; x < W; x++) {
     if ((y * W + x) % 5 != 0) continue;
     vec4 s = texelFetch(uSamp, ivec2(x, y), 0);
-    if (s.a == 0.0) continue;
+    if (s.a == 0.0 || texelFetch(uClip, ivec2(x, y), 0).r > 0.5) continue;
     su += texelFetch(uUp, ivec2(x, y), 0).rgb;
     ss += s.rgb;
   }
@@ -101,6 +102,56 @@ out vec4 outColor;
 void main() {
   vec4 s = texelFetch(uSamp, ivec2(gl_FragCoord.xy), 0);
   outColor = s.a > 0.0 ? vec4(s.rgb * uGain, 1.0) : vec4(0.0);
+}`;
+
+// Where the wide picture or the camera's picture (before its gains) is near the sensor's white level (core/l16hires.js clippedNear, CLIP_LEVEL): 1 there.
+const CLIP = `${HEAD}
+uniform sampler2D uUp;
+uniform sampler2D uSamp;
+uniform vec3 uWb;
+uniform float uLevel;
+out vec4 outColor;
+bool over(vec3 c) {
+  vec3 r = c / uWb;
+  return max(r.r, max(r.g, r.b)) > uLevel;
+}
+void main() {
+  ivec2 p = ivec2(gl_FragCoord.xy);
+  vec4 s = texelFetch(uSamp, p, 0);
+  bool c = over(texelFetch(uUp, p, 0).rgb) || (s.a > 0.0 && over(s.rgb));
+  outColor = vec4(c ? 1.0 : 0.0, 0.0, 0.0, 1.0);
+}`;
+
+// The camera's usable pixels (it has the pixel, not near clipping): 1 in every channel.
+const USABLE = `${HEAD}
+uniform sampler2D uSamp;
+uniform sampler2D uClip;
+out vec4 outColor;
+void main() {
+  ivec2 p = ivec2(gl_FragCoord.xy);
+  float u = texelFetch(uSamp, p, 0).a > 0.0 && texelFetch(uClip, p, 0).r < 0.5 ? 1.0 : 0.0;
+  outColor = vec4(u, u, u, 1.0);
+}`;
+
+const MASKED = `${HEAD}
+uniform sampler2D uSamp;
+uniform sampler2D uUsable;
+out vec4 outColor;
+void main() {
+  ivec2 p = ivec2(gl_FragCoord.xy);
+  outColor = vec4(texelFetch(uSamp, p, 0).rgb * texelFetch(uUsable, p, 0).r, 1.0);
+}`;
+
+// The camera's low frequencies from its usable pixels only: their blur over the blur of where they are (none where few are near).
+const LOWDIV = `${HEAD}
+uniform sampler2D uNum;
+uniform sampler2D uDen;
+out vec4 outColor;
+void main() {
+  ivec2 p = ivec2(gl_FragCoord.xy);
+  vec3 d = texelFetch(uDen, p, 0).rgb;
+  vec3 n = texelFetch(uNum, p, 0).rgb;
+  outColor = vec4(d.r > 0.25 ? n / d : vec3(0.0), 1.0);
 }`;
 
 // The brightness of the wide picture's and the camera's low frequencies, each 4 x 4 block averaged (flowOffsets' reduce), for the flow search.
@@ -168,19 +219,16 @@ uniform sampler2D uUp;
 uniform sampler2D uUpLow;
 uniform sampler2D uSamp;
 uniform sampler2D uLow;
-uniform vec3 uWb;
-uniform vec3 uGain;
+uniform sampler2D uClip;
+uniform sampler2D uUsableLow;
 out vec4 outColor;
-bool clipped(vec3 c, vec3 k) {
-  vec3 r = c / (uWb * k);
-  return max(r.r, max(r.g, r.b)) > 0.9;
-}
 void main() {
   ivec2 p = ivec2(gl_FragCoord.xy);
   outColor = vec4(0.0);
   vec4 s = texelFetch(uSamp, p, 0);
   if (s.a == 0.0) return;
-  if (clipped(texelFetch(uUp, p, 0).rgb, vec3(1.0)) || clipped(s.rgb, uGain)) return;
+  // (near the white level, or where few usable pixels of the camera are near: no detail)
+  if (texelFetch(uClip, p, 0).r > 0.5 || !(texelFetch(uUsableLow, p, 0).r > 0.25)) return;
   float ll = luma(texelFetch(uLow, p, 0).rgb);
   float lu = luma(texelFetch(uUpLow, p, 0).rgb);
   float sig = 0.015 + 0.08 * sqrt(max(lu, 0.0)) * 0.35;
@@ -269,6 +317,7 @@ export function l16RegionGpu(gpu) {
       zgrid: program(gl, ZGRID), up: program(gl, UP), project: program(gl, LOOKUP_PROJECT), sample: program(gl, LOOKUP_SAMPLE), rowRange: program(gl, ROWRANGE),
       rowGain: program(gl, ROWGAIN), gain: program(gl, GAIN), reduce: program(gl, REDUCE), relook: program(gl, RELOOK), agree: program(gl, AGREE),
       rowAgree: program(gl, ROWAGREE), layer: program(gl, LAYER), mix: program(gl, MIX),
+      clip: program(gl, CLIP), usable: program(gl, USABLE), masked: program(gl, MASKED), lowDiv: program(gl, LOWDIV),
     });
   // (the wide picture is the same for every tile of a render: kept on the card until another comes)
   let wideKept = null;
@@ -394,11 +443,30 @@ export function l16RegionGpu(gpu) {
           gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, img.width, img.height, gl.RGB, gl.FLOAT, img.rgb);
           const samp = ltex(W, H);
           draw(pr.sample, samp, W, H, [['uProj', proj], ['uImg', imgT]], (u) => gl.uniform2f(u.uOrigin, img.x0 || 0, img.y0 || 0));
+          // near the white level (and a pixel round), and the camera's usable pixels
+          const wb = opts.gains || [1, 1, 1];
+          const clipRaw = ltex(W, H);
+          draw(pr.clip, clipRaw, W, H, [['uUp', upT], ['uSamp', samp]], (u) => {
+            gl.uniform3f(u.uWb, wb[0], wb[1], wb[2]);
+            gl.uniform1f(u.uLevel, CLIP_LEVEL);
+          });
+          const clipT = filters.bounds(local, clipRaw, W, H, 1).max;
+          const usableT = ltex(W, H);
+          draw(pr.usable, usableT, W, H, [['uSamp', samp], ['uClip', clipT]]);
+          const usableLow = filters.gauss(local, usableT, W, H, sigma);
+          const lowOf = (src) => {
+            const m = ltex(W, H);
+            draw(pr.masked, m, W, H, [['uSamp', src], ['uUsable', usableT]]);
+            const num = filters.gauss(local, m, W, H, sigma);
+            const out = ltex(W, H);
+            draw(pr.lowDiv, out, W, H, [['uNum', num], ['uDen', usableLow]]);
+            return out;
+          };
           // gains that bring the camera's colors to the wide picture's
           const gu = ltex(1, H);
           const gs = ltex(1, H);
           try {
-            draw(pr.rowGain, [gu, gs], 1, H, [['uUp', upT], ['uSamp', samp]]);
+            draw(pr.rowGain, [gu, gs], 1, H, [['uUp', upT], ['uSamp', samp], ['uClip', clipT]]);
           } finally {
             gl.drawBuffers([gl.COLOR_ATTACHMENT0]);
             gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT1, gl.TEXTURE_2D, null, 0);
@@ -416,7 +484,7 @@ export function l16RegionGpu(gpu) {
           const g = sd.map((v, c) => (v > 1e-6 ? sr[c] / v : 1));
           let sampG = ltex(W, H);
           draw(pr.gain, sampG, W, H, [['uSamp', samp]], (u) => gl.uniform3f(u.uGain, g[0], g[1], g[2]));
-          let low = filters.gauss(local, sampG, W, H, sigma);
+          let low = lowOf(sampG);
           // the registration refined against the wide picture (the block search on the processor, on the reduced pictures), and the camera looked up again
           if (opts.flow !== false && W >= 64 && H >= 64) {
             const ds = 4;
@@ -446,15 +514,11 @@ export function l16RegionGpu(gpu) {
               gl.uniform1f(u.uCell, 6 * ds);
             });
             sampG = moved;
-            low = filters.gauss(local, sampG, W, H, sigma);
+            low = lowOf(sampG);
           }
           // the agreement and the detail
           const agree = ltex(W, H);
-          const wb = opts.gains || [1, 1, 1];
-          draw(pr.agree, agree, W, H, [['uUp', upT], ['uUpLow', upLow], ['uSamp', sampG], ['uLow', low]], (u) => {
-            gl.uniform3f(u.uWb, wb[0], wb[1], wb[2]);
-            gl.uniform3f(u.uGain, g[0], g[1], g[2]);
-          });
+          draw(pr.agree, agree, W, H, [['uUp', upT], ['uUpLow', upLow], ['uSamp', sampG], ['uLow', low], ['uClip', clipT], ['uUsableLow', usableLow]]);
           const ra = ltex(1, H);
           draw(pr.rowAgree, ra, 1, H, [['uAgree', agree]]);
           readRGBA(ra, 1, H, rowBuf);

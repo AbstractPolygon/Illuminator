@@ -565,6 +565,39 @@ function boxBlur1Cpu(src, w, h, r) {
   return a;
 }
 
+// Where the wide picture (up) or a camera's picture (samp, before its color gains; `have`: where it has one) is near the sensor's white level (0.85 of it, with the white
+// balance `wb` taken out: the demosaic pulls a clipped patch's edge a little below the level), widened by r pixels: 1 there, 0 elsewhere.
+export const CLIP_LEVEL = 0.85;
+function clippedNear(up, samp, have, wb, W, H, r) {
+  const m = new Uint8Array(W * H);
+  const over = (arr, i) => Math.max(arr[3 * i] / wb[0], arr[3 * i + 1] / wb[1], arr[3 * i + 2] / wb[2]) > CLIP_LEVEL;
+  for (let i = 0; i < W * H; i++) if (over(up, i) || (have[i] && over(samp, i))) m[i] = 1;
+  // (widened along the rows, then the columns: a pixel is marked when any within r is)
+  const tmp = new Uint8Array(W * H);
+  for (let y = 0; y < H; y++) {
+    let last = -Infinity;
+    for (let x = 0; x < W; x++) if (m[y * W + x]) last = x; else if (x - last <= r) tmp[y * W + x] = 1;
+    for (let x = W - 1, next = Infinity; x >= 0; x--) {
+      if (m[y * W + x]) {
+        next = x;
+        tmp[y * W + x] = 1;
+      } else if (next - x <= r) tmp[y * W + x] = 1;
+    }
+  }
+  const out = new Uint8Array(W * H);
+  for (let x = 0; x < W; x++) {
+    let last = -Infinity;
+    for (let y = 0; y < H; y++) if (tmp[y * W + x]) last = y; else if (y - last <= r) out[y * W + x] = 1;
+    for (let y = H - 1, next = Infinity; y >= 0; y--) {
+      if (tmp[y * W + x]) {
+        next = y;
+        out[y * W + x] = 1;
+      } else if (next - y <= r) out[y * W + x] = 1;
+    }
+  }
+  return out;
+}
+
 // Renders the region { x0, y0, w, h } (pixels of the wide reference's grid) at `scale` (output pixels per wide pixel). `wide` is the merged wide picture, `depth` the measured depth
 // (core/l16depth.js), `modules` the telephoto cameras to use. Returns { width, height, rgb, covered: the share of output pixels that a telephoto camera supplied }.
 // (`grid`: sensor pixels per pixel of the wide picture's grid, 1 for the full size merge and 2 for the half size one; the region is in that grid's pixels and `scale` is output pixels per grid pixel.)
@@ -713,11 +746,27 @@ export function renderRegion(bytes, parsed, depth, wide, { x0, y0, w, h, scale, 
         }
       }
     }
+    // Where this camera or the wide picture is at its white level, and a pixel round it (the telephoto cameras are exposed longer than the wide ones and clip where the wide
+    // picture still has detail: a clipped patch's flat top is not detail, and would be pasted in as a flat white blob). Left out of the color gains and the detail, and the
+    // camera's low frequencies are made from its other pixels only (lowOf), so the ring a clipped patch would spread round it in a plain blur does not count either.
+    const wb = opts.gains || [1, 1, 1];
+    const clipNear = clippedNear(up, samp, have, wb, W, H, 1);
+    const usable = new Float32Array(3 * W * H);
+    for (let i = 0; i < W * H; i++) if (have[i] && !clipNear[i]) usable[3 * i] = usable[3 * i + 1] = usable[3 * i + 2] = 1;
+    const usableLow = gauss(usable, W, H, sigma);
+    // (the blur of the usable pixels over the blur of where they are; where few are near, none)
+    const lowOf = (src) => {
+      const masked = new Float32Array(3 * W * H);
+      for (let i = 0; i < 3 * W * H; i++) masked[i] = src[i] * usable[i];
+      const num = gauss(masked, W, H, sigma);
+      for (let i = 0; i < 3 * W * H; i++) num[i] = usableLow[i] > 0.25 ? num[i] / usableLow[i] : 0;
+      return num;
+    };
     // gains that bring the camera's colors to the wide picture's (over where it has pixels)
     const sr = [0, 0, 0];
     const sd = [0, 0, 0];
     for (let i = 0; i < W * H; i += 5) {
-      if (!have[i]) continue;
+      if (!have[i] || clipNear[i]) continue;
       for (let c = 0; c < 3; c++) {
         sr[c] += up[3 * i + c];
         sd[c] += samp[3 * i + c];
@@ -730,7 +779,7 @@ export function renderRegion(bytes, parsed, depth, wide, { x0, y0, w, h, scale, 
       samp[3 * i + 1] *= g[1];
       samp[3 * i + 2] *= g[2];
     }
-    let low = gauss(samp, W, H, sigma);
+    let low = lowOf(samp);
     // refine the registration against the wide picture, then look the camera up again with the corrections
     if (opts.flow !== false && W >= 64 && H >= 64) {
       const lumaOf = (arr) => {
@@ -767,7 +816,7 @@ export function renderRegion(bytes, parsed, depth, wide, { x0, y0, w, h, scale, 
           }
         }
       }
-      if (moved) low = gauss(samp, W, H, sigma);
+      if (moved) low = lowOf(samp);
     }
     // (the detail is brightness only: a camera's color detail is mostly its demosaic's false color at fine edges, and mixing cameras per channel would color the edges)
     const det = new Float32Array(W * H).fill(NaN);
@@ -775,11 +824,8 @@ export function renderRegion(bytes, parsed, depth, wide, { x0, y0, w, h, scale, 
     let camW = 0;
     let camN = 0;
     // (near the sensor's white level a channel is cut, at a different level in each camera: there is no detail to add there, only the difference in where each one clipped)
-    const wb = opts.gains || [1, 1, 1];
-    const clipped = (arr, i, k) => Math.max(arr[3 * i] / (wb[0] * k[0]), arr[3 * i + 1] / (wb[1] * k[1]), arr[3 * i + 2] / (wb[2] * k[2])) > 0.9;
     for (let i = 0; i < W * H; i++) {
-      if (!have[i]) continue;
-      if (clipped(up, i, [1, 1, 1]) || clipped(samp, i, g)) continue;
+      if (!have[i] || clipNear[i] || !(usableLow[3 * i] > 0.25)) continue;
       // agree: the telephoto's low frequencies match the wide picture's within noise and a small misregistration
       const ll = luma(low[3 * i], low[3 * i + 1], low[3 * i + 2]);
       const lu = luma(upLow[3 * i], upLow[3 * i + 1], upLow[3 * i + 2]);
