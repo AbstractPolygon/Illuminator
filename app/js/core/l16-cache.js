@@ -8,7 +8,7 @@
 
 export const L16_CACHE_FILE = 'l16.illuminator.bin';
 // Raise when the depth measurement or the merge changes what they make.
-export const L16_CACHE_REV = 3;
+export const L16_CACHE_REV = 4;
 const MAGIC = 0x36314c49; // 'IL16' read as a little endian uint32
 const FORMAT = 1;
 const RANGE = 4;

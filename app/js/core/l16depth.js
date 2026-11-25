@@ -170,6 +170,62 @@ export function fillUnsure(invZ, confidence, w, h, radius, threshold) {
   invZ.set(out);
 }
 
+// Small islands of depth much nearer than everything round them: sky or a far wall seen through gaps in leaves, a reflection or a repeating pattern that matched at the wrong step.
+// Pixels joined where their depth differs by under `link` (1 / mm) make an island; one of at most `maxSize` pixels whose depth is nearer than the median of the pixels round it by over
+// `jump` takes that median, and its confidence goes to 0 (the filling after blends its edge). Returns how many islands were replaced.
+export function nearSpeckles(invZ, confidence, w, h, link, jump, maxSize) {
+  const n = w * h;
+  const label = new Int32Array(n).fill(-1);
+  const stack = new Int32Array(n);
+  const members = new Int32Array(n);
+  const around = [];
+  let replaced = 0;
+  let id = 0;
+  for (let s = 0; s < n; s++) {
+    if (label[s] >= 0) continue;
+    let top = 0;
+    let count = 0;
+    stack[top++] = s;
+    label[s] = id;
+    while (top) {
+      const i = stack[--top];
+      members[count++] = i;
+      const v = invZ[i];
+      const x = i % w;
+      if (x > 0 && label[i - 1] < 0 && Math.abs(invZ[i - 1] - v) <= link) { label[i - 1] = id; stack[top++] = i - 1; }
+      if (x < w - 1 && label[i + 1] < 0 && Math.abs(invZ[i + 1] - v) <= link) { label[i + 1] = id; stack[top++] = i + 1; }
+      if (i >= w && label[i - w] < 0 && Math.abs(invZ[i - w] - v) <= link) { label[i - w] = id; stack[top++] = i - w; }
+      if (i < n - w && label[i + w] < 0 && Math.abs(invZ[i + w] - v) <= link) { label[i + w] = id; stack[top++] = i + w; }
+    }
+    if (count <= maxSize) {
+      around.length = 0;
+      let sum = 0;
+      for (let k = 0; k < count; k++) {
+        const i = members[k];
+        sum += invZ[i];
+        const x = i % w;
+        if (x > 0 && label[i - 1] !== id) around.push(invZ[i - 1]);
+        if (x < w - 1 && label[i + 1] !== id) around.push(invZ[i + 1]);
+        if (i >= w && label[i - w] !== id) around.push(invZ[i - w]);
+        if (i < n - w && label[i + w] !== id) around.push(invZ[i + w]);
+      }
+      if (around.length) {
+        around.sort((a, b) => a - b);
+        const med = around[around.length >> 1];
+        if (sum / count - med > jump) {
+          for (let k = 0; k < count; k++) {
+            invZ[members[k]] = med;
+            confidence[members[k]] = 0;
+          }
+          replaced++;
+        }
+      }
+    }
+    id++;
+  }
+  return replaced;
+}
+
 // The first part of measureDepth: the pictures and numbers every depth step uses (`job`, which can be sent to a helper worker as it is), and what the last part needs.
 function depthSetup(bytes, parsed, options = {}, onProgress = () => {}) {
   const refId = options.ref || parsed.header.image_reference_camera;
@@ -525,8 +581,11 @@ function depthFinish(setup, cost, onProgress) {
 
 // The filling of unsure pixels, the border and the median after each pixel's depth is picked; returns measureDepth's result.
 function depthCleanup(setup, invZ, confidence, onProgress) {
-  const { refId, group, w, h, S, NZ, K, near, far } = setup;
+  const { refId, group, w, h, S, NZ, K, near, far, invMin, invMax } = setup;
   const BORDER = Math.max(4, Math.round(48 / S));
+  // (islands much nearer than their surroundings: up to about 1 / 250 of the picture, over 4 steps nearer)
+  const step = (invMax - invMin) / (NZ - 1);
+  nearSpeckles(invZ, confidence, w, h, 1.5 * step, 4 * step, Math.round((w * h) / 250));
   if (finishOnCard) {
     // (the filling, the border and the median on the graphics card, gpu/l16depthfinish.js; here if it fails)
     try {

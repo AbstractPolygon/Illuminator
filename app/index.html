@@ -430,10 +430,10 @@
           <label id="lytro-depth-row" class="check" title="Uses the depth map edited in Lytro Desktop, imported with the photo, instead of measuring depth" hidden><input id="lytro-depth" type="checkbox" checked> Lytro Desktop depth map</label>
           <label id="depth-style-row" title="How depth is measured. Blended mixes the other two; Illuminator and Classic Desktop are one style each">Depth method
             <select id="depth-style">
+              <option value="file" hidden>Classic Depth</option>
               <option value="classic">Illuminator</option>
               <option value="match" selected>Classic Desktop</option>
               <option value="combined">Blended</option>
-              <option value="file" hidden>Classic Depth</option>
             </select>
           </label>
           <label id="depth-model-blend-row" title="How much of the depth model's result is used. 0: measured depth alone, 100: model alone" hidden>Model blend <output for="depth-model-blend" data-for="depth-model-blend">100</output>
