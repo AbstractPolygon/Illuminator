@@ -1,8 +1,9 @@
 // The merge of a Light L16 photo's cameras (core/l16fusion.js fuse) on the graphics card, with the processor's rules in single precision: the reference camera's picture
 // laid on its undistorted grid, and each other camera's picture looked up where the depth puts every pixel (the calibrated pose, the lens distortion, the capture's
-// correction, a bilinear lookup), with its weight by how well it agrees with the reference. The output is made in bands of rows (the full size merge is 4160 x 3120); each
+// correction, a bilinear lookup), its colors brought to the reference's locally, with its weight by how well it agrees with the reference (core/l16fusion.js mergeShare). The output is made in bands of rows (the full size merge is 4160 x 3120); each
 // band's result is read back and added up on the processor, which keeps the graphics memory needed to the cameras' pictures and a band.
 import { program } from './renderer.js';
+import { l16FilterTextures } from './l16filters.js';
 
 const COMMON = `#version 300 es
 precision highp float;
@@ -48,7 +49,7 @@ void main() {
   outColor = ok ? vec4(c, 1.0) : vec4(0.0);
 }`;
 
-// One camera's share: (rgb times its weight, the weight); the weight's alpha past 0.5 counts as agreeing (the second output).
+// The camera's picture at each pixel of the reference's grid where the reference has one: (rgb, 1), else 0.
 const CAM = `${COMMON}
 uniform sampler2D uImg;
 uniform sampler2D uRefU;   // the band of the reference on the grid: (rgb, 1 where valid)
@@ -59,18 +60,12 @@ uniform mat3 uR;           // rows of R (relative pose)
 uniform vec3 uT;
 uniform vec3 uCx;          // the capture's correction (a0, a1, a2) of x; 0 for none
 uniform vec3 uCy;
-uniform vec3 uGain;
-uniform int uMono;
-uniform float uMg;
-layout(location = 0) out vec4 outShare;
-layout(location = 1) out vec4 outAgree;
+out vec4 outColor;
 void main() {
   ivec2 b = ivec2(gl_FragCoord.xy);
   ivec2 p = b + ivec2(0, uRow0);
-  outShare = vec4(0.0);
-  outAgree = vec4(0.0);
-  vec4 ru = texelFetch(uRefU, b, 0);
-  if (ru.a == 0.0) return;
+  outColor = vec4(0.0);
+  if (texelFetch(uRefU, b, 0).a == 0.0) return;
   float Z = texelFetch(uZ, b, 0).r;
   vec3 P = vec3(((float(p.x) + 0.5) * uS - uK.y) / uK.x * Z, ((float(p.y) + 0.5) * uS - uK.w) / uK.z * Z, Z);
   float Pz = dot(uR[2], P) + uT.z;
@@ -80,14 +75,73 @@ void main() {
   s += vec2(uCx.x + uCx.y * uv.x + uCx.z * uv.y, uCy.x + uCy.y * uv.x + uCy.z * uv.y);
   vec3 smp;
   if (!look(uImg, s / uS, smp)) return;
-  float rl = luma(ru.rgb);
-  vec3 col = uMono == 1 ? ru.rgb * ((smp.g * uMg) / max(1e-4, rl)) : smp * uGain;
-  float dl = luma(col);
-  float sigma = 0.012 + 0.07 * sqrt(max(rl, 0.0)) * 0.35;
-  float d = (dl - rl) / sigma;
-  float w = exp(-0.5 * d * d);
+  outColor = vec4(smp, 1.0);
+}`;
+
+// The two pictures where both have a pixel (for their local color ratio): r g b times that, and the mask.
+const MASKED = `${COMMON}
+uniform sampler2D uA;   // (rgb, any)
+uniform sampler2D uOk;  // a: 1 where both have a pixel
+out vec4 outColor;
+void main() {
+  ivec2 b = ivec2(gl_FragCoord.xy);
+  float ok = texelFetch(uOk, b, 0).a;
+  outColor = vec4(texelFetch(uA, b, 0).rgb * ok, ok);
+}`;
+
+// The camera's share (core/l16fusion.js mergeShare): its colors brought to the reference's locally, and its weight for the pixel alone.
+const SHARE = `${COMMON}
+uniform sampler2D uRefU;
+uniform sampler2D uSmp;
+uniform sampler2D uRefL;   // the blurred masked reference (rgb, the mask's blur)
+uniform sampler2D uSmpL;   // and the camera's
+uniform int uMono;
+uniform float uMg;
+uniform vec3 uGain;
+out vec4 outColor;
+float sig(float v) { return 0.012 + 0.07 * sqrt(max(v, 0.0)) * 0.35; }
+void main() {
+  ivec2 b = ivec2(gl_FragCoord.xy);
+  vec4 sm = texelFetch(uSmp, b, 0);
+  outColor = vec4(0.0);
+  if (sm.a == 0.0) return;
+  vec3 ref = texelFetch(uRefU, b, 0).rgb;
+  vec4 rl4 = texelFetch(uRefL, b, 0);
+  vec4 sl4 = texelFetch(uSmpL, b, 0);
+  bool enough = rl4.a > 0.3;
+  vec3 k;
+  for (int c = 0; c < 3; c++) {
+    int cc = uMono == 1 ? 1 : c;
+    float ratio = enough && sl4[cc] > 1e-4 ? rl4[uMono == 1 ? 1 : c] / sl4[cc] : (uMono == 1 ? uMg : uGain[c]);
+    k[c] = clamp(ratio, 0.25, 4.0);
+  }
+  float rl = luma(ref);
+  vec3 col;
+  if (uMono == 1) {
+    float q = clamp(sm.g * k.g / max(1e-4, ref.g), 0.0, 4.0);
+    col = ref * q;
+  } else col = sm.rgb * k;
+  float d = abs(luma(col) - rl) / sig(rl);
+  if (uMono == 0) d = max(d, max(abs(col.r - ref.r) / (1.5 * sig(ref.r)), max(abs(col.g - ref.g) / (1.5 * sig(ref.g)), abs(col.b - ref.b) / (1.5 * sig(ref.b)))));
+  outColor = vec4(col, exp(-0.5 * d * d));
+}`;
+
+// The weight: the lower of the pixel's own and its neighborhood's (a box of 5 x 5); none under 0.02. (rgb times it, it)
+const WEIGHT = `${COMMON}
+uniform sampler2D uShare;
+uniform sampler2D uNear;   // a: the share's weight blurred
+uniform sampler2D uSmp;
+layout(location = 0) out vec4 outShare;
+layout(location = 1) out vec4 outAgree;
+void main() {
+  ivec2 b = ivec2(gl_FragCoord.xy);
+  outShare = vec4(0.0);
+  outAgree = vec4(0.0);
+  if (texelFetch(uSmp, b, 0).a == 0.0) return;
+  vec4 sh = texelFetch(uShare, b, 0);
+  float w = min(sh.a, texelFetch(uNear, b, 0).a);
   if (w < 0.02) return;
-  outShare = vec4(col * w, w);
+  outShare = vec4(sh.rgb * w, w);
   outAgree = vec4(w > 0.5 ? 1.0 : 0.0, 0.0, 0.0, 1.0);
 }`;
 
@@ -103,8 +157,9 @@ const setDist = (gl, u, dist) => {
 // On `gpu` (a GpuRenderer): { reference(job), camera(job) }, the two steps of fuse (core/l16fusion.js), as described there.
 export function l16FuseGpu(gpu) {
   const gl = gpu.gl;
+  const filters = l16FilterTextures(gpu);
   let progs = null;
-  const P = () => (progs = progs || { ref: program(gl, REF), cam: program(gl, CAM) });
+  const P = () => (progs = progs || { ref: program(gl, REF), cam: program(gl, CAM), masked: program(gl, MASKED), share: program(gl, SHARE), weight: program(gl, WEIGHT) });
   // (a picture of 3 values a pixel, as it is: an RGB32F texture)
   const rgbTex = (made, { width, height, rgb }) => {
     const t = gpu.texture(width, height, gl.RGB32F);
@@ -156,77 +211,119 @@ export function l16FuseGpu(gpu) {
         }
       });
     },
-    // One camera's share added to out (3 a pixel) and weight; returns how many pixels agreed.
+    // One camera's share added to out (3 a pixel) and weight; returns how many pixels agreed. Made in bands of rows, each with a margin above and below as deep as
+    // the blurs reach, so the band's own rows come out as from the whole picture.
     camera({ img, W, H, S, K, cam, rel, corr, gain, mono, mg, z, refUnd, valid, out: acc, weight }) {
       return scoped((made) => {
-        const p = P().cam;
+        const pr = P();
         const src = rgbTex(made, img);
-        const rows = Math.min(H, bandRows(W));
-        const share = gpu.texture(W, rows, gl.RGBA32F);
-        const agree = gpu.texture(W, rows, gl.RGBA8);
-        const refT = gpu.texture(W, rows, gl.RGBA32F);
-        const zT = gpu.texture(W, rows, gl.R32F);
-        made.push(share, agree, refT, zT);
-        const buf = new Float32Array(4 * W * rows);
-        const flags = new Uint8Array(4 * W * rows);
-        const refBuf = new Float32Array(4 * W * rows);
+        const r = Math.max(2, Math.round(12 / S));
+        const margin = r + 4;
+        const rows = Math.min(H, Math.max(1, bandRows(W) - 2 * margin));
+        const ext = Math.min(H, rows + 2 * margin);
+        const refBuf = new Float32Array(4 * W * ext);
+        const zBuf = new Float32Array(W * ext);
+        const buf = new Float32Array(4 * W * ext);
+        const flags = new Uint8Array(4 * W * ext);
         let agreed = 0;
         const fb = gl.createFramebuffer();
+        const draw = (prog, out, n, inputs, set = () => {}) => {
+          gpu.target(out, W, n);
+          gl.useProgram(prog.p);
+          inputs.forEach(([name, t], k) => {
+            gl.uniform1i(prog.u[name], k + 1);
+            gpu.bindTex(k + 1, t);
+          });
+          set(prog.u);
+          gpu.draw();
+        };
         try {
           for (let y0 = 0; y0 < H; y0 += rows) {
             const n = Math.min(rows, H - y0);
-            for (let i = 0; i < W * n; i++) {
-              const j = y0 * W + i;
-              refBuf[4 * i] = refUnd[3 * j];
-              refBuf[4 * i + 1] = refUnd[3 * j + 1];
-              refBuf[4 * i + 2] = refUnd[3 * j + 2];
-              refBuf[4 * i + 3] = valid[j];
-            }
-            gpu.bindTex(1, refT);
-            gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, W, n, gl.RGBA, gl.FLOAT, refBuf);
-            gpu.bindTex(1, zT);
-            gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, W, n, gl.RED, gl.FLOAT, z.subarray(y0 * W, (y0 + n) * W));
-            gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
-            gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, share, 0);
-            gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT1, gl.TEXTURE_2D, agree, 0);
-            gl.drawBuffers([gl.COLOR_ATTACHMENT0, gl.COLOR_ATTACHMENT1]);
-            gl.viewport(0, 0, W, n);
-            gl.useProgram(p.p);
-            const u = p.u;
-            gl.uniform1i(u.uImg, 1);
-            gpu.bindTex(1, src);
-            gl.uniform1i(u.uRefU, 2);
-            gpu.bindTex(2, refT);
-            gl.uniform1i(u.uZ, 3);
-            gpu.bindTex(3, zT);
-            gl.uniform1f(u.uS, S);
-            gl.uniform1i(u.uRow0, y0);
-            setDist(gl, u, cam.distort);
-            gl.uniform4f(u.uK, K[0], K[2], K[4], K[5]);
-            gl.uniform4f(u.uCK, cam.K[0], cam.K[2], cam.K[4], cam.K[5]);
-            // (row-major R given as the columns: the shader's uR[i] is row i)
-            gl.uniformMatrix3fv(u.uR, false, Array.from(rel.R));
-            gl.uniform3f(u.uT, rel.T[0], rel.T[1], rel.T[2]);
-            gl.uniform3f(u.uCx, corr ? corr.ax[0] : 0, corr ? corr.ax[1] : 0, corr ? corr.ax[2] : 0);
-            gl.uniform3f(u.uCy, corr ? corr.ay[0] : 0, corr ? corr.ay[1] : 0, corr ? corr.ay[2] : 0);
-            gl.uniform3f(u.uGain, gain[0], gain[1], gain[2]);
-            gl.uniform1i(u.uMono, mono ? 1 : 0);
-            gl.uniform1f(u.uMg, mg);
-            gpu.draw();
-            gl.readBuffer(gl.COLOR_ATTACHMENT0);
-            gl.readPixels(0, 0, W, n, gl.RGBA, gl.FLOAT, buf);
-            gl.readBuffer(gl.COLOR_ATTACHMENT1);
-            gl.readPixels(0, 0, W, n, gl.RGBA, gl.UNSIGNED_BYTE, flags);
-            gl.readBuffer(gl.COLOR_ATTACHMENT0);
-            for (let i = 0; i < W * n; i++) {
-              const w = buf[4 * i + 3];
-              if (!(w > 0)) continue;
-              const j = y0 * W + i;
-              acc[3 * j] += buf[4 * i];
-              acc[3 * j + 1] += buf[4 * i + 1];
-              acc[3 * j + 2] += buf[4 * i + 2];
-              weight[j] += w;
-              if (flags[4 * i] > 127) agreed++;
+            // (the band with its margins: rows e0 to e0 + en)
+            const e0 = Math.max(0, y0 - margin);
+            const en = Math.min(H, y0 + n + margin) - e0;
+            const local = [];
+            const ltex = (internal = gl.RGBA32F) => {
+              const t = gpu.texture(W, en, internal);
+              local.push(t);
+              return t;
+            };
+            try {
+              for (let i = 0; i < W * en; i++) {
+                const j = e0 * W + i;
+                refBuf[4 * i] = refUnd[3 * j];
+                refBuf[4 * i + 1] = refUnd[3 * j + 1];
+                refBuf[4 * i + 2] = refUnd[3 * j + 2];
+                refBuf[4 * i + 3] = valid[j];
+              }
+              const refT = ltex();
+              gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, W, en, gl.RGBA, gl.FLOAT, refBuf);
+              const zT = ltex(gl.R32F);
+              zBuf.set(z.subarray(e0 * W, (e0 + en) * W));
+              gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, W, en, gl.RED, gl.FLOAT, zBuf.subarray(0, W * en));
+              // the camera's picture at each pixel
+              const smp = ltex();
+              draw(pr.cam, smp, en, [['uImg', src], ['uRefU', refT], ['uZ', zT]], (u) => {
+                gl.uniform1f(u.uS, S);
+                gl.uniform1i(u.uRow0, e0);
+                setDist(gl, u, cam.distort);
+                gl.uniform4f(u.uK, K[0], K[2], K[4], K[5]);
+                gl.uniform4f(u.uCK, cam.K[0], cam.K[2], cam.K[4], cam.K[5]);
+                // (row-major R given as the columns: the shader's uR[i] is row i)
+                gl.uniformMatrix3fv(u.uR, false, Array.from(rel.R));
+                gl.uniform3f(u.uT, rel.T[0], rel.T[1], rel.T[2]);
+                gl.uniform3f(u.uCx, corr ? corr.ax[0] : 0, corr ? corr.ax[1] : 0, corr ? corr.ax[2] : 0);
+                gl.uniform3f(u.uCy, corr ? corr.ay[0] : 0, corr ? corr.ay[1] : 0, corr ? corr.ay[2] : 0);
+              });
+              // the local color ratio: both pictures blurred where both have pixels
+              const refM = ltex();
+              draw(pr.masked, refM, en, [['uA', refT], ['uOk', smp]]);
+              const smpM = ltex();
+              draw(pr.masked, smpM, en, [['uA', smp], ['uOk', smp]]);
+              const refL = filters.boxOnce(local, refM, W, en, r);
+              const smpL = filters.boxOnce(local, smpM, W, en, r);
+              const share = ltex();
+              draw(pr.share, share, en, [['uRefU', refT], ['uSmp', smp], ['uRefL', refL], ['uSmpL', smpL]], (u) => {
+                gl.uniform1i(u.uMono, mono ? 1 : 0);
+                gl.uniform1f(u.uMg, mg);
+                gl.uniform3f(u.uGain, gain[0], gain[1], gain[2]);
+              });
+              const near = filters.boxOnce(local, share, W, en, 2);
+              const outT = ltex();
+              const agreeT = ltex(gl.RGBA8);
+              gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
+              gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, outT, 0);
+              gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT1, gl.TEXTURE_2D, agreeT, 0);
+              gl.drawBuffers([gl.COLOR_ATTACHMENT0, gl.COLOR_ATTACHMENT1]);
+              gl.viewport(0, 0, W, en);
+              gl.useProgram(pr.weight.p);
+              [['uShare', share], ['uNear', near], ['uSmp', smp]].forEach(([name, t], k) => {
+                gl.uniform1i(pr.weight.u[name], k + 1);
+                gpu.bindTex(k + 1, t);
+              });
+              gpu.draw();
+              // (the band's own rows, read back and added up)
+              const skip = y0 - e0;
+              gl.readBuffer(gl.COLOR_ATTACHMENT0);
+              gl.readPixels(0, skip, W, n, gl.RGBA, gl.FLOAT, buf);
+              gl.readBuffer(gl.COLOR_ATTACHMENT1);
+              gl.readPixels(0, skip, W, n, gl.RGBA, gl.UNSIGNED_BYTE, flags);
+              gl.readBuffer(gl.COLOR_ATTACHMENT0);
+              gl.drawBuffers([gl.COLOR_ATTACHMENT0]);
+              gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+              for (let i = 0; i < W * n; i++) {
+                const w = buf[4 * i + 3];
+                if (!(w > 0)) continue;
+                const j = y0 * W + i;
+                acc[3 * j] += buf[4 * i];
+                acc[3 * j + 1] += buf[4 * i + 1];
+                acc[3 * j + 2] += buf[4 * i + 2];
+                weight[j] += w;
+                if (flags[4 * i] > 127) agreed++;
+              }
+            } finally {
+              for (const t of local) gl.deleteTexture(t);
             }
           }
         } finally {

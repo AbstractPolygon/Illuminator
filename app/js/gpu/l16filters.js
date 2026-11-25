@@ -27,7 +27,7 @@ void main() {
 }`;
 
 // The filters on textures already on the card (RGBA32F, w x h), for a caller that keeps its pictures there: { gauss(made, src, w, h, sigma), box(made, src, w, h, r) (the
-// first channel, twice), bounds(made, src, w, h, r) -> { min, max } }, each returning a new texture (pushed to `made`, which the caller deletes).
+// first channel, twice), boxOnce(made, src, w, h, r) (every channel, once), bounds(made, src, w, h, r) -> { min, max } }, each returning a new texture (pushed to `made`, which the caller deletes).
 export function l16FilterTextures(gpu) {
   const gl = gpu.gl;
   let prog = null;
@@ -71,6 +71,11 @@ export function l16FilterTextures(gpu) {
       const wt = weights(made, new Float32Array(2 * r + 1).fill(1 / (2 * r + 1)));
       const pass = (dir) => ({ dir, r, mode: 0, weights: wt });
       return run(made, src, w, h, [pass([1, 0]), pass([0, 1]), pass([1, 0]), pass([0, 1])]);
+    },
+    // (a box blur of every channel, once)
+    boxOnce(made, src, w, h, r) {
+      const wt = weights(made, new Float32Array(2 * r + 1).fill(1 / (2 * r + 1)));
+      return run(made, src, w, h, [{ dir: [1, 0], r, mode: 0, weights: wt }, { dir: [0, 1], r, mode: 0, weights: wt }]);
     },
     bounds(made, src, w, h, r) {
       const wt = weights(made, new Float32Array(1));

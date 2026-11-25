@@ -221,6 +221,7 @@ uniform sampler2D uSamp;
 uniform sampler2D uLow;
 uniform sampler2D uClip;
 uniform sampler2D uUsableLow;
+uniform sampler2D uLowPlain;  // the camera's plain blur (its clipped pixels too), for the agreement
 out vec4 outColor;
 void main() {
   ivec2 p = ivec2(gl_FragCoord.xy);
@@ -230,9 +231,10 @@ void main() {
   // (near the white level, or where few usable pixels of the camera are near: no detail)
   if (texelFetch(uClip, p, 0).r > 0.5 || !(texelFetch(uUsableLow, p, 0).r > 0.25)) return;
   float ll = luma(texelFetch(uLow, p, 0).rgb);
+  float lp = luma(texelFetch(uLowPlain, p, 0).rgb);
   float lu = luma(texelFetch(uUpLow, p, 0).rgb);
   float sig = 0.015 + 0.08 * sqrt(max(lu, 0.0)) * 0.35;
-  float d = (ll - lu) / sig;
+  float d = (lp - lu) / sig;
   float w = exp(-0.5 * d * d);
   outColor = vec4(luma(s.rgb) - ll, w, 1.0, 0.0);
 }`;
@@ -256,11 +258,12 @@ void main() {
 const LAYER = `${HEAD}
 uniform sampler2D uAgree;
 uniform sampler2D uSmooth;
+uniform sampler2D uNear;    // the agreement's least value within a few pixels (core/l16hires.js renderRegion)
 out vec4 outColor;
 void main() {
   ivec2 p = ivec2(gl_FragCoord.xy);
   vec4 a = texelFetch(uAgree, p, 0);
-  float wsm = texelFetch(uSmooth, p, 0).g;
+  float wsm = min(texelFetch(uSmooth, p, 0).g, texelFetch(uNear, p, 0).g);
   outColor = a.b > 0.0 && wsm >= 0.05 ? vec4(a.r, wsm, 1.0, 0.0) : vec4(0.0, wsm, 0.0, 0.0);
 }`;
 
@@ -518,7 +521,8 @@ export function l16RegionGpu(gpu) {
           }
           // the agreement and the detail
           const agree = ltex(W, H);
-          draw(pr.agree, agree, W, H, [['uUp', upT], ['uUpLow', upLow], ['uSamp', sampG], ['uLow', low], ['uClip', clipT], ['uUsableLow', usableLow]]);
+          const lowPlain = filters.gauss(local, sampG, W, H, sigma);
+          draw(pr.agree, agree, W, H, [['uUp', upT], ['uUpLow', upLow], ['uSamp', sampG], ['uLow', low], ['uClip', clipT], ['uUsableLow', usableLow], ['uLowPlain', lowPlain]]);
           const ra = ltex(1, H);
           draw(pr.rowAgree, ra, 1, H, [['uAgree', agree]]);
           readRGBA(ra, 1, H, rowBuf);
@@ -529,6 +533,7 @@ export function l16RegionGpu(gpu) {
             camN += rowBuf[4 * y + 1];
           }
           const smooth = filters.box(local, agree, W, H, Math.max(1, Math.round(scale)));
+          const nearT = filters.bounds(local, agree, W, H, Math.max(2, Math.round(scale * 2.5))).min;
           // (into the camera's layer)
           gl.bindFramebuffer(gl.FRAMEBUFFER, gpu.fbo);
           gl.framebufferTextureLayer(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, layers, 0, cams.length);
@@ -538,6 +543,8 @@ export function l16RegionGpu(gpu) {
           gpu.bindTex(1, agree);
           gl.uniform1i(pr.layer.u.uSmooth, 2);
           gpu.bindTex(2, smooth);
+          gl.uniform1i(pr.layer.u.uNear, 3);
+          gpu.bindTex(3, nearT);
           gpu.draw();
           gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, null, 0);
           cams.push({ reach: cam.K[0] / K[0] });

@@ -557,6 +557,115 @@ function depthGrid(invZ, dw, dh, w, h) {
 
 const luma = (r, g, b) => 0.3 * r + 0.55 * g + 0.15 * b;
 
+// A camera's share of the merge, from its picture looked up where each pixel of the reference's is (smp, 3 a pixel; ok: where it has one; refUnd: the reference's).
+// Its colors are brought to the reference's locally (each channel's ratio of the two pictures smoothed over a few pixels, where both have pixels; `g` the whole
+// picture's gains where there are too few): the cameras' shading and vignetting differ over the frame, and one ratio for the whole picture leaves them a little off in
+// places, which the weights below then switch on and off from pixel to pixel (a grain in flat areas such as the sky). `mono`: the monochrome camera's brightness gain (its
+// brightness on the reference's color), else null. Its weight is how well it agrees with the reference in brightness and in each channel (a camera a fraction of a pixel
+// off draws a color fringe along edges that the brightness alone does not show), within what noise allows, judged over a small neighborhood (a box of 5 x 5) and taken
+// as the lower of that and the pixel's own. Returns { rgb, weight } (weight 0 where it has no share).
+function mergeShare(refUnd, smp, ok, W, H, S, mono, g) {
+  const r = Math.max(2, Math.round(12 / S));
+  const rgb = new Float32Array(3 * W * H);
+  const wPix = new Float32Array(W * H);
+  // the local color ratio: both pictures smoothed where both have pixels
+  const mask = new Float32Array(3 * W * H);
+  const refM = new Float32Array(3 * W * H);
+  const smpM = new Float32Array(3 * W * H);
+  for (let i = 0; i < W * H; i++) {
+    if (!ok[i]) continue;
+    for (let c = 0; c < 3; c++) {
+      mask[3 * i + c] = 1;
+      refM[3 * i + c] = refUnd[3 * i + c];
+      smpM[3 * i + c] = smp[3 * i + c];
+    }
+  }
+  const mL = boxBlur3(mask, W, H, r);
+  const rL = boxBlur3(refM, W, H, r);
+  const sL = boxBlur3(smpM, W, H, r);
+  for (let i = 0; i < W * H; i++) {
+    if (!ok[i]) continue;
+    const enough = mL[3 * i] > 0.3;
+    const k = [0, 0, 0];
+    for (let c = 0; c < 3; c++) {
+      const cc = mono ? 1 : c;
+      // (the monochrome camera has one value: its green)
+      const ratio = enough && sL[3 * i + cc] > 1e-4 ? rL[3 * i + (mono ? 1 : c)] / sL[3 * i + cc] : mono ? mono : g[c];
+      k[c] = Math.min(4, Math.max(0.25, ratio));
+    }
+    const rl = luma(refUnd[3 * i], refUnd[3 * i + 1], refUnd[3 * i + 2]);
+    let cr;
+    let cg;
+    let cb;
+    if (mono) {
+      // (the monochrome camera's brightness on the reference's color)
+      const q = (smp[3 * i + 1] * k[1]) / Math.max(1e-4, refUnd[3 * i + 1]);
+      const ql = Math.min(4, Math.max(0, q));
+      cr = refUnd[3 * i] * ql;
+      cg = refUnd[3 * i + 1] * ql;
+      cb = refUnd[3 * i + 2] * ql;
+    } else {
+      cr = smp[3 * i] * k[0];
+      cg = smp[3 * i + 1] * k[1];
+      cb = smp[3 * i + 2] * k[2];
+    }
+    rgb[3 * i] = cr;
+    rgb[3 * i + 1] = cg;
+    rgb[3 * i + 2] = cb;
+    // agree: the difference in brightness and in each channel within what noise (growing with brightness) and a small misregistration allow
+    const sig = (v) => 0.012 + 0.07 * Math.sqrt(Math.max(v, 0)) * 0.35;
+    let d = Math.abs(luma(cr, cg, cb) - rl) / sig(rl);
+    if (!mono) {
+      d = Math.max(d, Math.abs(cr - refUnd[3 * i]) / (1.5 * sig(refUnd[3 * i])), Math.abs(cg - refUnd[3 * i + 1]) / (1.5 * sig(refUnd[3 * i + 1])), Math.abs(cb - refUnd[3 * i + 2]) / (1.5 * sig(refUnd[3 * i + 2])));
+    }
+    wPix[i] = Math.exp(-0.5 * d * d);
+  }
+  // (over a small neighborhood: a weight that changes from pixel to pixel is a grain)
+  const wN = boxBlur1(wPix, W, H, 2);
+  const weight = new Float32Array(W * H);
+  for (let i = 0; i < W * H; i++) {
+    if (!ok[i]) continue;
+    const w = Math.min(wPix[i], wN[i]);
+    if (w >= 0.02) weight[i] = w;
+  }
+  return { rgb, weight };
+}
+// Box blurs (edges clamped): of 3 values a pixel, and of 1.
+function boxBlur3(src, W, H, r) {
+  const tmp = new Float32Array(src.length);
+  const out = new Float32Array(src.length);
+  const n = 2 * r + 1;
+  for (let y = 0; y < H; y++) {
+    for (let c = 0; c < 3; c++) {
+      let acc = 0;
+      for (let x = -r; x <= r; x++) acc += src[3 * (y * W + Math.min(W - 1, Math.max(0, x))) + c];
+      for (let x = 0; x < W; x++) {
+        tmp[3 * (y * W + x) + c] = acc / n;
+        acc += src[3 * (y * W + Math.min(W - 1, x + r + 1)) + c] - src[3 * (y * W + Math.max(0, x - r)) + c];
+      }
+    }
+  }
+  for (let x = 0; x < W; x++) {
+    for (let c = 0; c < 3; c++) {
+      let acc = 0;
+      for (let y = -r; y <= r; y++) acc += tmp[3 * (Math.min(H - 1, Math.max(0, y)) * W + x) + c];
+      for (let y = 0; y < H; y++) {
+        out[3 * (y * W + x) + c] = acc / n;
+        acc += tmp[3 * (Math.min(H - 1, y + r + 1) * W + x) + c] - tmp[3 * (Math.max(0, y - r) * W + x) + c];
+      }
+    }
+  }
+  return out;
+}
+function boxBlur1(src, W, H, r) {
+  const three = new Float32Array(3 * W * H);
+  for (let i = 0; i < W * H; i++) three[3 * i] = src[i];
+  const b = boxBlur3(three, W, H, r);
+  const out = new Float32Array(W * H);
+  for (let i = 0; i < W * H; i++) out[i] = b[3 * i];
+  return out;
+}
+
 // Merges the cameras. `depth` is core/l16depth.js measureDepth's result for the reference; the cameras merged are the reference and all of depth.modules (the monochrome one adds brightness, its color is the reference's). Returns { width, height, rgb (linear, white balanced), used: how many cameras, merged: per camera id the share of pixels that agreed }.
 // `grid` 1 merges at full size (every sensor pixel demosaiced); 2 at half size (each 2 x 2 sensor cell is one pixel: a quarter of the work and memory, for the quick views).
 // `corrections`: each camera's registration corrected for the capture (core/l16hires.js estimateCorrections), or null.
@@ -692,25 +801,27 @@ export function fuse(bytes, parsed, depth, { black = 42, white = 1023, gains = [
         agreed = 0;
       }
     }
-    if (!done) for (let y = 0; y < H; y++) {
-      for (let x = 0; x < W; x++) {
-        const i = y * W + x;
-        if (!valid[i] || !at(x, y)) continue;
-        const rl = luma(refUnd[3 * i], refUnd[3 * i + 1], refUnd[3 * i + 2]);
-        // (the monochrome camera's brightness on the reference's color)
-        const q = mono ? (sample[1] * mg) / Math.max(1e-4, rl) : 0;
-        const r = mono ? refUnd[3 * i] * q : sample[0] * g[0];
-        const gr = mono ? refUnd[3 * i + 1] * q : sample[1] * g[1];
-        const b = mono ? refUnd[3 * i + 2] * q : sample[2] * g[2];
-        const dl = luma(r, gr, b);
-        // agree: the difference is within what noise (growing with brightness) and a small misregistration allow
-        const sigma = 0.012 + 0.07 * Math.sqrt(Math.max(rl, 0)) * 0.35;
-        const d = (dl - rl) / sigma;
-        const w = Math.exp(-0.5 * d * d);
-        if (w < 0.02) continue;
-        out[3 * i] += r * w;
-        out[3 * i + 1] += gr * w;
-        out[3 * i + 2] += b * w;
+    if (!done) {
+      // The camera's picture where each pixel of the reference's is.
+      const smp = new Float32Array(3 * W * H);
+      const ok = new Uint8Array(W * H);
+      for (let y = 0; y < H; y++) {
+        for (let x = 0; x < W; x++) {
+          const i = y * W + x;
+          if (!valid[i] || !at(x, y)) continue;
+          ok[i] = 1;
+          smp[3 * i] = sample[0];
+          smp[3 * i + 1] = sample[1];
+          smp[3 * i + 2] = sample[2];
+        }
+      }
+      const share = mergeShare(refUnd, smp, ok, W, H, S, mono ? mg : null, g);
+      for (let i = 0; i < W * H; i++) {
+        const w = share.weight[i];
+        if (!(w > 0)) continue;
+        out[3 * i] += share.rgb[3 * i] * w;
+        out[3 * i + 1] += share.rgb[3 * i + 1] * w;
+        out[3 * i + 2] += share.rgb[3 * i + 2] * w;
         weight[i] += w;
         if (w > 0.5) agreed++;
       }

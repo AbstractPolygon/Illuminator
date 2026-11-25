@@ -535,6 +535,33 @@ export function telephotoModules(parsed, refId, [lo, hi]) {
   return ids.sort();
 }
 
+// The smallest value within r pixels (a square; edges clamped), of one value per pixel.
+function localMin1(src, w, h, r) {
+  const tmp = new Float32Array(w * h);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      let m = Infinity;
+      for (let d = -r; d <= r; d++) {
+        const v = src[y * w + Math.min(w - 1, Math.max(0, x + d))];
+        if (v < m) m = v;
+      }
+      tmp[y * w + x] = m;
+    }
+  }
+  const out = new Float32Array(w * h);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      let m = Infinity;
+      for (let d = -r; d <= r; d++) {
+        const v = tmp[Math.min(h - 1, Math.max(0, y + d)) * w + x];
+        if (v < m) m = v;
+      }
+      out[y * w + x] = m;
+    }
+  }
+  return out;
+}
+
 // A box blur of one value per pixel (w x h), radius r, twice (close to a Gaussian).
 function boxBlur1(src, w, h, r) {
   return onCard('boxBlur1', [src, w, h, r], boxBlur1Cpu);
@@ -818,6 +845,7 @@ export function renderRegion(bytes, parsed, depth, wide, { x0, y0, w, h, scale, 
       }
       if (moved) low = lowOf(samp);
     }
+    const lowPlain = gauss(samp, W, H, sigma);
     // (the detail is brightness only: a camera's color detail is mostly its demosaic's false color at fine edges, and mixing cameras per channel would color the edges)
     const det = new Float32Array(W * H).fill(NaN);
     const wmap = new Float32Array(W * H);
@@ -826,11 +854,14 @@ export function renderRegion(bytes, parsed, depth, wide, { x0, y0, w, h, scale, 
     // (near the sensor's white level a channel is cut, at a different level in each camera: there is no detail to add there, only the difference in where each one clipped)
     for (let i = 0; i < W * H; i++) {
       if (!have[i] || clipNear[i] || !(usableLow[3 * i] > 0.25)) continue;
-      // agree: the telephoto's low frequencies match the wide picture's within noise and a small misregistration
+      // agree: the telephoto's low frequencies match the wide picture's within noise and a small misregistration. Judged on its plain blur, clipped pixels and all: a
+      // bright patch the wide picture does not have (a camera looking through a gap in leaves from elsewhere sees light the wide ones do not) must count against it, and
+      // the blur of its usable pixels alone would hide it (and its outline would be drawn in as a ring)
       const ll = luma(low[3 * i], low[3 * i + 1], low[3 * i + 2]);
+      const lp = luma(lowPlain[3 * i], lowPlain[3 * i + 1], lowPlain[3 * i + 2]);
       const lu = luma(upLow[3 * i], upLow[3 * i + 1], upLow[3 * i + 2]);
       const sig = 0.015 + 0.08 * Math.sqrt(Math.max(lu, 0)) * 0.35;
-      const d = (ll - lu) / sig;
+      const d = (lp - lu) / sig;
       const wgt = Math.exp(-0.5 * d * d);
       camW += wgt;
       camN++;
@@ -838,7 +869,11 @@ export function renderRegion(bytes, parsed, depth, wide, { x0, y0, w, h, scale, 
       det[i] = luma(samp[3 * i], samp[3 * i + 1], samp[3 * i + 2]) - ll;
     }
     // The agreement judged over a small neighborhood, not pixel by pixel: one pixel's noise would otherwise switch the detail on and off from pixel to pixel (a patchwork).
+    // And no detail within a few pixels of where the camera disagrees: round a patch it sees differently (an object that hides the background from where it stands, light
+    // through a gap the wide cameras do not see) its blur happens to come out near the wide picture's in a thin ring, which would be drawn in as an outline.
+    const wNear = localMin1(wmap, W, H, Math.max(2, Math.round(scale * 2.5)));
     const wsm = boxBlur1(wmap, W, H, Math.max(1, Math.round(scale)));
+    for (let i = 0; i < W * H; i++) if (wNear[i] < wsm[i]) wsm[i] = wNear[i];
     for (let i = 0; i < W * H; i++) {
       if (det[i] !== det[i]) continue;
       if (wsm[i] < 0.05) det[i] = NaN;
