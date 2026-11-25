@@ -2277,8 +2277,10 @@ function showDepthMethods() {
   const select = $('depth-style');
   const own = !!(state.info && !state.info.hasRaw && state.info.processed && state.info.processed.hasDepth);
   const allowed = own ? (isL16() ? ['file', 'classic'] : ['file']) : null;
-  for (const o of select.options) o.hidden = allowed ? !allowed.includes(o.value) : o.value === 'file';
-  if (allowed && !allowed.includes(select.value)) select.value = 'file';
+  // (the depth models work on every photo: on one that carries its depth, on top of that depth)
+  const ok = (v) => allowed.includes(v) || !!methodDepthModel(v);
+  for (const o of select.options) o.hidden = allowed ? !ok(o.value) : o.value === 'file';
+  if (allowed && !ok(select.value)) select.value = 'file';
   else if (!own && select.value === 'file') select.value = 'match';
   $('depth-blend-row').hidden = select.value !== 'combined';
   showDepthModelControls();

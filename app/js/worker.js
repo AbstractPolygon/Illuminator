@@ -2763,6 +2763,62 @@ async function ensureModelDepth(id) {
   post({ type: 'depthReady', reapply: true, openSeq: state.openSeq });
 }
 
+// A depth model on a photo that carries its depth (a Light L16 photo, a Lytro file saved with its depth): the model looks at the photo's picture, its depth is fitted to
+// the photo's and mixed in by Model blend, as for a raw photo (ensureModelDepth). Does nothing when what is applied is already this.
+async function ensureProcessedModel(id) {
+  const pp = state.pp;
+  if (!pp || !pp.depth) return;
+  const model = methodDepthModel(state.settings.depthStyle);
+  const smooth = state.settings.depthModelSmooth ?? 0;
+  const curve = state.settings.depthModelCurve ?? 0.5;
+  const blend = state.settings.depthModelBlend ?? 1;
+  const sign = model ? JSON.stringify([model.id, smooth, curve, blend]) : null;
+  if (state.ppModel && state.ppModel.pp === pp && state.ppModel.sign === sign) return;
+  if (!model) {
+    state.ppModel = { pp, sign };
+    pp.setModel(null);
+  } else {
+    const d = pp.depthOriginal || pp.depth;
+    const { width: w, height: h } = d;
+    const mapKey = cacheKeys.modelDepthKey(state, model, w, h);
+    let rel = state.ppModelMap && state.ppModelMap.key === mapKey && state.ppModelMap.pp === pp ? state.ppModelMap.rel : null;
+    if (!rel && state.modelMaps && state.modelMaps.get(mapKey)) rel = state.modelMaps.get(mapKey).rel;
+    if (!rel) {
+      try {
+        // (the photo's picture at the depth map's size, linear)
+        const img = pp.linear(pp.images[0]);
+        const rgb = new Float32Array(3 * w * h);
+        for (let y = 0; y < h; y++) {
+          const sy = Math.min(pp.height - 1, Math.floor(((y + 0.5) * pp.height) / h));
+          for (let x = 0; x < w; x++) {
+            const sx = Math.min(pp.width - 1, Math.floor(((x + 0.5) * pp.width) / w));
+            for (let c = 0; c < 3; c++) rgb[3 * (y * w + x) + c] = img[3 * (sy * pp.width + sx) + c];
+          }
+        }
+        rel = await runDepthModel(model, readDepthModel, rgb, w, h, (stage, p) => post({ id, type: 'progress', stage, progress: p }));
+      } catch (e) {
+        post({ id, type: 'notice', message: `The depth model could not run: ${(e && e.message) || e}` });
+        return;
+      }
+      if (state.pp !== pp) return;
+      if (state.modelMaps) {
+        for (const k of [...state.modelMaps.keys()]) if (JSON.parse(k).model === model.id) state.modelMaps.delete(k);
+        state.modelMaps.set(mapKey, { rel, w, h });
+        postDepthCache();
+      }
+    }
+    state.ppModelMap = { key: mapKey, pp, rel };
+    const shaped = shapeModelDepth(rel, w, h, { smooth, curve });
+    // (each picture size's depth has its own scale: the fit is made on the one it mixes into)
+    pp.setModel({ apply: (lambda, lw, lh) => (lw === w && lh === h ? fuseModelDepth(lambda, shaped, fitModelDepth(shaped, lambda, null, w, h), blend) : lambda) });
+    state.ppModel = { pp, sign };
+  }
+  state.ppDepthOnGpu = null;
+  state.ppMaskDepth = null;
+  state.gen++;
+  post({ type: 'depthReady', reapply: true, openSeq: state.openSeq });
+}
+
 async function settings({ id, settings: s }) {
   const hotChanged = s.hotPixels !== undefined && s.hotPixels !== (state.settings.hotPixels ?? true);
   const detailChanged = s.detail !== undefined && s.detail !== state.settings.detail;
@@ -2830,6 +2886,8 @@ async function settings({ id, settings: s }) {
       state.ppMaskDepth = null;
       post({ type: 'depthReady', reapply: true, openSeq: state.openSeq });
     }
+    // (a depth model chosen, or its settings changed; also after the picture was made again above)
+    await ensureProcessedModel(id);
     updateColor();
     return summary();
   }

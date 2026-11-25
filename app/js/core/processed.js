@@ -139,6 +139,20 @@ export class ProcessedPicture {
     return best;
   }
 
+  // A depth model's depth mixed into the photo's (Camera > Depth > Depth method): `model` is { apply(lambda, w, h) -> lambda } or null for the photo's depth alone. The
+  // smoothing is applied again on the mix.
+  setModel(model) {
+    if (this.levels) for (const l of this.levels) if (l !== this) l.setModel(model);
+    if (this.model === model) return;
+    this.model = model;
+    this.mixed = null;
+    if (this.smoothing !== undefined) {
+      const amount = this.smoothing;
+      this.smoothing = undefined;
+      this.setSmoothing(amount);
+    }
+  }
+
   setSmoothing(amount) {
     if (this.levels) for (const l of this.levels) if (l !== this) l.setSmoothing(amount);
     if (!this.depth) return;
@@ -146,7 +160,11 @@ export class ProcessedPicture {
     if (this.smoothing === amount) return;
     this.smoothing = amount;
     this.alpha = null;
-    const d = this.depthOriginal;
+    let d = this.depthOriginal;
+    if (this.model) {
+      if (!this.mixed) this.mixed = { ...d, lambda: this.model.apply(d.lambda, d.width, d.height) };
+      d = this.mixed;
+    }
     if (!(amount > 0)) {
       this.depth = d;
       return;
