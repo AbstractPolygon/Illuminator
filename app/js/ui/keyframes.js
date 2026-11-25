@@ -1,6 +1,7 @@
 // keyframes: moved out of main.js. initKeyframes() runs where the section used to, with what it uses from the rest of the page.
 import { cameraMove } from '../core/camerapresets.js';
 import { setSliderExact } from './exactslider.js';
+import { fNumberAt, stopPosition } from '../core/fstops.js';
 import { setKey, isSettingTrack, isMaskTrack, emptyAnimation, parseAnimation, valueAt, PRESETS, cubicBezier, frameCount, hasKeys, sample } from '../core/keyframes.js';
 
 // Registers a drag on the window and ends it on pointerup, pointercancel (a
@@ -387,7 +388,7 @@ export function initKeyframes({ $, getMasks, maskLabel, state, canRender, F_STOP
       state.anim = emptyAnimation();
       raw.forEach((k, i) => {
         const t = i * 2;
-        setKey(state.anim, 'aperture', t, F_STOPS[k.fstop] ?? 2);
+        setKey(state.anim, 'aperture', t, fNumberAt(k.fstop));
         setKey(state.anim, 'focus', t, k.focus || 0);
         setKey(state.anim, 'view', t, [k.u || 0, k.v || 0]);
         setKey(state.anim, 'zoom', t, k.zoom || 1);
@@ -447,7 +448,7 @@ export function initKeyframes({ $, getMasks, maskLabel, state, canRender, F_STOP
       return m ? maskAttr(m, attr) : 0;
     }
     switch (k) {
-      case 'aperture': return F_STOPS[+$('fstop').value] ?? 2;
+      case 'aperture': return fNumberAt($('fstop').value);
       case 'depth': return +$('dof-depth').value;
       case 'focus': return +$('focus').value;
       case 'view': return [state.camera.u, state.camera.v];
@@ -529,11 +530,8 @@ export function initKeyframes({ $, getMasks, maskLabel, state, canRender, F_STOP
       return;
     }
     if (k === 'aperture') {
-      let best = 0;
-      F_STOPS.forEach((n, i) => { if (Math.abs(Math.log(n / v)) < Math.abs(Math.log(F_STOPS[best] / v))) best = i; });
-      $('fstop').value = best;
-      // (the exact f-number between the stops, while the slider stays where it was put)
-      state.exactFNumber = { v, at: best };
+      // (the slider between the stops, at the f-number's place: it glides from stop to stop)
+      setSliderExact($('fstop'), stopPosition(v));
       showFNumber();
     } else if (k === 'depth') {
       setSliderExact($('dof-depth'), v);
@@ -1257,7 +1255,7 @@ export function initKeyframes({ $, getMasks, maskLabel, state, canRender, F_STOP
   // framing for drawing.
   function keyframeFrames() {
     if (!hasKeys(state.anim)) return null;
-    const live = { aperture: F_STOPS[+$('fstop').value] ?? 2, depth: +$('dof-depth').value, focus: +$('focus').value };
+    const live = { aperture: fNumberAt($('fstop').value), depth: +$('dof-depth').value, focus: +$('focus').value };
     const path = [];
     const frames = [];
     const maskTracks = tracks().filter((k) => isMaskTrack(k) && state.anim.tracks[k].length);

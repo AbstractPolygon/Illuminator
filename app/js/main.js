@@ -5,6 +5,7 @@ const EDIT_GROUPS_CAMERA = new Set(EDIT_GROUPS.camera);
 import { Engine, toImageData } from './engine.js';
 import { PreviewMirror } from './ui/previewmirror.js';
 import { sliderStep, watchExactSliders } from './ui/exactslider.js';
+import { F_STOPS, fNumberAt } from './core/fstops.js';
 import { initRetouch } from './ui/retouch.js';
 import { Selection } from './ui/selection.js';
 import { initColorGrading } from './ui/colorwheel.js';
@@ -1830,13 +1831,11 @@ function drawHistogram() {
 }
 
 // Aperture stops offered by the f-stop slider, smallest aperture first.
-const F_STOPS = [22, 16, 11, 8, 5.6, 4, 2.8, 2, 1.4, 1, 0.7, 0.5];
 
-// (an animation's in-between f-number, between the stops, while the slider stays at the stop it was put on: see ui/keyframes.js)
+
+// (the slider's position among the stops: between two, an animation's in-between f-number, core/fstops.js)
 function fNumber() {
-  const i = +$('fstop').value;
-  const exact = state.exactFNumber;
-  return exact && exact.at === i ? exact.v : F_STOPS[i];
+  return fNumberAt($('fstop').value);
 }
 
 // The camera recorded the light field through its own aperture (f/2 on the
@@ -1866,9 +1865,8 @@ function apertureFor(n) {
   return { aperture: 1, dof: (radius * (ratio - 1)) / 14 };
 }
 
-// (the step back on a slider used by hand, and the f-number back on its stops)
+// (the step back on a slider used by hand)
 watchExactSliders();
-for (const type of ['pointerdown', 'keydown']) $('fstop').addEventListener(type, () => { state.exactFNumber = null; }, true);
 
 function showFNumber() {
   const n = fNumber();
@@ -4606,7 +4604,6 @@ $('tilt-preset').onchange = () => {
   if (!preset || !state.info || $('tilt-on').disabled && id !== 'off') return;
   for (const [key, value] of Object.entries(preset.values)) {
     if (key === 'fNumber') {
-      state.exactFNumber = null;
       $('fstop').value = F_STOPS.indexOf(value);
       showFNumber();
       continue;
@@ -5910,7 +5907,6 @@ $('png-btn').onclick = savePng;
     if (fNumber != null) {
       const i = F_STOPS.indexOf(+fNumber);
       if (i < 0) throw new Error(`f/${fNumber} is not offered: ${F_STOPS.join(', ')}`);
-      state.exactFNumber = null;
       $('fstop').value = i;
       showFNumber();
     }

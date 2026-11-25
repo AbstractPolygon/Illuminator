@@ -5,6 +5,7 @@
 
 import { COLOR_SPACES } from './colorspace.js';
 import { VIDEO_FORMATS, VIDEO_CODECS } from './video-format.js';
+import { fNumberAt } from './fstops.js';
 
 export const STATUS = ['waiting', 'running', 'done', 'failed', 'cancelled'];
 
@@ -154,7 +155,6 @@ export function phasesFor(spec) {
   return [{ name: 'open', weight: 0.4 }, { name: 'export', weight: 0.6 }];
 }
 
-const F_STOPS = [22, 16, 11, 8, 5.6, 4, 2.8, 2, 1.4, 1, 0.7, 0.5];
 const PHOTO_FORMATS = { png: 'PNG', png16: 'PNG 16-bit', jpeg: 'JPEG', jpeghdr: 'JPEG HDR', tiffhdr: 'TIFF HDR' };
 
 // The export settings of a job as short phrases, for its card: what is made, in what format and size, and how.
@@ -179,8 +179,9 @@ export function describeSettings(spec) {
     out.push(e.size && e.size !== 1 ? `${e.size}×` : 'Native size');
   }
   if (spec.fullSensor) out.push(`Full sensor ${spec.fullSensor.scale}×${spec.fullSensor.passes ? `, recovery ${spec.fullSensor.passes}` : ''}`);
-  const f = F_STOPS[+camera.fstop];
-  if (f) out.push(`f/${f}`);
+  // (a job without an aperture says none; one between the stops, to two decimals)
+  const f = camera.fstop === undefined || camera.fstop === null || camera.fstop === '' || !Number.isFinite(+camera.fstop) ? null : fNumberAt(camera.fstop);
+  if (f) out.push(`f/${+f.toFixed(2)}`);
   if (spec.animation) out.push('Animation of the open photo');
   if (spec.look && spec.look.name) out.push(`Look: ${spec.look.name}`);
   return out;
