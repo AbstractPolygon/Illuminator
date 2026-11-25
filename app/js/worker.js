@@ -82,7 +82,8 @@ import { cameraModel as l16CameraModel } from './core/l16geometry.js';
 import { relativePose as l16RelativePose, setL16SgmGpu, setL16ReduceGpu, setL16DepthFinishGpu } from './core/l16depth.js';
 import { lytroSplatGpu } from './gpu/lytroengine.js';
 import { debugFlags, hook, setHook } from './core/debugflags.js';
-import { withExtension, depthRange, searchSteps, reachProfile, reachToward, uncoveredMask } from './core/viewextend.js';
+import { withExtension, depthRange, searchSteps, reachProfile, reachToward, uncoveredMask, setUncoveredGpu } from './core/viewextend.js';
+import { uncoveredGpu } from './gpu/uncovered.js';
 import { preColorKey, baseKept } from './core/precolorkey.js';
 import { helperCount, renderViews } from './viewpool.js';
 import { depthHelperCount, createDepthPool } from './depthpool.js';
@@ -1097,6 +1098,7 @@ async function open({ id, bytes, synthetic, userDepth = null, depthCache = null,
     setL16RegionGpu(state.gpu && !debugFlags().noGpuL16Detail ? l16RegionGpu(state.gpu) : null);
     setL16FuseGpu(state.gpu && !debugFlags().noGpuL16Merge ? l16FuseGpu(state.gpu) : null);
     setL16DepthFinishGpu(state.gpu && !debugFlags().noGpuL16DepthFinish ? l16DepthFinishGpu(state.gpu) : null);
+    setUncoveredGpu(state.gpu && !debugFlags().noGpuUncovered ? uncoveredGpu(state.gpu) : null);
     // (on a software renderer the depth pictures are slower than here)
     setL16ReduceGpu(hardwareGpu() && !debugFlags().noGpuL16DepthPictures ? l16ReduceGpu(state.gpu) : null);
     setL16DevelopGpu(state.gpu && !debugFlags().noGpuL16Develop ? l16DevelopGpu(state.gpu) : null);
@@ -4511,6 +4513,7 @@ function recoverGpu({ keepPhoto = true } = {}) {
   setL16FuseGpu(null);
   setL16ReduceGpu(null);
   setL16DepthFinishGpu(null);
+  setUncoveredGpu(null);
   setL16DevelopGpu(null);
   setL16SgmGpu(null);
   dropKeptStills();

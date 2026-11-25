@@ -150,7 +150,24 @@ export function reachToward(profile, u, v) {
 // Which pixels of a picture moved on past the lens edge (withExtension, same arguments but the picture) show what no view saw: where the search meets a jump in depth
 // (background uncovered behind a near object), and where the point it lands on lies outside the picture (the scene's edge brought in). 1 = not seen. The quick fill
 // stretches these; Camera > Perspective > Fill with AI paints them (core/fillmodel.js).
+// The map on the graphics card (gpu/uncovered.js uncoveredGpu's function), or null for the processor's: set by the worker that has the card.
+let maskOnCard = null;
+export function setUncoveredGpu(fn) {
+  maskOnCard = fn || null;
+}
+
 export function uncoveredMask(w, h, depth, dw, dh, edge, total, ref, detail, range = depthRange(depth)) {
+  if (maskOnCard) {
+    // (on the graphics card, gpu/uncovered.js: the same search; here if it fails)
+    try {
+      const t0 = range[0] - ref;
+      const t1 = range[1] - ref;
+      return maskOnCard({ w, h, depth, dw, dh, t: [detail * total[0] * (w / dw), detail * total[1] * (h / dh)], e: [detail * edge[0] * (w / dw), detail * edge[1] * (h / dh)], ref, t0, t1, n: searchSteps(range, ref, total, detail) });
+    } catch (e) {
+      console.warn('The uncovered places on the graphics card failed; finding them here', e);
+      maskOnCard = null;
+    }
+  }
   const sx = dw / w;
   const sy = dh / h;
   const tx = detail * total[0] * (w / dw);
