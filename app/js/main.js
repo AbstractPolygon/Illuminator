@@ -2263,6 +2263,18 @@ function canRender() {
   return !!(state.info && (state.info.hasRaw || state.info.processed));
 }
 
+// A photo that carries its depth (a Light L16 photo, a Lytro file saved with a depth map): its depth is the file's, so Depth method shows From the file, alone; a raw
+// photo's are the measured ones (and a raw photo that had From the file gets Classic Desktop, the default).
+function showDepthMethods() {
+  const select = $('depth-style');
+  const own = !!(state.info && !state.info.hasRaw && state.info.processed && state.info.processed.hasDepth);
+  for (const o of select.options) o.hidden = own ? o.value !== 'file' : o.value === 'file';
+  if (own && select.value !== 'file') select.value = 'file';
+  else if (!own && select.value === 'file') select.value = 'match';
+  $('depth-blend-row').hidden = select.value !== 'combined';
+  showDepthModelControls();
+}
+
 function hasDepth() {
   return !!(state.info && (state.info.hasRaw || (state.info.processed && state.info.processed.hasDepth)));
 }
@@ -3457,6 +3469,7 @@ function setMode(mode) {
     if (!state.fullResMode) setFullResMode(true);
   } else if (!raw || !camera) setFullResMode(false);
   for (const id of ['depth-btn', 'depth-grey', 'depth-contrast', 'depth-contrast-persp', 'spread-show', 'depth-smooth', 'depth-hq', 'depth-style', 'depth-blend', 'depth-model-blend', 'depth-objects', 'depth-objects-soft', 'depth-model-smooth', 'depth-model-curve', 'lytro-depth']) $(id).disabled = !depthTools;
+  showDepthMethods();
   // Grayscale only changes the depth map's picture: it can be used while the map is shown.
   $('depth-grey').disabled = !depthTools || !state.depthShown;
   // Photos imported with a depth map edited in Lytro Desktop can use it.
@@ -4805,6 +4818,8 @@ async function refreshDepthModels() {
     select.value = before;
   }
   showDepthBlend();
+  // (a photo that carries its depth: From the file)
+  showDepthMethods();
 }
 refreshDepthModels().catch(() => {});
 
@@ -6265,6 +6280,8 @@ async function applyEdits(info, saved) {
     showObjectSoft();
     depthModelShown = null;
     showDepthBlend(true);
+    // (a photo that carries its depth uses it whatever its saved edits say)
+    if (info === state.info) showDepthMethods();
     state.maskSel = getMasks().length ? 0 : -1;
     $('mask-show').checked = false;
     renderMasks();

@@ -2705,7 +2705,8 @@ function resolveDepthStyle(v) {
   if (methodDepthModel(v)) v = 'auto';
   // Classic Desktop is Lytro Desktop's style: the engine's own estimator for raw photos with its ray tables, the Lytro-style estimator for the rest. The list has no Automatic
   // choice any more; a photo saved with it ('auto') and the depth models (which add to this measurement) get this style.
-  return v && v !== 'auto' && v !== 'guided' ? v : 'match';
+  // ('file', the depth a processed photo carries, means nothing for a raw photo: it gets Classic Desktop too)
+  return v && v !== 'auto' && v !== 'guided' && v !== 'file' ? v : 'match';
 }
 
 // The model's relative depth with the model's smoothing and curve settings applied, and fitted to the measured depth (kept until a setting or the measurement changes).
