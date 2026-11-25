@@ -1754,7 +1754,9 @@ function wholeFxLight(top, { u, v, alpha, blur, bokeh }) {
   if (!fx) return null;
   const plain = { ...(bokeh || {}) };
   for (const k of FX_KEYS) plain[k] = 0;
-  return fxLight(top.render({ u, v, alpha, blur, bokeh: plain }), top.width, top.height, fx, 1);
+  // (the picture the light comes from, with its depth of field: on the graphics card where there is one, as the tiles are; else here)
+  const rgb = tileOnGpu(top, { u, v, alpha, blur, bokeh: plain, frame: null, light: null }) || top.render({ u, v, alpha, blur, bokeh: plain });
+  return fxLight(rgb, top.width, top.height, fx, 1);
 }
 
 // The final render of a Light L16 photo (core/l16render.js): the picture at `scale` times the camera's size (1 is 4160 x 3120), with the viewpoint, blur and color of the camera view.
