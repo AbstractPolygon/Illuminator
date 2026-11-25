@@ -1544,6 +1544,7 @@ precision highp float;
 precision highp int;
 uniform sampler2D uSrc;
 uniform int uMaskCount;
+uniform vec4 uFrame;       // as in PRESENT: the whole picture a tile is part of
 uniform int uMaskKind[${MAX_MASKS}];
 uniform vec4 uMaskShape[${MAX_MASKS}];
 uniform vec4 uMaskExtra[${MAX_MASKS}];
@@ -1567,9 +1568,9 @@ void main() {
   ivec2 size = textureSize(uSrc, 0);
   ivec2 p = ivec2(gl_FragCoord.xy);
   vec3 c = texelFetch(uSrc, p, 0).rgb;
-  vec2 n = (vec2(p) + 0.5) / vec2(size);
-  float aspect = float(size.x) / float(size.y);
-  float big = float(max(size.x, size.y));
+  vec2 n = (vec2(p) + 0.5 + uFrame.xy) / uFrame.zw;
+  float aspect = uFrame.z / uFrame.w;
+  float big = max(uFrame.z, uFrame.w);
   vec2 fp = vec2(p) + 0.5;
   for (int i = 0; i < ${MAX_MASKS}; i++) {
     if (i >= uMaskCount) break;
@@ -1713,6 +1714,7 @@ uniform vec4 uLens;        // core/lens.js: k, zoom, vignetting, start (0 0 0 0:
 uniform float uLensK2;     // r^4 term of the distortion
 uniform float uLensEdge;   // easing of the correction past r = 0.75
 uniform float uLensWidth;  // width of the vignetting's fade from its start (core/lens.js: softness)
+uniform vec4 uFrame;       // the whole picture the picture is a tile of: its corner's place in the whole (x, y) and the whole's size; (0, 0, w, h) for a whole picture
 // Local adjustments (core/local.js).
 uniform int uMaskCount;
 uniform int uMaskKind[${MAX_MASKS}];  // 0 radial, 1 linear, 2 depth, 3 brush
@@ -1769,8 +1771,9 @@ vec3 srcAt(vec2 pos) {
 }
 
 vec3 colorAt(ivec2 q) {
-  vec2 size = vec2(textureSize(uSrc, 0));
-  vec2 pos = vec2(q) + 0.5;
+  // (positions in the whole picture: a tile's are moved by its corner's place, uFrame)
+  vec2 size = uFrame.zw;
+  vec2 pos = vec2(q) + 0.5 + uFrame.xy;
   vec3 c;
   // Lens correction, as in core/lens.js.
   if (uLens.x != 0.0 || uLensK2 != 0.0 || uLensEdge != 0.0) {
@@ -1781,7 +1784,7 @@ vec3 colorAt(ivec2 q) {
     float rr = sqrt(r2);
     float ease = rr > 0.75 ? uLensEdge * pow((rr - 0.75) / 0.25, 2.0) / rr : 0.0;
     pos = mid + d * (1.0 + uLens.x * r2 + uLensK2 * r2 * r2 + ease) * uLens.y * R;
-    c = srcAt(pos);
+    c = srcAt(pos - uFrame.xy);
   } else {
     c = texelFetch(uSrc, q, 0).rgb;
   }
@@ -2044,7 +2047,7 @@ void main() {
   c *= uExposure;
   // In the Lytro Desktop look the sliders act after its curve.
   if (uLookOn == 1 && uLytro == 0) c = applyLook(c);
-  if (uMaskCount > 0) c = applyLocal(c, (vec2(p) + 0.5) / vec2(size), float(size.x) / float(size.y));
+  if (uMaskCount > 0) c = applyLocal(c, (vec2(p) + 0.5 + uFrame.xy) / uFrame.zw, uFrame.z / uFrame.w);
   // The gain map (core/ultrahdr.js): per channel, how much brighter the HDR picture is than the one saved. The HDR picture is the saved one with its highlights let out: above the
   // knee of the tone curve (where the output passes GAIN_KNEE of the look's white) it goes on as the same pipeline at less exposure, scaled back up. So a hard clip gets its
   // lost highlights back, and a curve that rolls the highlights off gets its roll-off undone; whatever tone curve is in use, found by bisection over how many stops (up to the
@@ -5484,12 +5487,14 @@ export class GpuRenderer {
 
   // Blur, pixelate and sketch of local adjustments (`local` from
   // packMasks): returns a new texture.
-  localSpatial(src, w, h, local) {
+  localSpatial(src, w, h, local, frame = null) {
     const gl = this.gl;
     const out = this.scratch(w, h, 'localSpatial');
     const P = this.programs.localSpatial;
     this.target(out, w, h);
     gl.useProgram(P.p);
+    // (a tile of a bigger picture: the masks and sizes are the whole picture's)
+    gl.uniform4f(P.u.uFrame, frame ? frame.x : 0, frame ? frame.y : 0, frame ? frame.width : w, frame ? frame.height : h);
     gl.uniform1i(P.u.uSrc, 1);
     this.bindTex(1, src);
     gl.uniform1i(P.u.uMaskCount, local.count);
@@ -5522,7 +5527,7 @@ export class GpuRenderer {
   }
 
   // `toTexture`: only the colour matrix, lens and flare, as linear colour into that RGBA32F texture (for the noise reduction, which runs between this and the finishing present).
-  present(src, w, h, { matrix, exposure, fringe, look = null, veilAmount = 0, lens = null, local = null, lutAmount = 0, lytro = false, sharpen = 0, usm = null, toTexture = null, into = null, bytePass = 0, fine = false, gainPass = false }) {
+  present(src, w, h, { matrix, exposure, fringe, look = null, veilAmount = 0, lens = null, local = null, lutAmount = 0, lytro = false, sharpen = 0, usm = null, toTexture = null, into = null, bytePass = 0, fine = false, gainPass = false, frame = null }) {
     this.trimPool();
     const gl = this.gl;
     const P = this.programs.present;
@@ -5562,6 +5567,8 @@ export class GpuRenderer {
     gl.uniform1f(P.u.uLensK2, lens && lens.k2 ? lens.k2 : 0);
     gl.uniform1f(P.u.uLensEdge, lens && lens.edge ? lens.edge : 0);
     gl.uniform1f(P.u.uLensWidth, lens ? lens.width ?? 1 - lens.start : 1);
+    // (`frame` ({ x, y, width, height }): the picture is a tile of a bigger one; the lens, the veil and the masks are the whole picture's)
+    gl.uniform4f(P.u.uFrame, frame ? frame.x : 0, frame ? frame.y : 0, frame ? frame.width : w, frame ? frame.height : h);
     gl.uniform1i(P.u.uVeil, 2);
     this.bindTex(2, veil ? this.veilTex : src);
     const f = (fringe && fringe.colors) || [];

@@ -15,6 +15,7 @@ import { l16DevelopGpu } from './gpu/l16develop.js';
 import { l16FiltersGpu } from './gpu/l16filters.js';
 import { setL16FiltersGpu, setL16NccGpu, setL16LookupGpu, setL16RegionGpu } from './core/l16hires.js';
 import { l16RegionGpu } from './gpu/l16region.js';
+import { l16TileGpu } from './gpu/l16tile.js';
 import { l16LookupGpu } from './gpu/l16lookup.js';
 import { l16NccGpu } from './gpu/l16ncc.js';
 import { l16SgmGpu } from './gpu/l16sgm.js';
@@ -43,7 +44,7 @@ import { methodDepthModel, readDepthModel } from './core/depthmodels.js';
 import { releaseDepthSession, runDepthModel, fitModelDepth, shapeModelDepth, fuseModelDepth } from './core/depthmodel.js';
 import { depthStats, fillNonFinite, shapeDepthContrast, setDepthStyle, estimateDepth, estimateDepthPooled, poolable, DEPTH_FAST_SEARCH, focusAtPoint, smoothDepth, finishDepth, depthGuide, depthColorGuide, luminance, brightnessFloor, DEPTH_SEARCH, DEPTH_LCOST, DEPTH_CBCA, DEPTH_TRWS, DEPTH_COARSE, DEPTH_STEP, DEPTH_REGIONS, combineCoarse } from './core/depth.js';
 import { applyDepthOfField, smoothMap, shapeOptions } from './core/dof.js';
-import { fxOptions, applyBokehFx, fxLight, addFxLight, FX_KEYS } from './core/bokehfx.js';
+import { fxOptions, applyBokehFx, fxLight, FX_KEYS } from './core/bokehfx.js';
 import { makeLocalTone, localToneForSize, applyLocalTone, airlight } from './core/localtone.js';
 import { defringe, autoDefringe } from './core/defringe.js';
 import { makeLook, whiteBalanceGains, DEFAULT_KELVIN, solveWhiteBalance, autoWhiteBalance } from './core/color.js';
@@ -1613,10 +1614,10 @@ function cardStrength(bokeh) {
 // focus is made here (as ProcessedPicture.render does), blurred on the card, read back, and given its share of the whole picture's glow and flare (`light`). The
 // card's tilted plane of focus is the tile's own, so the whole picture's is put in its terms (tilt scaled by the tile's share, the turning point moved). Null where
 // there is no blur to make, no card, or the card fails (the processor makes the tile; the card is not tried again for the photo).
-function tileOnGpu(tile, { u, v, alpha, blur, bokeh, frame, light }) {
+// A tile of a processed photo (an L16 photo's zoomed-in detail, its Render, a filled-in view) through the depth of field on the graphics card: the texture (throws where the card fails).
+function tileTexOnGpu(tile, { u, v, alpha, blur, bokeh, frame, light }) {
   const gpu = state.gpu;
-  if (!gpu || state.ppGpuFailed || debugFlags().noProcessedGpu || !tile.depth) return null;
-  try {
+  {
     const { width: w, height: h } = tile;
     const lambda = tile.toLambda(alpha);
     const grid = tile.depthGrid();
@@ -1655,6 +1656,19 @@ function tileOnGpu(tile, { u, v, alpha, blur, bokeh, frame, light }) {
       feather: (bokeh.blur || 0) * scale * pxPer,
       clip: 1,
     });
+    // (the glow and flare light, made for the whole picture, added at the tile's place)
+    if (light) tex = tileGpu().addLight(tex, w, h, light, frame);
+    return tex;
+  }
+}
+
+// The same, read back as linear RGB, or null (the processor's render is used then).
+function tileOnGpu(tile, opts) {
+  const gpu = state.gpu;
+  if (!gpu || state.ppGpuFailed || debugFlags().noProcessedGpu || !tile.depth) return null;
+  try {
+    const { width: w, height: h } = tile;
+    const tex = tileTexOnGpu(tile, opts);
     const [r, g, b] = gpu.readChannels(tex, w, h, 3);
     const out = new Float32Array(w * h * 3);
     for (let i = 0; i < w * h; i++) {
@@ -1662,12 +1676,66 @@ function tileOnGpu(tile, { u, v, alpha, blur, bokeh, frame, light }) {
       out[3 * i + 1] = g[i];
       out[3 * i + 2] = b[i];
     }
-    return light ? addFxLight(out, w, h, light, frame) : out;
+    return out;
   } catch (e) {
     console.warn('L16 tile on the graphics card failed; using the processor', e);
     state.ppGpuFailed = true;
     return null;
   }
+}
+
+// The tile finished on the graphics card, as the live view finishes the picture (processedGpu): the depth of field, the detail, Texture/Clarity/Dehaze, the spots, the
+// masks' spatial effects and the color pass, all placed on the whole picture (`ctx.window`). Returns the RGBA pixels toPixels would (the processor's path when null).
+function tilePixelsOnGpu(tile, opts, ctx, cs) {
+  const gpu = state.gpu;
+  if (!gpu || state.ppGpuFailed || state.tileFinishFailed || debugFlags().noProcessedGpu || debugFlags().noGpuTileFinish || !tile.depth) return null;
+  const { width: w, height: h } = tile;
+  const gl = gpu.gl;
+  let out = null;
+  // (with masks the processor's finish for now: the card's does not place them on a tile as the processor does yet)
+  if (packedMasks(ctx)) return null;
+  try {
+    let tex = tileTexOnGpu(tile, opts);
+    if (state.detail) tex = gpu.details(tex, w, h, detailForSize(state.detail, w, lensColumns()));
+    if (state.localTone) tex = gpu.localTone(tex, w, h, localToneForSize(state.localTone, w, lensColumns()));
+    const spots = spotsFor(ctx, w, h);
+    if (spots && spots.length) tex = gpu.retouch(tex, w, h, packSpots(spots));
+    const frame = (ctx && ctx.window) || null;
+    const packed = packedMasks(ctx);
+    if (packed) {
+      // (the depth masks read the whole picture's depth, in focus units, as the processor's localFor)
+      const d = processedMaskDepth();
+      if (d.depth) gpu.setDepth(d.depth, d.dw, d.dh);
+      state.ppDepthOnGpu = null;
+    }
+    if (packed && packed.spatial) tex = gpu.localSpatial(tex, w, h, packed, frame);
+    out = gpu.texture(w, h, gl.RGBA8);
+    gpu.present(tex, w, h, {
+      matrix: cs.matrix,
+      exposure: cs.baseExposure * Math.pow(2, cs.settings.ev),
+      fringe: cs.settings.defringe,
+      look: cs.look,
+      veilAmount: cs.veil ? cs.veilAmount : 0,
+      lens: cs.lens,
+      lutAmount: state.lut ? cs.settings.lutAmount ?? 1 : 0,
+      local: packed,
+      lytro: cs.lytro,
+      into: out,
+      frame,
+    });
+    return tileGpu().pixels(out, w, h);
+  } catch (e) {
+    console.warn('L16 tile color on the graphics card failed; using the processor', e);
+    state.tileFinishFailed = true;
+    return null;
+  } finally {
+    if (out) gl.deleteTexture(out);
+  }
+}
+// (the tile steps' module on the current card)
+function tileGpu() {
+  if (!state.tileGpu || state.tileGpu.gpu !== state.gpu) state.tileGpu = { gpu: state.gpu, steps: l16TileGpu(state.gpu) };
+  return state.tileGpu.steps;
 }
 
 // Glow and flare for a Light L16 picture made in tiles: the effects' light made once from the whole picture (the quick picture, with the same viewpoint, focus and blur), so
@@ -1705,8 +1773,14 @@ async function l16Still({ id, job, scale = 1, u = 0, v = 0, alpha = 0, dof = 0, 
       tile.lambdaRange = top.lambdaRange.map((x) => x * sOut);
       // (`window`: where the tile sits in the whole picture, for what is placed on the whole picture: the tilted plane of focus, the glow and flare; the blur on the
       // graphics card where there is one)
-      const rgb = tileOnGpu(tile, { u, v, alpha, blur, bokeh: bokeh || {}, frame: window, light }) || tile.render({ u, v, alpha, blur, bokeh: { ...(bokeh || {}), frame: window, fxLight: light } });
-      return toPixels(rgb, width, height, { focus: alpha, view: { u, v }, window }, colorState(color));
+      const ctx = { focus: alpha, view: { u, v }, window };
+      const cs = colorState(color);
+      const opts = { u, v, alpha, blur, bokeh: bokeh || {}, frame: window, light };
+      // (finished on the card where it can, as the live view; else its blur there and the rest here)
+      const done = tilePixelsOnGpu(tile, opts, ctx, cs);
+      if (done) return done;
+      const rgb = tileOnGpu(tile, opts) || tile.render({ u, v, alpha, blur, bokeh: { ...(bokeh || {}), frame: window, fxLight: light } });
+      return toPixels(rgb, width, height, ctx, cs);
     },
   });
   if (!res) return { cancelled: true };
@@ -1758,7 +1832,10 @@ async function l16Holes({ id, job, u = 0, v = 0, alpha = 0, dof = 0, bokeh, colo
   const blur = processedBlur({ u: 0, v: 0, alpha, aperture: 0, dof, bokeh, color });
   const tile = new ProcessedPicture({ kind: 'single', source: 'l16', images: [{ width: w, height: h, data }], depth: { width: w, height: h, lambda }, pitchRatio: { x: 1, y: 1 } });
   tile.lambdaRange = top.lambdaRange;
-  const pixels = toPixels(tile.render({ u: 0, v: 0, alpha, blur, bokeh: bokeh || {} }), w, h, { focus: alpha, view: { u: 0, v: 0 } }, colorState(color));
+  const ctx = { focus: alpha, view: { u: 0, v: 0 } };
+  const cs = colorState(color);
+  const tileOpts = { u: 0, v: 0, alpha, blur, bokeh: bokeh || {} };
+  const pixels = tilePixelsOnGpu(tile, tileOpts, ctx, cs) || toPixels(tileOnGpu(tile, tileOpts) || tile.render(tileOpts), w, h, ctx, cs);
   // opaque on the uncovered places (and a pixel round them)
   const near = new Uint8Array(w * h);
   for (let y = 0; y < h; y++) {
@@ -1811,8 +1888,14 @@ async function l16Detail({ id, job, gx0, gy0, gw, gh, zs, u = 0, v = 0, alpha = 
       tile.lambdaRange = top.lambdaRange.map((x) => x * zs);
       // (`window`: where the tile sits in the whole picture, for what is placed on the whole picture: the tilted plane of focus, the glow and flare; the blur on the
       // graphics card where there is one)
-      const rgb = tileOnGpu(tile, { u, v, alpha, blur, bokeh: bokeh || {}, frame: window, light }) || tile.render({ u, v, alpha, blur, bokeh: { ...(bokeh || {}), frame: window, fxLight: light } });
-      return toPixels(rgb, width, height, { focus: alpha, view: { u, v }, window }, colorState(color));
+      const ctx = { focus: alpha, view: { u, v }, window };
+      const cs = colorState(color);
+      const opts = { u, v, alpha, blur, bokeh: bokeh || {}, frame: window, light };
+      // (finished on the card where it can, as the live view; else its blur there and the rest here)
+      const done = tilePixelsOnGpu(tile, opts, ctx, cs);
+      if (done) return done;
+      const rgb = tileOnGpu(tile, opts) || tile.render({ u, v, alpha, blur, bokeh: { ...(bokeh || {}), frame: window, fxLight: light } });
+      return toPixels(rgb, width, height, ctx, cs);
     },
   });
   if (!res) return { cancelled: true };
