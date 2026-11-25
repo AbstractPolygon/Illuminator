@@ -2,7 +2,7 @@
 // where every output pixel lands on a camera's sensor (the depth, the calibrated pose, the lens distortion, the capture's correction), and the camera's picture there.
 import { program } from './renderer.js';
 
-const PROJECT = `#version 300 es
+export const LOOKUP_PROJECT = `#version 300 es
 precision highp float;
 precision highp int;
 precision highp sampler2D;
@@ -44,7 +44,7 @@ void main() {
   outColor = vec4(s, 1.0, 0.0);
 }`;
 
-const SAMPLE = `#version 300 es
+export const LOOKUP_SAMPLE = `#version 300 es
 precision highp float;
 precision highp int;
 precision highp sampler2D;
@@ -71,7 +71,7 @@ void main() {
 export function l16LookupGpu(gpu) {
   const gl = gpu.gl;
   let progs = null;
-  const P = () => (progs = progs || { project: program(gl, PROJECT), sample: program(gl, SAMPLE) });
+  const P = () => (progs = progs || { project: program(gl, LOOKUP_PROJECT), sample: program(gl, LOOKUP_SAMPLE) });
   return {
     // job: { W, H, x0, y0, scale, grid, K, z (Float32Array W H), cam (core/l16geometry.js cameraModel), rel ({ R, T }), corr }
     project({ W, H, x0, y0, scale, grid, K, z, cam, rel, corr }) {

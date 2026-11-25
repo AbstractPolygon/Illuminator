@@ -4,7 +4,7 @@
 import { program } from './renderer.js';
 
 // One pass along `uDir`: uMode 0 sums the neighbours times the weights (uWeights, 2r + 1 of them), 1 takes the smallest, 2 the largest.
-const PASS = `#version 300 es
+export const FILTER_PASS = `#version 300 es
 precision highp float;
 precision highp int;
 uniform highp sampler2D uSrc;
@@ -26,11 +26,65 @@ void main() {
   outColor = acc;
 }`;
 
+// The filters on textures already on the card (RGBA32F, w x h), for a caller that keeps its pictures there: { gauss(made, src, w, h, sigma), box(made, src, w, h, r) (the
+// first channel, twice), bounds(made, src, w, h, r) -> { min, max } }, each returning a new texture (pushed to `made`, which the caller deletes).
+export function l16FilterTextures(gpu) {
+  const gl = gpu.gl;
+  let prog = null;
+  const run = (made, src, w, h, passes) => {
+    prog = prog || program(gl, FILTER_PASS);
+    let a = src;
+    for (const pass of passes) {
+      const out = gpu.texture(w, h, gl.RGBA32F);
+      made.push(out);
+      gpu.target(out, w, h);
+      gl.useProgram(prog.p);
+      gl.uniform1i(prog.u.uSrc, 1);
+      gpu.bindTex(1, a);
+      gl.uniform1i(prog.u.uWeights, 2);
+      gpu.bindTex(2, pass.weights);
+      gl.uniform2i(prog.u.uDir, pass.dir[0], pass.dir[1]);
+      gl.uniform1i(prog.u.uR, pass.r);
+      gl.uniform1i(prog.u.uMode, pass.mode);
+      gpu.draw();
+      a = out;
+    }
+    return a;
+  };
+  const weights = (made, k) => {
+    const t = gpu.texture(k.length, 1, gl.R32F);
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, k.length, 1, gl.RED, gl.FLOAT, k);
+    made.push(t);
+    return t;
+  };
+  return {
+    gauss(made, src, w, h, sigma) {
+      const r = Math.max(1, Math.ceil(sigma * 2.5));
+      const k = new Float32Array(2 * r + 1);
+      let sum = 0;
+      for (let i = -r; i <= r; i++) sum += k[i + r] = Math.exp(-(i * i) / (2 * sigma * sigma));
+      for (let i = 0; i < k.length; i++) k[i] /= sum;
+      const wt = weights(made, k);
+      return run(made, src, w, h, [{ dir: [1, 0], r, mode: 0, weights: wt }, { dir: [0, 1], r, mode: 0, weights: wt }]);
+    },
+    box(made, src, w, h, r) {
+      const wt = weights(made, new Float32Array(2 * r + 1).fill(1 / (2 * r + 1)));
+      const pass = (dir) => ({ dir, r, mode: 0, weights: wt });
+      return run(made, src, w, h, [pass([1, 0]), pass([0, 1]), pass([1, 0]), pass([0, 1])]);
+    },
+    bounds(made, src, w, h, r) {
+      const wt = weights(made, new Float32Array(1));
+      const bound = (mode) => run(made, src, w, h, [{ dir: [1, 0], r, mode, weights: wt }, { dir: [0, 1], r, mode, weights: wt }]);
+      return { min: bound(1), max: bound(2) };
+    },
+  };
+}
+
 // The filters on `gpu` (a GpuRenderer): { gauss(src, w, h, sigma), boxBlur1(src, w, h, r), localBounds(src, w, h, r) }, each returning what the processor's function does.
 export function l16FiltersGpu(gpu) {
   const gl = gpu.gl;
   let prog = null;
-  const P = () => (prog = prog || program(gl, PASS));
+  const P = () => (prog = prog || program(gl, FILTER_PASS));
   // (channels: 3 for an rgb picture, 1 for one value per pixel; kept in RGBA)
   const upload = (src, w, h, channels) => {
     const buf = new Float32Array(4 * w * h);

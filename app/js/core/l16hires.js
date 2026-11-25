@@ -9,6 +9,12 @@ import { cameraModel } from './l16geometry.js';
 import { relativePose } from './l16depth.js';
 import { demosaic, halfSize } from './l16fusion.js';
 
+// The whole region on the graphics card (gpu/l16region.js l16RegionGpu's function), or null for the processor's (which uses the card for some of its steps where it can).
+let regionOnCard = null;
+export function setL16RegionGpu(fn) {
+  regionOnCard = fn || null;
+}
+
 // The telephoto cameras' lookup on the graphics card (gpu/l16lookup.js l16LookupGpu's), or null for the processor's: set by the worker that has the card.
 let lookupOnCard = null;
 export function setL16LookupGpu(f) {
@@ -88,8 +94,23 @@ function flowOffsets(a, b, W, H, ds = 4, block = 6, R = 2) {
     }
     return out;
   };
-  const A = reduce(a);
-  const B = reduce(b);
+  const { mx, my, bw, bh } = flowShifts(reduce(a), reduce(b), w, h, ds, block, R);
+  const cellX = (block * ds);
+  return (X, Y) => {
+    // bilinear between block centers
+    const fx = Math.min(bw - 1.001, Math.max(0, (X - cellX / 2) / cellX));
+    const fy = Math.min(bh - 1.001, Math.max(0, (Y - cellX / 2) / cellX));
+    const ix = fx | 0;
+    const iy = fy | 0;
+    const tx = fx - ix;
+    const ty = fy - iy;
+    const g = (arr) => (arr[iy * bw + ix] * (1 - tx) + arr[iy * bw + ix + 1] * tx) * (1 - ty) + (arr[(iy + 1) * bw + ix] * (1 - tx) + arr[(iy + 1) * bw + ix + 1] * tx) * ty;
+    return [g(mx), g(my)];
+  };
+}
+// The block search of flowOffsets on the pictures already reduced by `ds` (A the wide picture's, B the camera's; w x h): the median-filtered shifts of the blocks
+// ({ mx, my: output pixels, bw x bh blocks }).
+export function flowShifts(A, B, w, h, ds = 4, block = 6, R = 2) {
   const bw = Math.max(1, Math.floor(w / block));
   const bh = Math.max(1, Math.floor(h / block));
   const ox = new Float32Array(bw * bh);
@@ -158,20 +179,7 @@ function flowOffsets(a, b, W, H, ds = 4, block = 6, R = 2) {
     }
     return out;
   };
-  const mx = med(ox);
-  const my = med(oy);
-  const cellX = (block * ds);
-  return (X, Y) => {
-    // bilinear between block centers
-    const fx = Math.min(bw - 1.001, Math.max(0, (X - cellX / 2) / cellX));
-    const fy = Math.min(bh - 1.001, Math.max(0, (Y - cellX / 2) / cellX));
-    const ix = fx | 0;
-    const iy = fy | 0;
-    const tx = fx - ix;
-    const ty = fy - iy;
-    const g = (arr) => (arr[iy * bw + ix] * (1 - tx) + arr[iy * bw + ix + 1] * tx) * (1 - ty) + (arr[(iy + 1) * bw + ix] * (1 - tx) + arr[(iy + 1) * bw + ix + 1] * tx) * ty;
-    return [g(mx), g(my)];
-  };
+  return { mx: med(ox), my: med(oy), bw, bh };
 }
 
 
@@ -561,6 +569,15 @@ function boxBlur1Cpu(src, w, h, r) {
 // (core/l16depth.js), `modules` the telephoto cameras to use. Returns { width, height, rgb, covered: the share of output pixels that a telephoto camera supplied }.
 // (`grid`: sensor pixels per pixel of the wide picture's grid, 1 for the full size merge and 2 for the half size one; the region is in that grid's pixels and `scale` is output pixels per grid pixel.)
 export function renderRegion(bytes, parsed, depth, wide, { x0, y0, w, h, scale, grid = 1, corrections = null }, modules, opts, onProgress = () => {}, rawCache = null) {
+  if (regionOnCard) {
+    // (the whole region on the graphics card, gpu/l16region.js: the same steps; here if it fails)
+    try {
+      return regionOnCard(bytes, parsed, depth, wide, { x0, y0, w, h, scale, grid, corrections }, modules, opts, onProgress, rawCache);
+    } catch (e) {
+      console.warn('L16 detail on the graphics card failed; making it here', e);
+      regionOnCard = null;
+    }
+  }
   const W = Math.round(w * scale);
   const H = Math.round(h * scale);
   const refCam = cameraModel(parsed.header, parsed.modules[depth.ref][0]);

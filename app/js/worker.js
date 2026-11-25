@@ -13,7 +13,8 @@ import { setL16PrepGpu, setL16FuseGpu } from './core/l16fusion.js';
 import { l16FuseGpu } from './gpu/l16fuse.js';
 import { l16DevelopGpu } from './gpu/l16develop.js';
 import { l16FiltersGpu } from './gpu/l16filters.js';
-import { setL16FiltersGpu, setL16NccGpu, setL16LookupGpu } from './core/l16hires.js';
+import { setL16FiltersGpu, setL16NccGpu, setL16LookupGpu, setL16RegionGpu } from './core/l16hires.js';
+import { l16RegionGpu } from './gpu/l16region.js';
 import { l16LookupGpu } from './gpu/l16lookup.js';
 import { l16NccGpu } from './gpu/l16ncc.js';
 import { l16SgmGpu } from './gpu/l16sgm.js';
@@ -1091,6 +1092,7 @@ async function open({ id, bytes, synthetic, userDepth = null, depthCache = null,
     setL16FiltersGpu(state.gpu && !debugFlags().noGpuL16Filters ? l16FiltersGpu(state.gpu) : null);
     setL16NccGpu(state.gpu && !debugFlags().noGpuL16Align ? l16NccGpu(state.gpu) : null);
     setL16LookupGpu(state.gpu && !debugFlags().noGpuL16Lookup ? l16LookupGpu(state.gpu) : null);
+    setL16RegionGpu(state.gpu && !debugFlags().noGpuL16Detail ? l16RegionGpu(state.gpu) : null);
     setL16FuseGpu(state.gpu && !debugFlags().noGpuL16Merge ? l16FuseGpu(state.gpu) : null);
     setL16DepthFinishGpu(state.gpu && !debugFlags().noGpuL16DepthFinish ? l16DepthFinishGpu(state.gpu) : null);
     // (on a software renderer the depth pictures are slower than here)
@@ -4394,6 +4396,7 @@ function recoverGpu({ keepPhoto = true } = {}) {
   setL16FiltersGpu(null);
   setL16NccGpu(null);
   setL16LookupGpu(null);
+  setL16RegionGpu(null);
   setL16FuseGpu(null);
   setL16ReduceGpu(null);
   setL16DepthFinishGpu(null);
