@@ -3188,7 +3188,7 @@ function speedFacts() {
   return {
     renderer: state.gpu ? `GPU (${state.gpu.name})` : 'CPU',
     hardware: hardwareGpu(),
-    depth: state.depthReport || null,
+    depth: state.depthReport ? { ...state.depthReport, stages: state.depthReport.stages.map(({ stage, alpha, w, h }) => ({ stage, ...depthStats(alpha, w, h) })) } : null,
     fallbacks: [...(state.cpuFallbacks || new Map())].map(([step, error]) => [step, String(error).slice(0, 120)]),
     cores: (typeof navigator !== 'undefined' && navigator.hardwareConcurrency) || 0,
     memoryGB: (typeof navigator !== 'undefined' && navigator.deviceMemory) || null,
@@ -3927,7 +3927,8 @@ function applyDepthSmoothing() {
   const { outW, outH } = state.sampler;
   // For the speed report: what the depth looked like at each step (dots in the depth view show there as spikes or values that are not numbers).
   const report = { style: resolveDepthStyle(state.settings.depthStyle), quality: state.settings.depthQuality ?? 'normal', smoothing: state.gpu ? 'graphics card' : 'processor', stages: [] };
-  const note = (stage, a) => report.stages.push({ stage, ...depthStats(a, outW, outH) });
+  // (the stages' statistics are worked out only when the speed report asks for them: they look at every pixel's neighbors, three times, which slowed every change of a depth setting)
+  const note = (stage, a) => report.stages.push({ stage, alpha: a, w: outW, h: outH });
   note('measured', state.depthRaw.alpha);
   // Values that are not numbers are filled from their neighbors first: each smoothing pass would spread one over its neighbors (core/depth.js fillNonFinite).
   const rawAlpha = fillNonFinite(state.depthRaw.alpha, outW, outH);
