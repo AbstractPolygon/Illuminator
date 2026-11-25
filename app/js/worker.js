@@ -17,7 +17,8 @@ import { setL16FiltersGpu, setL16NccGpu, setL16LookupGpu, setL16RegionGpu } from
 import { l16RegionGpu } from './gpu/l16region.js';
 import { l16TileGpu } from './gpu/l16tile.js';
 import { l16ClassicGpu } from './gpu/l16classic.js';
-import { setL16ClassicGpu } from './core/l16classic.js';
+import { setL16ClassicGpu, setL16ClassicSmoothGpu } from './core/l16classic.js';
+import { l16ClassicSgmGpu } from './gpu/l16classicsgm.js';
 import { l16HolesGpu } from './gpu/l16holes.js';
 import { l16LookupGpu } from './gpu/l16lookup.js';
 import { l16NccGpu } from './gpu/l16ncc.js';
@@ -1107,6 +1108,8 @@ async function open({ id, bytes, synthetic, userDepth = null, depthCache = null,
     // (the smoothing is thousands of small steps: on a software renderer, which runs them on the processor, it is slower than the processor's)
     setL16SgmGpu(hardwareGpu() && !debugFlags().noGpuL16Smooth ? l16SgmGpu(state.gpu) : null);
     setL16ClassicGpu(state.gpu && !debugFlags().noGpuL16Classic ? l16ClassicGpu(state.gpu) : null);
+    // (thousands of small steps, as the smoothing above: on a real graphics card only)
+    setL16ClassicSmoothGpu(hardwareGpu() && !debugFlags().noGpuL16ClassicSmooth ? l16ClassicSgmGpu(state.gpu) : null);
     l16Pool = {
       async run(job, steps, onSlice) {
         const onCard = gpu ? l16CostGpu(gpu, job) : null;
@@ -4612,6 +4615,7 @@ function recoverGpu({ keepPhoto = true } = {}) {
   setL16DevelopGpu(null);
   setL16SgmGpu(null);
   setL16ClassicGpu(null);
+  setL16ClassicSmoothGpu(null);
   dropKeptStills();
   if (!keepPhoto || !state.lf) return false; // a photo opened next makes its own renderer
   state.gpu = GpuRenderer.create(state.lf.cam) || false;

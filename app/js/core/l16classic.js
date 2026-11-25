@@ -459,6 +459,24 @@ function runLayer(ctx, L, onRow) {
       for (let c = 0; c < 3; c++) guide[3 * (y * w + x) + c] = ctx.ref[3 * (yi * ctx.W + xi) + c];
     }
   }
+  // (on the graphics card, gpu/l16classicsgm.js: the same smoothing and each pixel's least plane; here if it fails)
+  if (smoothOnCard) {
+    try {
+      const r = smoothOnCard({ w, h, start, count, cap, off, raw, guide, gw: GUIDE });
+      const depth = new Float32Array(npx);
+      const confidence = new Float32Array(npx);
+      for (let i = 0; i < npx; i++) {
+        depth[i] = ctx.planes[start[i] + r.arg[i]];
+        const second = r.second[i];
+        confidence[i] = second < 0xffff && second > 0 ? Math.max(0, Math.min(1, 1 - r.best[i] / second)) : 1;
+      }
+      if (onRow) onRow(1);
+      return { depth, confidence };
+    } catch (e) {
+      console.warn('Classic Depth smoothing on the graphics card failed; smoothing here', e);
+      smoothOnCard = null;
+    }
+  }
   // the smoothing: two passes (down and up the picture), each along four directions (the pixel before in the row, and the three above it, or below on the way up)
   const NB = maxHi - minLo + 2;
   const BIG = 2000;
@@ -561,6 +579,12 @@ function runLayer(ctx, L, onRow) {
 let costOnCard = null;
 export function setL16ClassicGpu(c) {
   costOnCard = c || null;
+}
+
+// The smoothing on the graphics card (gpu/l16classicsgm.js l16ClassicSgmGpu's), or null for the processor's: set by the worker that has the card.
+let smoothOnCard = null;
+export function setL16ClassicSmoothGpu(f) {
+  smoothOnCard = f || null;
 }
 
 // Classic Depth: { width, height, scale, ref, modules, focalPx, K, invZ (1 / mm), confidence, steps, near, far }, as core/l16depth.js measureDepth's.
