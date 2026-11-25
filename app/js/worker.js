@@ -16,6 +16,7 @@ import { l16FiltersGpu } from './gpu/l16filters.js';
 import { setL16FiltersGpu, setL16NccGpu, setL16LookupGpu, setL16RegionGpu } from './core/l16hires.js';
 import { l16RegionGpu } from './gpu/l16region.js';
 import { l16TileGpu } from './gpu/l16tile.js';
+import { l16HolesGpu } from './gpu/l16holes.js';
 import { l16LookupGpu } from './gpu/l16lookup.js';
 import { l16NccGpu } from './gpu/l16ncc.js';
 import { l16SgmGpu } from './gpu/l16sgm.js';
@@ -1807,21 +1808,50 @@ async function l16Holes({ id, job, u = 0, v = 0, alpha = 0, dof = 0, bokeh, colo
   const focal = depth.K[0] / 2;
   const tx = 2 * RIG_RADIUS_MM * u;
   const ty = 2 * RIG_RADIUS_MM * v;
-  const view = synthesize({ rgb: wide.rgb, width: w, height: h, z }, focal, tx, ty, l16.pivotZ);
-  if (state.jobs.holes !== job) return { cancelled: true };
   const refCam = l16CameraModel(parsed.header, parsed.modules[depth.ref][0]);
-  const donors = depth.modules
-    .filter((m) => (parsed.modules[m][0].module.sensor_bayer_red_override || { x: 0 }).x >= 0)
-    .map((m) => {
+  const colorIds = depth.modules.filter((m) => (parsed.modules[m][0].module.sensor_bayer_red_override || { x: 0 }).x >= 0);
+  // (on the graphics card where there is one, gpu/l16holes.js: the same steps; the processor's below if it fails)
+  let view = null;
+  let gap = null;
+  // (a real graphics card only: the splat is millions of small rectangles, far slower on a software renderer than the processor's)
+  if (hardwareGpu() && !state.holesGpuFailed && !debugFlags().noGpuL16Holes) {
+    try {
+      const donors = colorIds
+        .map((m) => {
+          const frame = parsed.modules[m][0];
+          const sd = frame.module.sensor_data_surface;
+          const cam = l16CameraModel(parsed.header, frame);
+          const rel = l16RelativePose(refCam, cam);
+          // (the donor's centre relative to the reference, for the order: nearest the new viewpoint first)
+          const c = [-(rel.R[0] * rel.T[0] + rel.R[3] * rel.T[1] + rel.R[6] * rel.T[2]), -(rel.R[1] * rel.T[0] + rel.R[4] * rel.T[1] + rel.R[7] * rel.T[2])];
+          const start = frame.blockStart + sd.data_offset;
+          if (sd.format !== 'RAW_PACKED_10BPP' || start + (sd.size.y - 1) * sd.row_stride + (sd.size.x / 4) * 5 > bytes.length) throw new Error('a donor frame is not packed 10 bit');
+          return { cam, rel, dist: Math.hypot(c[0] - tx, c[1] - ty), packed: { bytes, start, stride: sd.row_stride }, size: sd.size, red: frame.module.sensor_bayer_red_override || { x: 0, y: 0 }, mono: false, opts };
+        })
+        .sort((a, b) => a.dist - b.dist);
+      const r = l16HolesGpu(state.gpu)({ rgb: wide.rgb, z, w, h, focal, tx, ty, pivotZ: l16.pivotZ, K: depth.K, S: 2, donors });
+      view = { rgb: r.rgb, z: r.z };
+      gap = r.gap;
+    } catch (e) {
+      console.warn('L16 hole filling on the graphics card failed; filling here', e);
+      state.holesGpuFailed = true;
+    }
+  }
+  if (!view) {
+    view = synthesize({ rgb: wide.rgb, width: w, height: h, z }, focal, tx, ty, l16.pivotZ);
+    if (state.jobs.holes !== job) return { cancelled: true };
+    const donors = colorIds.map((m) => {
       const cam = l16CameraModel(parsed.header, parsed.modules[m][0]);
       return { id: m, cam, rel: l16RelativePose(refCam, cam), color: superpixelColor(bytes, parsed.modules[m][0], opts) };
     });
-  await tick();
+    await tick();
+    if (state.jobs.holes !== job) return { cancelled: true };
+    // (where the splatted view itself has a gap: the places that are both a gap here and uncovered in the live view are the ones replaced)
+    gap = Uint8Array.from(view.hole);
+    fillFromDonors(view, { rgb: wide.rgb, width: w, height: h, z, K: depth.K, scale: 2 }, donors, tx, ty, backgroundDepth(view.z, view.hole, w, h));
+    fillFromBackground(view, w, h);
+  }
   if (state.jobs.holes !== job) return { cancelled: true };
-  // (where the splatted view itself has a gap: the places that are both a gap here and uncovered in the live view are the ones replaced)
-  const gap = Uint8Array.from(view.hole);
-  fillFromDonors(view, { rgb: wide.rgb, width: w, height: h, z, K: depth.K, scale: 2 }, donors, tx, ty, backgroundDepth(view.z, view.hole, w, h));
-  fillFromBackground(view, w, h);
   const data = encodePicture(view.rgb, w, h, l16.gain, l16.colorMatrix);
   const lambda = new Float32Array(w * h);
   for (let i = 0; i < w * h; i++) {
