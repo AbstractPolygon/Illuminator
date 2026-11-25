@@ -50,6 +50,7 @@ button {
 button:hover:not(:disabled) { border-color: #4a515c; }
 button:disabled { opacity: 0.45; cursor: default; }
 .viewpoint-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.viewpoint-row label { flex: 1; min-width: 0; }
 .viewpoint-row button { padding: 1px 8px; font-size: 12px; }
 button.primary, a.button.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); font-weight: 600; }
 button.active, button[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
