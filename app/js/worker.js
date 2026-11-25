@@ -1754,9 +1754,27 @@ function wholeFxLight(top, { u, v, alpha, blur, bokeh }) {
   if (!fx) return null;
   const plain = { ...(bokeh || {}) };
   for (const k of FX_KEYS) plain[k] = 0;
-  // (the picture the light comes from, with its depth of field: on the graphics card where there is one, as the tiles are; else here)
-  const rgb = tileOnGpu(top, { u, v, alpha, blur, bokeh: plain, frame: null, light: null }) || top.render({ u, v, alpha, blur, bokeh: plain });
-  return fxLight(rgb, top.width, top.height, fx, 1);
+  // (on the graphics card where there is one: the picture with its depth of field, as the tiles are, and the light made from it as the live view makes it; else here)
+  const gpu = state.gpu;
+  if (gpu && !state.ppGpuFailed && !debugFlags().noProcessedGpu && !debugFlags().noGpuFxLight && top.depth) {
+    try {
+      const { width: w, height: h } = top;
+      const tex = tileTexOnGpu(top, { u, v, alpha, blur, bokeh: plain, frame: null, light: null });
+      const hw = Math.ceil(w / 2);
+      const hh = Math.ceil(h / 2);
+      const [r, g, b] = gpu.readChannels(gpu.bokehFxLight(tex, w, h, fx, 1), hw, hh, 3);
+      const light = new Float32Array(3 * hw * hh);
+      for (let i = 0; i < hw * hh; i++) {
+        light[3 * i] = r[i];
+        light[3 * i + 1] = g[i];
+        light[3 * i + 2] = b[i];
+      }
+      return { light, hw, hh };
+    } catch (e) {
+      console.warn('The glow and flare light on the graphics card failed; making it here', e);
+    }
+  }
+  return fxLight(top.render({ u, v, alpha, blur, bokeh: plain }), top.width, top.height, fx, 1);
 }
 
 // The final render of a Light L16 photo (core/l16render.js): the picture at `scale` times the camera's size (1 is 4160 x 3120), with the viewpoint, blur and color of the camera view.

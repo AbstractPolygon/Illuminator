@@ -4645,6 +4645,22 @@ export class GpuRenderer {
   // Lens effects around bright points (core/bokehfx.js fxOptions gives `fx`): a new texture, the picture with their light added.
   bokehFx(src, w, h, fx, clip = 1) {
     const gl = this.gl;
+    const half = this.bokehFxLight(src, w, h, fx, clip);
+    const out = this.scratch(w, h, 'fxFull');
+    const P = this.programs.bokehFx;
+    gl.useProgram(P.p);
+    // pass 2: added to the picture
+    gl.uniform1i(P.u.uPass, 2);
+    this.target(out, w, h);
+    this.bindTex(1, src);
+    this.bindTex(2, half);
+    this.draw();
+    return out;
+  }
+
+  // The effects' light alone (passes 0, 3, 4 and 1 of bokehFx): a half size texture, as core/bokehfx.js fxLight makes it on the processor (kept until the next call).
+  bokehFxLight(src, w, h, fx, clip = 1) {
+    const gl = this.gl;
     const hw = Math.ceil(w / 2);
     const hh = Math.ceil(h / 2);
     const G = fxGeometry(fx, hw);
@@ -4653,7 +4669,6 @@ export class GpuRenderer {
     // first two, and with only fog or dirt on they were made for nothing)
     const ptTex = fx.star > 0 ? this.mipmapped(hw, hh, 'fxPt') : null;
     const half = this.scratch(hw, hh, 'fxHalf');
-    const out = this.scratch(w, h, 'fxFull');
     const P = this.programs.bokehFx;
     gl.useProgram(P.p);
     gl.uniform1i(P.u.uSrc, 1);
@@ -4759,13 +4774,7 @@ export class GpuRenderer {
     this.bindTex(5, streakA || hlTex);
     this.bindTex(6, streakB || hlTex);
     this.draw();
-    // pass 2: added to the picture
-    gl.uniform1i(P.u.uPass, 2);
-    this.target(out, w, h);
-    this.bindTex(1, src);
-    this.bindTex(2, half);
-    this.draw();
-    return out;
+    return half;
   }
 
   // Details panel (see core/detail.js): returns a new texture.
