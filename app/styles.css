@@ -206,7 +206,6 @@ h2 { font-size: 13px; font-weight: 600; color: var(--heading); margin: 14px 0 8p
   overflow: hidden;
   background: #0b0c0e;
 }
-.viewer.dragover { outline: 2px dashed var(--accent); outline-offset: -8px; }
 #view { position: absolute; left: 0; top: 0; touch-action: none; }
 #view.pannable { cursor: grab; }
 #view.panning { cursor: grabbing; }
