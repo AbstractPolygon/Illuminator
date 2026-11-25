@@ -1,5 +1,6 @@
 // keyframes: moved out of main.js. initKeyframes() runs where the section used to, with what it uses from the rest of the page.
 import { cameraMove } from '../core/camerapresets.js';
+import { setSliderExact } from './exactslider.js';
 import { setKey, isSettingTrack, isMaskTrack, emptyAnimation, parseAnimation, valueAt, PRESETS, cubicBezier, frameCount, hasKeys, sample } from '../core/keyframes.js';
 
 // Registers a drag on the window and ends it on pointerup, pointercancel (a
@@ -499,6 +500,8 @@ export function initKeyframes({ $, getMasks, maskLabel, state, canRender, F_STOP
     }
   }
 
+  // Tracks that count something (whole numbers).
+  const COUNT_TRACKS = new Set(['bokehBlades', 'bokehPoints', 'bokehSpikes']);
   // Camera tracks set straight from a slider.
   const TRACK_SLIDERS = { spread: 'spread', spreadSmooth: 'spread-smooth', spreadBlur: 'spread-blur', tilt: 'tilt', tiltRotation: 'tilt-rotation', highlights: 'highlights', bokehBlades: 'bokeh-blades', bokehOval: 'bokeh-oval', bokehRotation: 'bokeh-rotation', bokehOnion: 'bokeh-onion', bokehPoints: 'bokeh-points', bokehInner: 'bokeh-inner', bokehWidth: 'bokeh-width', bokehIrregular: 'bokeh-irregular', bokehRingBlur: 'bokeh-ring-blur', bokehWarp: 'bokeh-warp', bokehSize: 'bokeh-size', bokehSpots: 'bokeh-spots', bokehCat: 'bokeh-cat', bokehSwirl: 'bokeh-swirl', bokehEdge: 'bokeh-edge', bokehEdgeFB: 'bokeh-edge-fb', bokehBubble: 'bokeh-bubble', bokehHole: 'bokeh-hole', bokehFringe: 'bokeh-fringe', bokehHot: 'bokeh-hot', bokehGrain: 'bokeh-grain', bokehDiffraction: 'bokeh-diffraction', bokehStreak: 'bokeh-streak', bokehStreakLen: 'bokeh-streak-len', bokehStreakThreshold: 'bokeh-streak-threshold', bokehOuter: 'bokeh-outer', bokehStar: 'bokeh-star', bokehSpikes: 'bokeh-spikes', bokehGhosts: 'bokeh-ghosts', bokehFog: 'bokeh-fog', bokehDirt: 'bokeh-dirt', amount: 'amount', near: 'near', far: 'far' };
 
@@ -507,7 +510,9 @@ export function initKeyframes({ $, getMasks, maskLabel, state, canRender, F_STOP
   function applyValue(k, v) {
     if (isSettingTrack(k)) {
       const el = settingControl(k);
-      el.value = v;
+      // (a slider holds the exact in-between value, or the frames would move in its steps)
+      if (el.type === 'range') setSliderExact(el, v);
+      else el.value = v;
       showSliderValue(el);
       // Sent to the worker once the values are all set (see settingsShown).
       settingsDirty = true;
@@ -527,24 +532,27 @@ export function initKeyframes({ $, getMasks, maskLabel, state, canRender, F_STOP
       let best = 0;
       F_STOPS.forEach((n, i) => { if (Math.abs(Math.log(n / v)) < Math.abs(Math.log(F_STOPS[best] / v))) best = i; });
       $('fstop').value = best;
+      // (the exact f-number between the stops, while the slider stays where it was put)
+      state.exactFNumber = { v, at: best };
       showFNumber();
     } else if (k === 'depth') {
-      $('dof-depth').value = Math.round(v);
+      setSliderExact($('dof-depth'), v);
       showSliderValue($('dof-depth'));
     } else if (k === 'focus') {
       $('focus').value = v;
     } else if (k === 'view') {
       state.camera = { u: v[0], v: v[1] };
     } else if (k === 'pivot') {
-      $('pivot').value = Math.round(v);
+      setSliderExact($('pivot'), v);
       showSliderValue($('pivot'));
     } else if (k === 'pointX' || k === 'pointY') {
       state.focusPoint = { ...state.focusPoint, [k === 'pointX' ? 'x' : 'y']: Math.min(1, Math.max(0, v)) };
       showFocusPoint();
     } else if (TRACK_SLIDERS[k]) {
       const el = $(TRACK_SLIDERS[k]);
-      // Whole numbers for sliders that step in them.
-      el.value = +el.step >= 1 ? Math.round(v) : v;
+      // (the exact in-between value, not the slider's step: the frames would move in steps; a count, of blades, points or spikes, stays whole)
+      if (COUNT_TRACKS.has(k)) el.value = Math.round(v);
+      else setSliderExact(el, v);
       showSliderValue(el);
     } else if (k === 'zoom') {
       $('frame-zoom').value = v * 100;
