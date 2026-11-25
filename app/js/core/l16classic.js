@@ -393,13 +393,27 @@ function runLayer(ctx, L, onRow) {
     if (start[i] < minLo) minLo = start[i];
     if (start[i] + cap[i] > maxHi) maxHi = start[i] + cap[i];
   }
-  const raw = new Uint8Array(off[npx]);
+  let raw = null;
+  let fromCard = false;
   const agg = new Uint16Array(off[npx]);
+  const sc = L.scale;
+  if (ctx.card) {
+    // (on the graphics card, gpu/l16classic.js: the same costs; here if it fails)
+    try {
+      raw = ctx.card.costs({ w, scale: sc, start, count, skip, off });
+      fromCard = true;
+      if (onRow) onRow(0.6);
+    } catch (e) {
+      console.warn('Classic Depth costs on the graphics card failed; measuring here', e);
+      ctx.card = null;
+      raw = null;
+    }
+  }
   // the raw costs (0 for a pixel only smoothed into; 255 past a pixel's planes)
   const sum = new Uint32Array(n);
   const tmp = new Uint8Array(n);
-  const sc = L.scale;
-  for (let y = 0; y < h; y++) {
+  if (!raw) raw = new Uint8Array(off[npx]);
+  for (let y = 0; y < h && !fromCard; y++) {
     for (let x = 0; x < w; x++) {
       const i = y * w + x;
       const o = off[i];
@@ -519,6 +533,12 @@ function runLayer(ctx, L, onRow) {
   return { depth, confidence };
 }
 
+// The costs on the graphics card (gpu/l16classic.js l16ClassicGpu's), or null for the processor's: set by the worker that has the card.
+let costOnCard = null;
+export function setL16ClassicGpu(c) {
+  costOnCard = c || null;
+}
+
 // Classic Depth: { width, height, scale, ref, modules, focalPx, K, invZ (1 / mm), confidence, steps, near, far }, as core/l16depth.js measureDepth's.
 // options: { ref, modules, black, white, gains }.
 export function classicDepth(bytes, parsed, options = {}, onProgress = () => {}) {
@@ -547,7 +567,14 @@ export function classicDepth(bytes, parsed, options = {}, onProgress = () => {})
   });
   const K = refCam.K;
   const planes = depthPlanes(NEAR, FAR, baseline, K[0] / 2);
-  const ctx = { ref, W, H, others, planes, K, block: new Uint8Array(27) };
+  const ctx = { ref, W, H, others, planes, K, block: new Uint8Array(27), card: null };
+  if (costOnCard) {
+    try {
+      ctx.card = costOnCard.open({ ref, W, H, mods: others, planes, K });
+    } catch (e) {
+      console.warn('Classic Depth on the graphics card could not start; measuring here', e);
+    }
+  }
   let prev = null;
   let result = null;
   SCALES.forEach((sc, li) => {
@@ -558,6 +585,7 @@ export function classicDepth(bytes, parsed, options = {}, onProgress = () => {})
     result = runLayer(ctx, L, (p) => onProgress('Measuring depth', share[0] + share[1] * p));
     prev = { w: L.w, h: L.h, depth: result.depth, skip: L.skip };
   });
+  if (ctx.card) ctx.card.close();
   const w = prev.w;
   const h = prev.h;
   const invZ = new Float32Array(w * h);
