@@ -412,14 +412,33 @@ export function setL16IlluminatorSmoothGpu(f) {
   illuminatorSmoothOnCard = f || null;
 }
 
+// And its winners on the graphics card (gpu/l16winner.js l16WinnerGpu's), or null for the processor's.
+let illuminatorWinnersOnCard = null;
+export function setL16IlluminatorWinnersGpu(f) {
+  illuminatorWinnersOnCard = f || null;
+}
+
 function depthFinishIlluminator(setup, cost, onProgress) {
   const { ref, w, h, NZ, invMin, invMax } = setup;
   onProgress('Smoothing depth', 0.7);
   const invZ = new Float32Array(w * h);
   const confidence = new Float32Array(w * h);
   // (the steps as a position 0..1 of the range, for the smoothing; back to inverse depth after)
-  const pos01 = new Float32Array(w * h);
-  for (let i = 0; i < w * h; i++) {
+  let pos01 = new Float32Array(w * h);
+  let fromCard = null;
+  if (illuminatorWinnersOnCard) {
+    // (on the graphics card, gpu/l16winner.js: the same winners; here if it fails)
+    try {
+      fromCard = illuminatorWinnersOnCard(cost, w, h, NZ);
+      pos01 = fromCard.pos01;
+      confidence.set(fromCard.confidence);
+    } catch (e) {
+      console.warn('L16 depth winners on the graphics card failed; finding them here', e);
+      illuminatorWinnersOnCard = null;
+      fromCard = null;
+    }
+  }
+  for (let i = 0; i < w * h && !fromCard; i++) {
     const base = i * NZ;
     let best = 0;
     let bc = Infinity;

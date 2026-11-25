@@ -84,7 +84,8 @@ import { renderL16Final } from './core/l16render.js';
 import { superpixelColor, depthAtSize, synthesize, fillFromBackground, backgroundDepth, fillFromDonors } from './core/l16view.js';
 import { RIG_RADIUS_MM, developL16, setL16DevelopGpu, encodePicture } from './core/l16photo.js';
 import { cameraModel as l16CameraModel } from './core/l16geometry.js';
-import { relativePose as l16RelativePose, setL16SgmGpu, setL16ReduceGpu, setL16DepthFinishGpu, setL16IlluminatorSmoothGpu, measureDepthPooled as measureL16DepthPooled } from './core/l16depth.js';
+import { relativePose as l16RelativePose, setL16SgmGpu, setL16ReduceGpu, setL16DepthFinishGpu, setL16IlluminatorSmoothGpu, setL16IlluminatorWinnersGpu, measureDepthPooled as measureL16DepthPooled } from './core/l16depth.js';
+import { l16WinnerGpu } from './gpu/l16winner.js';
 import { lytroSplatGpu } from './gpu/lytroengine.js';
 import { debugFlags, hook, setHook } from './core/debugflags.js';
 import { withExtension, depthRange, searchSteps, reachProfile, reachToward, uncoveredMask, setUncoveredGpu } from './core/viewextend.js';
@@ -4363,6 +4364,7 @@ async function l16DepthMethod(id) {
           }
         : null;
       setL16IlluminatorSmoothGpu(state.gpu && !debugFlags().noGpuL16IlluminatorSmooth ? state.gpu.smoothDepth.bind(state.gpu) : null);
+      setL16IlluminatorWinnersGpu(state.gpu && !debugFlags().noGpuL16IlluminatorWinners ? l16WinnerGpu(state.gpu) : null);
       l16.illuminatorDepth = await measureL16DepthPooled(l16.bytes, l16.parsed, { ref: l16.ref, style: 'illuminator' }, progress, pool);
     }
     measured = l16.illuminatorDepth;
