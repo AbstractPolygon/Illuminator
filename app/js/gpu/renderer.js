@@ -710,6 +710,29 @@ uniform float uFringe; // color fringe: each color's ball a little larger or sma
 uniform float uSoft;   // the edge's width, a share of the radius (Optical bokeh)
 uniform int uPass;     // 0 full size, 1 half size, 2 full size with half size
 uniform float uHalfFrom;
+uniform float uBoost;      // the highlight boost of the prepared picture (DOF_PREP): 2^(7 highlights) - 1
+uniform float uBoostClip;  // and its clip level
+
+// The prepared value of a pixel without the highlight boost (DOF_PREP multiplies by 1 + uBoost t^2, t rising from 0.8 clip to clip; its inverse, by bisection on the
+// brightness): an in-focus pixel keeps the picture's own value, as on the processor (core/dof.js applyDepthOfField), not one up to 128 times brighter, which the
+// sharpening after made into a dark outline round every bright area.
+vec3 unboost(vec3 b) {
+  if (uBoost <= 0.0) return b;
+  float yb = dot(b, vec3(0.2126, 0.7152, 0.0722));
+  float knee = 0.8 * uBoostClip;
+  if (yb <= knee) return b;
+  float lo = knee;
+  float hi = yb;
+  for (int i = 0; i < 24; i++) {
+    float m = 0.5 * (lo + hi);
+    float t = clamp((m - knee) / (uBoostClip - knee), 0.0, 1.0);
+    if (m * (1.0 + uBoost * t * t) < yb) lo = m;
+    else hi = m;
+  }
+  float y = 0.5 * (lo + hi);
+  float t = clamp((y - knee) / (uBoostClip - knee), 0.0, 1.0);
+  return b / (1.0 + uBoost * t * t);
+}
 out vec4 outColor;
 
 // Distance in units of the shape's radius (as kernelDistance in core/dof.js).
@@ -884,7 +907,7 @@ vec3 gather(vec2 pf, vec4 c, ivec2 size, bool snap, bool coarse) {
   // this pixel's own blur, a little past its radius): a sharp pixel beside strong background blur no longer visits taps that would all be turned away.
   vec3 tile = texelFetch(uTiles, t, 0).rgb;
   float maxR = min(uMaxR, max(tile.b, min(tile.g, max(c.a, 0.0) + 0.5)) * uReach + 1.0);
-  if (maxR < 0.75) return c.rgb;
+  if (maxR < 0.75) return unboost(c.rgb);
   // (hard edged shapes keep more: with fewer taps a single bright point lights its ball unevenly, and the notches of blades, stars and hearts fill in; the Gaussian
   // of Natural does not show it)
   // (the number of taps as a fraction: the taps' places follow it, and the last one comes in by the fraction, so a blur that grows a little changes the picture a
@@ -932,7 +955,8 @@ vec3 gather(vec2 pf, vec4 c, ivec2 size, bool snap, bool coarse) {
     sum += s.rgb * w * gTint;
     wsum += w;
   }
-  return sum / max(wsum, 1e-9);
+  // (from the pixel's own value in focus to the blur over its first pixel of radius, as the processor's levels)
+  return mix(unboost(c.rgb), sum / max(wsum, 1e-9), clamp(rc, 0.0, 1.0));
 }
 
 void main() {
@@ -4548,6 +4572,8 @@ export class GpuRenderer {
     gl.uniform1i(P.u.uTiles, 3);
     this.bindTex(3, tiles);
     gl.uniform1i(P.u.uTaps, taps);
+    gl.uniform1f(P.u.uBoost, highlights > 0 ? 2 ** (7 * highlights) - 1 : 0);
+    gl.uniform1f(P.u.uBoostClip, clip);
     gl.uniform1f(P.u.uMaxR, Math.max(1, maxR));
     gl.uniform1f(P.u.uReach, blurReach);
     gl.uniform1i(P.u.uShape, shapeId);

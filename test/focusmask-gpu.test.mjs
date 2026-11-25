@@ -116,7 +116,7 @@ test('the Blur under Focus Spread feathers the blur map on the GPU', async (t) =
   }
 });
 
-test('the blur pass leaves what is exactly in focus as it was (it softened everything once any blur was on)', async (t) => {
+test('the blur pass leaves what is exactly in focus as it was, with or without the highlight boost (it softened everything once any blur was on; the boost stayed on bright pixels)', async (t) => {
   const browser = await launchBrowser(t);
   if (!browser) return;
   const server = http.createServer((q, r) => {
@@ -150,11 +150,14 @@ test('the blur pass leaves what is exactly in focus as it was (it softened every
       const depth = new Float32Array(w * h);
       for (let y = 0; y < h; y++) for (let x = 40; x < w; x++) depth[y * w + x] = 1.2;
       gpu.setDepth(depth, w, h);
-      gpu.target(gpu.depthOfField(src, w, h, { focus: 0, strength: 4 }), w, h);
-      const out = new Float32Array(w * h * 4);
-      gl.readPixels(0, 0, w, h, gl.RGBA, gl.FLOAT, out);
+      // (also with the highlight boost, on by default: the bright stripes, 0.9, are boosted before the blur, and what stays in focus must be given back as it was)
       let worst = 0;
-      for (let y = 0; y < h; y++) for (let x = 0; x < 30; x++) worst = Math.max(worst, Math.abs(out[(y * w + x) * 4] - rgba[(y * w + x) * 4]));
+      for (const highlights of [0, 0.3, 1]) {
+        gpu.target(gpu.depthOfField(src, w, h, { focus: 0, strength: 4, highlights }), w, h);
+        const out = new Float32Array(w * h * 4);
+        gl.readPixels(0, 0, w, h, gl.RGBA, gl.FLOAT, out);
+        for (let y = 0; y < h; y++) for (let x = 0; x < 30; x++) worst = Math.max(worst, Math.abs(out[(y * w + x) * 4] - rgba[(y * w + x) * 4]));
+      }
       return { worst, err: gl.getError() };
     });
     if (!res) return t.skip('No float render targets');
