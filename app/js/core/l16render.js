@@ -4,7 +4,7 @@
 // For each tile (with a margin that the viewpoint's shift and the blur reach into), the picture is made at the output scale (wide merge at full size, enlarged, with the telephoto
 // detail), turned into a small processed picture with the depth at that scale, and put through the same camera render the quick views use (viewpoint, blur, color); the margin
 // is dropped and the tile written into the output.
-import { fuse } from './l16fusion.js';
+import { fuse, removeMergedSpecks, isLongExposure } from './l16fusion.js';
 import { renderRegion, telephotoModules, estimateCorrections } from './l16hires.js';
 import { encodePicture } from './l16photo.js';
 
@@ -97,6 +97,8 @@ export async function renderL16Final(l16, { scale, margin, depthLambda, renderTi
       const rw = rx1 - rx0;
       const rh = ry1 - ry0;
       const region = renderRegion(bytes, parsed, depth, wide, { x0: rx0 / (scale * grid), y0: ry0 / (scale * grid), w: rw / (scale * grid), h: rh / (scale * grid), scale: scale * grid, grid, corrections }, mods, opts, () => {}, rawCache);
+      // (what is left of a long exposure's warm pixels and the mirrors' colored spots, the telephoto cameras' detail too, at this size)
+      if (opts.hot !== false && isLongExposure(parsed.modules[depth.ref][0])) removeMergedSpecks(region.rgb, region.width, region.height, 2 * scale);
       const data = encodePicture(region.rgb, rw, rh, gain, colorMatrix);
       // (`window`: where the tile sits in the whole picture, for what is placed on the whole picture: retouching spots)
       const finished = renderTile({ data, width: region.width, height: region.height, lambda: lambdaFor(rx0, ry0, region.width, region.height), window: { x: rx0, y: ry0, width: W, height: H } });

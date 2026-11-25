@@ -651,7 +651,8 @@ function mergeShare(refUnd, smp, ok, W, H, S, mono, g) {
 }
 // What is left of hot pixels after the merge: a pixel whose color channel is more than twice its second brightest neighbor's (and HOT_OFFSET more), one or two pixels wide,
 // takes the mean of its side neighbors but the brightest. A cluster of warm pixels in one camera that its own filter let through shows as such a dot of one color.
-function removeMergedSpecks(rgb, W, H) {
+// `scale`: the picture's pixels per pixel of the half size one (a dot is that much larger).
+export function removeMergedSpecks(rgb, W, H, scale = 1) {
   const fix = [];
   for (let c = 0; c < 3; c++) {
     for (let y = 1; y < H - 1; y++) {
@@ -677,21 +678,20 @@ function removeMergedSpecks(rgb, W, H) {
             m1 = n;
           } else if (n > m2) m2 = n;
         }
-        // (a dot of one color: a white speck, a light, stays)
+        // (a dot with color: twice the weakest color at least, as green, magenta, yellow and cyan dots are; a white speck, a light, stays)
         const p = i - c;
-        if (v > m2 * 2 + HOT_OFFSET && v > 2 * Math.max(c === 0 ? 0 : rgb[p], c === 1 ? 0 : rgb[p + 1], c === 2 ? 0 : rgb[p + 2])) fix.push(i, (a + b + u + d - Math.max(a, b, u, d)) / 3);
+        if (v > m2 * 2 + HOT_OFFSET && v > 2 * Math.min(c === 0 ? Infinity : rgb[p], c === 1 ? Infinity : rgb[p + 1], c === 2 ? Infinity : rgb[p + 2])) fix.push(i, (a + b + u + d - Math.max(a, b, u, d)) / 3);
       }
     }
   }
   for (let k = 0; k < fix.length; k += 2) rgb[fix[k]] = fix[k + 1];
-  removeColorBlobs(rgb, W, H);
+  removeColorBlobs(rgb, W, H, Math.max(3, Math.round(3 * scale)));
 }
 
 // Small soft spots of a strong color (up to about 5 pixels across): one color much brighter than in the ring of pixels 3 away, and rising far more than the others (a white
 // light rises in all three alike and stays). Reflections in a camera's mirror, and warm pixels a camera's picture spread when it was lined up. In the spot every color takes
 // the ring's median where it is above the ring.
-function removeColorBlobs(rgb, W, H) {
-  const R = 3;
+function removeColorBlobs(rgb, W, H, R = 3) {
   const ring = [];
   for (let dy = -R; dy <= R; dy++) for (let dx = -R; dx <= R; dx++) if (Math.max(Math.abs(dx), Math.abs(dy)) === R) ring.push((dy * W + dx) * 3);
   const vals = new Float32Array(ring.length);
@@ -714,8 +714,8 @@ function removeColorBlobs(rgb, W, H) {
         let least = Infinity;
         for (let o = 0; o < 3; o++) if (o !== c) least = Math.min(least, rgb[q + o] / Math.max(1e-4, hiOf(q, o)));
         if (least > rise * 0.4) continue;
-        // (and the spot is that color: twice either other at its peak)
-        if (!(v > 2 * Math.max(c === 0 ? 0 : rgb[q], c === 1 ? 0 : rgb[q + 1], c === 2 ? 0 : rgb[q + 2]))) continue;
+        // (and the spot has color: twice the weakest at its peak, for the two-color dots too: yellow, magenta, cyan)
+        if (!(v > 2 * Math.min(c === 0 ? Infinity : rgb[q], c === 1 ? Infinity : rgb[q + 1], c === 2 ? Infinity : rgb[q + 2]))) continue;
         spots.push(q);
       }
     }
@@ -945,6 +945,6 @@ export function fuse(bytes, parsed, depth, { black = 42, white = 1023, gains = [
       out[3 * i + 2] /= w;
     }
   }
-  if (hot && isLongExposure(refFrame)) removeMergedSpecks(out, W, H);
+  if (hot && isLongExposure(refFrame)) removeMergedSpecks(out, W, H, 2 / S);
   return { width: W, height: H, rgb: out, used: donors.length + 1, merged };
 }

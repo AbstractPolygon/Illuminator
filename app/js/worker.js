@@ -9,7 +9,7 @@ import { isLri } from './core/lri.js';
 import { createL16DepthPool, l16DepthHelperCount } from './l16depthpool.js';
 import { l16CostGpu } from './gpu/l16cost.js';
 import { l16PrepGpu } from './gpu/l16prep.js';
-import { setL16PrepGpu, setL16FuseGpu } from './core/l16fusion.js';
+import { setL16PrepGpu, setL16FuseGpu, removeMergedSpecks, isLongExposure } from './core/l16fusion.js';
 import { l16FuseGpu } from './gpu/l16fuse.js';
 import { l16DevelopGpu } from './gpu/l16develop.js';
 import { l16FiltersGpu } from './gpu/l16filters.js';
@@ -1854,6 +1854,8 @@ async function l16Holes({ id, job, u = 0, v = 0, alpha = 0, dof = 0, bokeh, colo
     fillFromBackground(view, w, h);
   }
   if (state.jobs.holes !== job) return { cancelled: true };
+  // (the holes are filled from the other cameras' own pictures: what is left there of a long exposure's warm pixels and colored spots goes too)
+  if (l16.colorOptions.hot !== false && isLongExposure(parsed.modules[depth.ref][0])) removeMergedSpecks(view.rgb, w, h, 1);
   const data = encodePicture(view.rgb, w, h, l16.gain, l16.colorMatrix);
   const lambda = new Float32Array(w * h);
   for (let i = 0; i < w * h; i++) {
