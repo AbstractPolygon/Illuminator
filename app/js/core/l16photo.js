@@ -10,6 +10,7 @@
 import { l16CacheKey, encodeL16Cache } from './l16-cache.js';
 import { parseLri } from './lri.js';
 import { measureDepth, measureDepthPooled } from './l16depth.js';
+import { classicDepth } from './l16classic.js';
 import { fuse } from './l16fusion.js';
 
 // Half the distance the viewpoint may travel, in mm (the wide modules are about 70 mm apart at most).
@@ -200,6 +201,22 @@ export function developL16(bytes, parsed, depth, ref, colorOptions, onProgress =
   return { picture: { width: w, height: h, data }, gain, colorMatrix, wide: color, used: color.used };
 }
 
+// The photo's depth: Classic Depth (core/l16classic.js, the way the camera's desktop software measures it), or the earlier plane sweep if that fails (`fallback`).
+function photoDepth(bytes, parsed, ref, hot, onProgress, fallback = true) {
+  const awb = (parsed.header.view_preferences && parsed.header.view_preferences.awb_gains) || {};
+  const sd = parsed.header.sensor_data && parsed.header.sensor_data[0] && parsed.header.sensor_data[0].data;
+  const black = sd && sd.black_level !== undefined ? sd.black_level : 42;
+  const white = sd && sd.white_level !== undefined ? sd.white_level : 1023;
+  const progress = (stage, p) => onProgress(stage, 0.05 + 0.8 * p);
+  try {
+    return classicDepth(bytes, parsed, { ref, black, white, gains: [awb.r || 1, awb.g_r || awb.gr || 1, awb.b || 1], hot }, progress);
+  } catch (err) {
+    if (!fallback) throw err;
+    console.warn('Classic Depth failed; measuring the earlier way', err);
+    return measureDepth(bytes, parsed, { ref }, progress);
+  }
+}
+
 // decodeL16 with the depth's steps made by helper workers side by side (`pool`, js/l16depthpool.js); the same result. Without a pool, or with what an earlier opening
 // kept (`cache`), it is decodeL16.
 export async function decodeL16Pooled(bytes, onProgress = () => {}, { hot = true, cache = null, pool = null } = {}) {
@@ -210,7 +227,14 @@ export async function decodeL16Pooled(bytes, onProgress = () => {}, { hot = true
   if (!parsed.modules[ref]) throw new Error('This photo has no picture from its reference camera');
   // (what an earlier opening kept, when it is for this photo and these settings: nothing to measure)
   if (cache && cache.key === l16CacheKey(l16PhotoId(parsed.header), hot)) return decodeL16(bytes, onProgress, { hot, cache, parsed });
-  const depth = await measureDepthPooled(bytes, parsed, { ref }, (stage, p) => onProgress(stage, 0.05 + 0.8 * p), pool);
+  // (Classic Depth is measured here, the helpers only take the earlier way's steps when it fails)
+  let depth = null;
+  try {
+    depth = photoDepth(bytes, parsed, ref, hot, onProgress, false);
+  } catch (err) {
+    console.warn('Classic Depth failed; measuring the earlier way', err);
+    depth = await measureDepthPooled(bytes, parsed, { ref }, (stage, p) => onProgress(stage, 0.05 + 0.8 * p), pool);
+  }
   return decodeL16(bytes, onProgress, { hot, parsed, depth });
 }
 
@@ -228,7 +252,7 @@ export function decodeL16(bytes, onProgress = () => {}, { hot = true, cache = nu
   const white = sd && sd.white_level !== undefined ? sd.white_level : 1023;
   const key = l16CacheKey(l16PhotoId(parsed.header), hot);
   const kept = cache && cache.key === key && cache.depth && cache.wide ? cache : null;
-  const depth = kept ? kept.depth : measured || measureDepth(bytes, parsed, { ref }, (stage, p) => onProgress(stage, 0.05 + 0.8 * p));
+  const depth = kept ? kept.depth : measured || photoDepth(bytes, parsed, ref, hot, onProgress);
   const colorOptions = { black, white, gains: [awb.r || 1, awb.gr || 1, awb.b || 1], hot };
   const developed = developL16(bytes, parsed, depth, ref, colorOptions, (stage, p) => onProgress(stage, (kept ? 0.5 : 0.85) + (kept ? 0.45 : 0.12) * p), kept ? kept.wide : null);
   const { picture, gain, colorMatrix, wide: color } = developed;
