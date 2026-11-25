@@ -539,7 +539,7 @@ export function initKeyframes({ $, getMasks, maskLabel, state, canRender, F_STOP
       setSliderExact($('dof-depth'), v);
       showSliderValue($('dof-depth'));
     } else if (k === 'focus') {
-      $('focus').value = v;
+      setSliderExact($('focus'), v);
     } else if (k === 'view') {
       state.camera = { u: v[0], v: v[1] };
     } else if (k === 'pivot') {

@@ -1872,7 +1872,8 @@ for (const type of ['pointerdown', 'keydown']) $('fstop').addEventListener(type,
 
 function showFNumber() {
   const n = fNumber();
-  $('fstop-label').textContent = `f/${Number.isInteger(n * 10) ? n : n.toFixed(1)}`;
+  // (a stop as it is named; an animation's f-number between the stops as it is, to two decimals)
+  $('fstop-label').textContent = `f/${F_STOPS.includes(n) ? n : +n.toFixed(2)}`;
 }
 
 // Focus spread and tilt. Depth values run from -1.6 to 1.6, so full spread
@@ -6543,22 +6544,24 @@ function applySettingsSoon() {
 function showSliderValue(input) {
   const out = document.querySelector(`output[data-for="${input.id}"]`);
   if (!out) return;
-  // (shown to the slider's step: an animation's in-between value is held exactly, see ui/exactslider.js)
+  // (an animation's in-between value is held exactly, see ui/exactslider.js, and shown as it is: two more decimals than the slider's step where it is between steps)
   const step = sliderStep(input);
-  const decimals = Math.min(6, (String(step).split('.')[1] || '').length);
-  const v = +(+input.value).toFixed(decimals);
+  const raw = +input.value;
+  const onStep = Math.abs(raw / step - Math.round(raw / step)) < 1e-6;
+  const decimals = Math.min(6, (String(step).split('.')[1] || '').length + (onStep ? 0 : 2));
+  const v = +raw.toFixed(decimals);
   const sign = v > 0 ? '+' : v < 0 ? '−' : '';
-  if (input.id === 'ev') out.textContent = `${sign}${Math.abs(v).toFixed(2)} EV`;
-  else if (input.id === 'focus') out.textContent = `${sign}${Math.abs(v).toFixed(2)}`;
+  if (input.id === 'ev') out.textContent = `${sign}${Math.abs(v).toFixed(Math.max(2, decimals))} EV`;
+  else if (input.id === 'focus') out.textContent = `${sign}${Math.abs(v).toFixed(Math.max(2, decimals))}`;
   else if (input.id === 'tilt-rotation' || input.id === 'bokeh-rotation') out.textContent = `${v}°`;
   else if (input.id === 'straighten') out.textContent = `${v.toFixed(1)}°`;
   else if (input.id === 'ml-angle') out.textContent = `${v}°`;
   else if (/^grade-.*-hue$/.test(input.id)) out.textContent = `${v}°`;
   else if (/^grade-.*-sat$/.test(input.id) || input.id === 'grade-blend') out.textContent = `${v}`;
-  else if (input.id === 'frame-zoom') out.textContent = `${Math.round(v)}%`;
-  else if (input.id === 'frame-pan-x' || input.id === 'frame-pan-y') out.textContent = `${Math.round(v) > 0 ? '+' : Math.round(v) < 0 ? '−' : ''}${Math.abs(Math.round(v))}`;
+  else if (input.id === 'frame-zoom') out.textContent = `${v}%`;
+  else if (input.id === 'frame-pan-x' || input.id === 'frame-pan-y') out.textContent = `${sign}${Math.abs(v)}`;
   else if (input.id === 'view-reach' || input.id === 'lent-depth') out.textContent = `${v}%`;
-  else if (input.id === 'highlights') out.textContent = `${Math.round(v * 100)}%`;
+  else if (input.id === 'highlights') out.textContent = `${+(v * 100).toFixed(Math.max(0, decimals - 2))}%`;
   else if (input.id === 'video-quality') out.textContent = `${v} Mbit/s`;
   else if (['photo-quality', 'bokeh-blades', 'stereo-baseline', 'upscale-sharpen', 'upscale-strength', 'upscale-lobes', 'upscale-denoise', 'upscale-grain', 'depth-model-smooth', 'depth-model-curve', 'lattice-strength', 'lattice-detect'].includes(input.id)) out.textContent = `${v}`;
   else if (input.id === 'mx-strength' || input.id === 'lut-amount') out.textContent = `${v}%`;

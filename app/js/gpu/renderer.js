@@ -887,10 +887,14 @@ vec3 gather(vec2 pf, vec4 c, ivec2 size, bool snap, bool coarse) {
   if (maxR < 0.75) return c.rgb;
   // (hard edged shapes keep more: with fewer taps a single bright point lights its ball unevenly, and the notches of blades, stars and hearts fill in; the Gaussian
   // of Natural does not show it)
-  int taps = clamp(int(maxR * maxR * (coarse ? (uShape >= 1 ? COARSE_TAPS_SHAPED : COARSE_TAPS) : 1.2) + 0.5), 16, uTaps);
+  // (the number of taps as a fraction: the taps' places follow it, and the last one comes in by the fraction, so a blur that grows a little changes the picture a
+  // little; a whole number of taps moved every tap at once each time it went up by one, and an animated blur grew in jumps)
+  float tapsF = clamp(maxR * maxR * (coarse ? (uShape >= 1 ? COARSE_TAPS_SHAPED : COARSE_TAPS) : 1.2), 16.0, float(uTaps));
+  int taps = int(ceil(tapsF));
+  float lastPart = tapsF - floor(tapsF);
   // Each tap stands for the area between taps: read the pre-averaged
   // (mipmapped) image at that scale, so large blurs are smooth, not grainy.
-  float lod = max(0.0, log2(maxR * sqrt(3.14159265 / float(taps))) + 0.5 + (coarse ? COARSE_LOD : 0.0));
+  float lod = max(0.0, log2(maxR * sqrt(3.14159265 / tapsF)) + 0.5 + (coarse ? COARSE_LOD : 0.0));
   // A small disc is visited pixel by pixel (the exact blur): a handful of taps at whole pixel positions leaves some of its pixels out and counts others twice,
   // which showed as grain in slightly blurred texture. Larger discs keep the spiral of taps.
   bool grid = snap && maxR <= 4.0;
@@ -899,7 +903,7 @@ vec3 gather(vec2 pf, vec4 c, ivec2 size, bool snap, bool coarse) {
   if (grid) lod = 0.0;
   // Each tap of the spiral stands for the area between taps (pi maxR^2 / taps pixels, read pre-averaged at that scale): weighted by it, so the pixel's own value
   // counts as the one pixel it is (counted as a whole tap's area, a bright pixel outweighed what was around it and stayed a speck in the blur).
-  float tapArea = grid ? 1.0 : 3.14159265 * maxR * maxR / float(taps);
+  float tapArea = grid ? 1.0 : 3.14159265 * maxR * maxR / tapsF;
   for (int i = 0; i < ${MAX_TAPS}; i++) {
     if (i >= count) break;
     vec2 o;
@@ -908,11 +912,12 @@ vec3 gather(vec2 pf, vec4 c, ivec2 size, bool snap, bool coarse) {
       // (the pixel itself is already in the sum)
       if (o == vec2(0.0) || length(o) > maxR + 0.5) continue;
     } else {
-      float rr = sqrt((float(i) + 0.5) / float(taps)) * maxR;
+      float rr = sqrt((float(i) + 0.5) / tapsF) * maxR;
       float th = float(i) * 2.39996323;
       o = rr * vec2(cos(th), sin(th));
     }
-    vec2 qf = snap ? floor(pf + o + 0.5) : pf + o;
+    // (a pixel grid's taps read whole pixels; the spiral's read where they fall, so they move smoothly as the blur grows)
+    vec2 qf = snap && grid ? floor(pf + o + 0.5) : pf + o;
     // (a tap outside the picture adds nothing: clamped onto the border it counted the border pixels again and again)
     if (qf.x < 0.0 || qf.y < 0.0 || qf.x > float(size.x - 1) || qf.y > float(size.y - 1)) continue;
     vec4 s = textureLod(uPrep, (qf + 0.5) / vec2(size), lod);
@@ -922,6 +927,8 @@ vec3 gather(vec2 pf, vec4 c, ivec2 size, bool snap, bool coarse) {
     // Behind this pixel: only within this pixel's own blur.
     if (s.a > c.a + 0.5 && dist > rc + 0.5) continue;
     float w = weightAt(qf - pf, rq, s.a >= 0.0 ? 1.0 : -1.0, catAt(qf, size), dist) * tapArea;
+    // (the last tap counts by the fraction of the taps it stands for)
+    if (!grid && i == taps - 1 && lastPart > 0.0) w *= lastPart;
     sum += s.rgb * w * gTint;
     wsum += w;
   }
