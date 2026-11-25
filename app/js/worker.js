@@ -11,6 +11,7 @@ import { l16CostGpu } from './gpu/l16cost.js';
 import { l16PrepGpu } from './gpu/l16prep.js';
 import { setL16PrepGpu, setL16FuseGpu, setL16SpecksGpu, removeMergedSpecks, isLongExposure } from './core/l16fusion.js';
 import { l16SpecksGpu } from './gpu/l16specks.js';
+import { softEdgesGpu } from './gpu/softedges.js';
 import { l16FuseGpu } from './gpu/l16fuse.js';
 import { l16DevelopGpu } from './gpu/l16develop.js';
 import { l16FiltersGpu } from './gpu/l16filters.js';
@@ -3942,7 +3943,19 @@ function applyDepthSmoothing() {
   let smoothed = fillNonFinite(smoothedRaw, outW, outH);
   // Object edges: the steps at the outlines made a ramp (Camera > Depth > Object edges, Smooth edges).
   const soft = (state.settings.depthObjectSoft ?? 0.3) * OBJECT_SOFT_MAX;
-  if (state.settings.depthObjects && soft > 0 && state.objects && state.objects.w === outW && state.objects.h === outH) smoothed = softenObjectEdges(smoothed, state.objects.labels, outW, outH, soft);
+  if (state.settings.depthObjects && soft > 0 && state.objects && state.objects.w === outW && state.objects.h === outH) {
+    // (on the graphics card where there is one, gpu/softedges.js; here if it fails)
+    let done = null;
+    if (state.gpu && !debugFlags().noGpuSoftEdges) {
+      try {
+        if (!state.softEdges || state.softEdges.gpu !== state.gpu) state.softEdges = { gpu: state.gpu, run: softEdgesGpu(state.gpu) };
+        done = state.softEdges.run(smoothed, state.objects.labels, outW, outH, soft);
+      } catch (e) {
+        console.warn('Smoothing the object edges on the graphics card failed; smoothing here', e);
+      }
+    }
+    smoothed = done || softenObjectEdges(smoothed, state.objects.labels, outW, outH, soft);
+  }
   const model = methodDepthModel(state.settings.depthStyle);
   if (model && state.modelDepth && state.modelDepth.id === model.id && state.modelDepth.sampler === state.sampler) {
     const shaped = shapedModelDepth();
