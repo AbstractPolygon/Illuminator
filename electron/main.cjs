@@ -20,7 +20,7 @@ const { readSettings, writeSettings } = require('./settingsfile.cjs');
 const { createScanner } = require('./scanner.cjs');
 
 // The app was called ILLUMinator: the settings and library state kept under that name stay in use (a case-sensitive file system, as on Linux, tells the two names apart).
-{
+if (app.getName() === 'Illuminator') {
   const legacy = path.join(app.getPath('appData'), 'ILLUMinator');
   if (fs.existsSync(legacy) && !fs.existsSync(path.join(app.getPath('appData'), 'Illuminator'))) app.setPath('userData', legacy);
 }
@@ -157,7 +157,7 @@ function buildMenu() {
   const send = (id) => () => { const w = liveWin(); if (w) w.webContents.send('menu', id); };
   const template = [
     ...(mac ? [{ role: 'appMenu', submenu: [
-      { label: 'About Illuminator', click: send('about') },
+      { label: `About ${app.getName()}`, click: send('about') },
       { label: 'Check for Updates…', click: send('check-update') }, { type: 'separator' },
       { role: 'services' }, { type: 'separator' },
       { role: 'hide' }, { role: 'hideOthers' }, { role: 'unhide' },
@@ -196,7 +196,7 @@ function createWindow() {
     width: 1400,
     height: 900,
     backgroundColor: '#121417',
-    title: 'Illuminator',
+    title: app.getName(),
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
@@ -284,8 +284,8 @@ async function offerLinuxMenuEntry() {
   if (process.platform !== 'linux' || !appImage || settings.menuEntry) return;
   const res = await dialog.showMessageBox(...withWin({
     type: 'question',
-    title: 'Illuminator',
-    message: 'Add Illuminator to your applications menu?',
+    title: app.getName(),
+    message: `Add ${app.getName()} to your applications menu?`,
     detail: 'This copies a launcher and an icon into your home folder; nothing outside it is changed. You can remove them by deleting illuminator.desktop from ~/.local/share/applications.',
     buttons: ['Add to menu', 'Not now', 'Don\'t ask again'],
     defaultId: 0,
@@ -329,7 +329,7 @@ async function offerLinuxMenuEntry() {
     settings.menuEntry = 'added';
     await saveSettings();
   } catch (err) {
-    dialog.showErrorBox('Illuminator', `The menu entry could not be added: ${err.message}`);
+    dialog.showErrorBox(app.getName(), `The menu entry could not be added: ${err.message}`);
   }
 }
 

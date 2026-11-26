@@ -118,7 +118,7 @@
       "shortcutName": "Illuminator",
       "menuCategory": false
     },
-    "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
+    "artifactName": "Illuminator-${version}-${os}-${arch}.${ext}",
     "npmRebuild": false,
     "msi": {
       "oneClick": false,
