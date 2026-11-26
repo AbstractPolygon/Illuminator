@@ -3814,6 +3814,51 @@ export class GpuRenderer {
 
   // Linear RGB from the CPU (e.g. a full resolution render) as a texture.
   // `full`: through a 32-bit float texture, for pictures saved at 16 bits (half floats keep about 11 bits).
+  // An sRGB picture (RGBA bytes, as a processed photo's pictures are kept) to linear RGB on the card, through the same table as core/processed.js toLinear: the same values,
+  // a quarter of the data sent, and no linear copy made on the processor. Into the full precision upload texture, as uploadRGB(..., { full: true }).
+  uploadSRGB8(rgba, w, h) {
+    const gl = this.gl;
+    if (!this.srgbTable) {
+      const table = new Float32Array(256);
+      for (let i = 0; i < 256; i++) {
+        const c = i / 255;
+        table[i] = c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+      }
+      this.srgbTable = this.texture(256, 1, gl.R32F);
+      gl.bindTexture(gl.TEXTURE_2D, this.srgbTable);
+      gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, 256, 1, gl.RED, gl.FLOAT, table);
+      this.srgbProg = program(gl, `#version 300 es
+precision highp float;
+precision highp int;
+precision highp usampler2D;
+uniform usampler2D uBytes;
+uniform highp sampler2D uTable;
+out vec4 outColor;
+float lin(uint v) { return texelFetch(uTable, ivec2(int(v), 0), 0).r; }
+void main() {
+  uvec4 b = texelFetch(uBytes, ivec2(gl_FragCoord.xy), 0);
+  outColor = vec4(lin(b.r), lin(b.g), lin(b.b), 1.0);
+}`);
+    }
+    if (!this.srgbBytes || this.srgbBytes.w !== w || this.srgbBytes.h !== h) {
+      if (this.srgbBytes) gl.deleteTexture(this.srgbBytes.tex);
+      this.srgbBytes = { w, h, tex: this.texture(w, h, gl.RGBA8UI) };
+    }
+    gl.bindTexture(gl.TEXTURE_2D, this.srgbBytes.tex);
+    const bytes = rgba instanceof Uint8Array ? rgba : new Uint8Array(rgba.buffer, rgba.byteOffset, rgba.byteLength);
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, w, h, gl.RGBA_INTEGER, gl.UNSIGNED_BYTE, bytes);
+    const t = this.scratch(w, h, 'upload', gl.RGBA32F);
+    this.target(t, w, h);
+    const P = this.srgbProg;
+    gl.useProgram(P.p);
+    gl.uniform1i(P.u.uBytes, 1);
+    this.bindTex(1, this.srgbBytes.tex);
+    gl.uniform1i(P.u.uTable, 2);
+    this.bindTex(2, this.srgbTable);
+    this.draw();
+    return t;
+  }
+
   uploadRGB(rgb, w, h, { full = false } = {}) {
     const gl = this.gl;
     const t = full ? this.scratch(w, h, 'upload', gl.RGBA32F) : this.scratch(w, h, 'upload');

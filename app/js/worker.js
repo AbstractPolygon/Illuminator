@@ -1654,7 +1654,10 @@ function tileTexOnGpu(tile, { u, v, alpha, blur, bokeh, frame, light }) {
       // (the viewpoint moved on by the depth on the card, as for the live view)
       const e = tile.extension();
       gpu.setDepth(e.neg, tile.depth.width, tile.depth.height);
-      tex = gpu.extendView(gpu.uploadRGB(tile.linear(img), w, h, { full: true }), w, h, [0, 0], [du, dv], 0, e.detail, e.range, searchSteps(e.range, 0, [du, dv], e.detail));
+      tex = gpu.extendView(gpu.uploadSRGB8(img.data, w, h), w, h, [0, 0], [du, dv], 0, e.detail, e.range, searchSteps(e.range, 0, [du, dv], e.detail));
+    } else if (tile.kind === 'single' && tile.images.length === 1 && Math.abs(du) < 1e-6 && Math.abs(dv) < 1e-6) {
+      // (the tile's picture decoded on the card: no linear copy made here)
+      tex = gpu.uploadSRGB8(img.data, w, h);
     } else tex = gpu.uploadRGB(tile.base(u, v, lambda), w, h, { full: true });
     gpu.setDepth(grid.lambda, grid.width, grid.height);
     // (the live view's depth is no longer the one on the card)
@@ -4552,7 +4555,7 @@ function processedGpu(params, message) {
     const img = pp.images[0];
     if (!state.ppSrcTex || state.ppSrcTex.img !== img) {
       if (state.ppSrcTex) gpu.gl.deleteTexture(state.ppSrcTex.tex);
-      state.ppSrcTex = { img, tex: gpu.holdCopy(gpu.uploadRGB(pp.linear(img), w, h, { full: true }), w, h) };
+      state.ppSrcTex = { img, tex: gpu.holdCopy(gpu.uploadSRGB8(img.data, w, h), w, h) };
     }
     const e = pp.extension();
     const du = u - img.u;
@@ -4565,7 +4568,7 @@ function processedGpu(params, message) {
     const img = pp.images[0];
     if (!state.ppSrcTex || state.ppSrcTex.img !== img) {
       if (state.ppSrcTex) gpu.gl.deleteTexture(state.ppSrcTex.tex);
-      state.ppSrcTex = { img, tex: gpu.holdCopy(gpu.uploadRGB(pp.linear(img), w, h, { full: true }), w, h) };
+      state.ppSrcTex = { img, tex: gpu.holdCopy(gpu.uploadSRGB8(img.data, w, h), w, h) };
     }
     tex = state.ppSrcTex.tex;
   } else if ((pp.kind === 'focus' || pp.kind === 'perspective') && pp.images.length > 1 && !debugFlags().noGpuKeptPicture && (tex = blendViewsOnGpu(pp, u, v, lambda))) {

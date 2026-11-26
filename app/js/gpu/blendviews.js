@@ -30,7 +30,7 @@ export function blendViewsGpu(gpu) {
     }
     let t = kept.get(img);
     if (!t) {
-      t = gpu.holdCopy(gpu.uploadRGB(pp.linear(img), pp.width, pp.height, { full: true }), pp.width, pp.height);
+      t = gpu.holdCopy(gpu.uploadSRGB8(img.data, pp.width, pp.height), pp.width, pp.height);
       kept.set(img, t);
     }
     return t;
