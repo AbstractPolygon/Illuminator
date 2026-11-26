@@ -396,11 +396,42 @@ export class ProcessedPicture {
 
   // Depth in camera focus units at image resolution (for the depth view
   // and the spread overlay).
+  // (the same arithmetic as toAlpha(lambdaAt(x, y)) for every pixel, with each column's and row's lookup worked out once)
   alphaMap() {
     if (!this.depth) return null;
     const { width: w, height: h } = this;
     const out = new Float32Array(w * h);
-    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) out[y * w + x] = this.toAlpha(this.lambdaAt(x, y));
+    const D = this.depth;
+    const L = D.lambda;
+    const W = D.width;
+    const [lo, hi] = this.lambdaRange;
+    const mid = (lo + hi) / 2;
+    const half = (hi - lo) / 2;
+    const cx0 = new Int32Array(w);
+    const cx1 = new Int32Array(w);
+    const cfx = new Float64Array(w);
+    for (let x = 0; x < w; x++) {
+      const dx = Math.min(D.width - 1, Math.max(0, ((x + 0.5) * D.width) / w - 0.5));
+      cx0[x] = Math.floor(dx);
+      cx1[x] = Math.min(D.width - 1, cx0[x] + 1);
+      cfx[x] = dx - cx0[x];
+    }
+    for (let y = 0; y < h; y++) {
+      const dy = Math.min(D.height - 1, Math.max(0, ((y + 0.5) * D.height) / h - 0.5));
+      const y0 = Math.floor(dy);
+      const y1 = Math.min(D.height - 1, y0 + 1);
+      const fy = dy - y0;
+      const r0 = y0 * W;
+      const r1 = y1 * W;
+      const o = y * w;
+      for (let x = 0; x < w; x++) {
+        const fx = cfx[x];
+        const a = L[r0 + cx0[x]] * (1 - fx) + L[r0 + cx1[x]] * fx;
+        const b = L[r1 + cx0[x]] * (1 - fx) + L[r1 + cx1[x]] * fx;
+        const lambda = a * (1 - fy) + b * fy;
+        out[o + x] = Math.max(-FOCUS_RANGE, Math.min(FOCUS_RANGE, ((lambda - mid) / half) * FOCUS_RANGE));
+      }
+    }
     return out;
   }
 }

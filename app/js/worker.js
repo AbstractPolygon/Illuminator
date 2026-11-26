@@ -999,6 +999,7 @@ const openGuard = createStaleGuard(STALE_OPEN);
 // on the graphics card. What a photo opened again needs (its sampler, in samplerCache) stays unless `all`.
 function releasePhoto({ all = false } = {}) {
   state.lf = null;
+  depthHistogramKept = null;
   state.pp = null;
   processedBuilt = null;
   state.sampler = null;
@@ -4165,6 +4166,7 @@ async function spreadMask({ id, alpha = 0, spread = 0, smooth = 0, blur = 0, til
 // uses (all but the outermost 0.25% each side, padded a little, within
 // -1.6..1.6 and at least 0.4 wide). Only reads a depth map that exists
 // already (null counts otherwise), so it never holds up the picture.
+let depthHistogramKept = null;
 function depthHistogram({ bins = 96 }) {
   let alpha = null;
   if (state.pp) {
@@ -4176,6 +4178,8 @@ function depthHistogram({ bins = 96 }) {
     alpha = state.depth.alpha;
   }
   if (!alpha) return { counts: null, lo: -1.6, hi: 1.6 };
+  // (asked after every picture shown: counted once for each depth map)
+  if (depthHistogramKept && depthHistogramKept.alpha === alpha && depthHistogramKept.bins === bins) return depthHistogramKept.result;
   const MIN = -1.6;
   const MAX = 1.6;
   const fine = 640;
@@ -4207,7 +4211,8 @@ function depthHistogram({ bins = 96 }) {
     const t = Math.floor((alpha[i] - a) * k);
     counts[t < 0 ? 0 : t >= bins ? bins - 1 : t]++;
   }
-  return { counts, lo: a, hi: b };
+  depthHistogramKept = { alpha, bins, result: { counts, lo: a, hi: b } };
+  return depthHistogramKept.result;
 }
 
 // Focus value (alpha) that makes the picture sharp at output pixel (x, y)
