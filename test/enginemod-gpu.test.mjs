@@ -37,7 +37,7 @@ async function runScene(t, W, H, sizes) {
       if (!gl || !gl.getExtension('EXT_color_buffer_float')) return null;
       const gpu = new GpuRenderer(gl);
       const cam = { width: W, height: H };
-      const dev = { cfa: [[0, 1], [1, 2]], black: [64, 64, 64] };
+      const dev = { cfa: [[0, 1], [1, 2]], black: [64.3002291, 64.3002291, 64.3002291] };
       const grid = { pitch: 13.4, rowStep: 13.4 * 0.8660254, ox: 6.2, oy: 5.1, rotation: 0.002 };
       let seed = 11;
       const rnd = () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; };
@@ -88,7 +88,7 @@ async function runScene(t, W, H, sizes) {
         awbMean[ch] += Math.max(0, mod[y * W + x] - dev.black[ch]);
         awbCount[ch]++;
       }
-      const awbDiff = out.awbMean ? Math.max(...awbMean.map((m, c) => Math.abs(m / awbCount[c] - out.awbMean[c]))) : -1;
+      const awbDiff = out.awbMean ? Math.max(...awbMean.map((m, c) => Math.abs(m / awbCount[c] - out.awbMean[c]) / (m / awbCount[c]))) : -1;
       let worst = 0;
       let over = 0;
       let sum = 0;
@@ -128,7 +128,7 @@ test('the GPU modulation plane matches the CPU version', async (t) => {
     console.log(JSON.stringify(res));
     assert.equal(res.err, 0);
     assert.equal(res.unit, 30000);
-    assert.equal(res.awbDiff, 0, 'the frame’s mean per color differs from the processor’s');
+    assert.ok(res.awbDiff >= 0 && res.awbDiff < 1e-9, `the frame’s mean per color differs from the processor’s by ${res.awbDiff}`);
     // Measured on SwiftShader: mean 0.0025, 83 of 1.2M values over 2 units, worst 48 (of 30000). The limits leave about 2x for other GPUs' float rounding.
     assert.ok(res.mean < 0.006, `mean difference ${res.mean} units of 30000`);
     assert.ok(res.over / res.n < 2e-4, `${res.over} values differ by more than 2 units`);

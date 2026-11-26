@@ -39,15 +39,18 @@ void main() {
   outColor = vec4(float(((m << 6) | (m >> 4)) - uBlack16));
 }`;
 
-// The white image less each color's black (none below 0), for the engine's white balance (core/enginewb.js awbImage: the frame's mean per color)
+// The white image's values above each color's black (uMode 0: the value, 1: one), for the engine's white balance (core/enginewb.js awbImage: the frame's mean per color less
+// its black). Whole numbers, so every cell's sum is exact; the black (which need not be whole) is taken off on the processor.
 const AWBV = `${HEAD}
 uniform usampler2D uMod;
-uniform ivec4 uBlackP;  // the black of each Bayer phase
+uniform vec4 uBlackP;  // the black of each Bayer phase
+uniform int uMode;
 out vec4 outColor;
 void main() {
   ivec2 q = ivec2(gl_FragCoord.xy);
-  int m = int(texelFetch(uMod, q, 0).r);
-  outColor = vec4(float(max(0, m - uBlackP[((q.y & 1) << 1) | (q.x & 1)])));
+  float m = float(texelFetch(uMod, q, 0).r);
+  bool above = m > uBlackP[((q.y & 1) << 1) | (q.x & 1)];
+  outColor = vec4(above ? (uMode == 0 ? m : 1.0) : 0.0);
 }`;
 
 // Per cell of the grid: the sum of the values of each Bayer phase (mode 0), or the maximum of A (mode 1)
@@ -271,20 +274,26 @@ export function engineModulationGpu(gpu, mod, cam, dev, grid, hot) {
     let awbMean = null;
     if (dev.black && dev.black.length >= 3) {
       const A = make(W, H, gl.R32F, gl.NEAREST);
-      fullscreen(programs.awbv, A, W, H, (u) => {
-        gl.uniform1i(u.uMod, 1);
-        gpu.bindTex(1, M);
-        gl.uniform4i(u.uBlackP, ...[0, 1, 2, 3].map((p) => dev.black[cfa[p >> 1][p & 1]]));
-      });
-      const cs = cells(A, 0);
+      const sumOf = (mode) => {
+        fullscreen(programs.awbv, A, W, H, (u) => {
+          gl.uniform1i(u.uMod, 1);
+          gpu.bindTex(1, M);
+          gl.uniform4f(u.uBlackP, ...[0, 1, 2, 3].map((p) => dev.black[cfa[p >> 1][p & 1]]));
+          gl.uniform1i(u.uMode, mode);
+        });
+        const cs = cells(A, 0);
+        const ps = [0, 0, 0, 0];
+        for (let k = 0; k < GRID * GRID; k++) for (let p = 0; p < 4; p++) ps[p] += cs[4 * k + p];
+        return ps;
+      };
+      const vals = sumOf(0);
+      const above = sumOf(1);
       drop(A);
-      const ps = [0, 0, 0, 0];
-      for (let k = 0; k < GRID * GRID; k++) for (let p = 0; p < 4; p++) ps[p] += cs[4 * k + p];
       const ms = [0, 0, 0];
       const ns = [0, 0, 0];
       for (let p = 0; p < 4; p++) {
         const ch = cfa[p >> 1][p & 1];
-        ms[ch] += ps[p];
+        ms[ch] += vals[p] - above[p] * dev.black[ch];
         ns[ch] += (W / 2) * (H / 2);
       }
       if ((W / 2) * (H / 2) * 4 === N && ((W * H) / GRID / GRID) * 1023 * 2 < EXACT_COUNT) awbMean = ms.map((m, c) => m / ns[c] || 1);
