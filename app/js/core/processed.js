@@ -175,14 +175,18 @@ export class ProcessedPicture {
       this.depth = d;
       return;
     }
-    const img = this.linear(this.images[0]);
+    // (the picture's linear colors at the depth's pixels: from the linear copy where it is made already, else looked up from the picture there, the same values)
+    const first = this.images[0];
+    const img = first.linear || null;
+    const src = first.data;
     const { width: w, height: h } = this;
     const guide = new Float32Array(d.width * d.height * 3);
     for (let y = 0; y < d.height; y++) {
       const sy = Math.min(h - 1, Math.floor(((y + 0.5) * h) / d.height));
       for (let x = 0; x < d.width; x++) {
         const sx = Math.min(w - 1, Math.floor(((x + 0.5) * w) / d.width));
-        for (let c = 0; c < 3; c++) guide[3 * (y * d.width + x) + c] = img[3 * (sy * w + sx) + c];
+        const j = sy * w + sx;
+        for (let c = 0; c < 3; c++) guide[3 * (y * d.width + x) + c] = img ? img[3 * j + c] : SRGB_TO_LINEAR[src[4 * j + c]];
       }
     }
     // (on the graphics card where there is one, the renderer's smoothDepth, as a raw photo's depth; here if it fails)
