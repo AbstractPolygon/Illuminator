@@ -844,6 +844,7 @@ export function fuse(bytes, parsed, depth, { black = 42, white = 1023, gains = [
   const valid = new Uint8Array(W * H);
   // (on the graphics card where there is one, gpu/l16fuse.js: the same steps; here if it fails)
   let card = fuseOnCard;
+  const cardDrop = card && card.drop;
   const failed = (e) => {
     console.warn('L16 merge on the graphics card failed; merging here', e);
     fuseOnCard = card = null;
@@ -872,6 +873,15 @@ export function fuse(bytes, parsed, depth, { black = 42, white = 1023, gains = [
     out[3 * i + 1] = refUnd[3 * i + 1];
     out[3 * i + 2] = refUnd[3 * i + 2];
     weight[i] = valid[i];
+  }
+  // (the sums kept on the graphics card from here to the end, for a merge made in one band: the reference and the depth sent once, each camera's share added there)
+  let kept = false;
+  if (card && card.begin) {
+    try {
+      kept = card.begin({ W, H, S, refUnd, valid, z });
+    } catch (e) {
+      failed(e);
+    }
   }
   // every camera of the group, the monochrome one too (it adds brightness only: its color is the reference's)
   const donors = depth.modules;
@@ -930,7 +940,8 @@ export function fuse(bytes, parsed, depth, { black = 42, white = 1023, gains = [
       const wshare = new Float32Array(W * H);
       try {
         agreed = card.camera({ img, W, H, S, K, cam, rel, corr, gain: g, mono, mg, z, refUnd, valid, out: share, weight: wshare });
-        for (let i = 0; i < W * H; i++) {
+        // (kept on the card: added there)
+        if (!kept) for (let i = 0; i < W * H; i++) {
           if (!wshare[i]) continue;
           out[3 * i] += share[3 * i];
           out[3 * i + 1] += share[3 * i + 1];
@@ -941,6 +952,15 @@ export function fuse(bytes, parsed, depth, { black = 42, white = 1023, gains = [
       } catch (e) {
         failed(e);
         agreed = 0;
+        if (kept) {
+          // (the sums so far were on the card: the merge is made again here)
+          try {
+            if (fuseOnCard === null && cardDrop) cardDrop();
+          } catch {
+            // (the card is gone with them)
+          }
+          return fuse(bytes, parsed, depth, { black, white, gains, hot }, onProgress, { grid, corrections });
+        }
       }
     }
     if (!done) {
@@ -971,6 +991,14 @@ export function fuse(bytes, parsed, depth, { black = 42, white = 1023, gains = [
     merged[id] = agreed / (W * H);
   }
   onProgress('Merging the cameras', 0.97);
+  if (kept) {
+    try {
+      card.end({ out, weight });
+    } catch (e) {
+      failed(e);
+      return fuse(bytes, parsed, depth, { black, white, gains, hot }, onProgress, { grid, corrections });
+    }
+  }
   for (let i = 0; i < W * H; i++) {
     const w = weight[i];
     if (w > 0) {

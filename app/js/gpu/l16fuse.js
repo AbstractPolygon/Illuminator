@@ -154,12 +154,56 @@ const setDist = (gl, u, dist) => {
   gl.uniform1f(u.uDcy, p.cy);
 };
 
+// The merge kept on the card (begin / camera / end, for a merge made in one band: the half size one): the running sums, the reference's samples and the cameras' shares
+// added in, rgb times the weight and the weight; and the count of a camera's pixels that agreed (16 x 16 blocks summed, then the blocks of blocks).
+const ACC = `${COMMON}
+uniform sampler2D uAcc;
+uniform sampler2D uAdd;    // init: the reference (rgb, valid); add: the camera's share (rgb times its weight, the weight)
+uniform int uInit;
+out vec4 outColor;
+void main() {
+  ivec2 b = ivec2(gl_FragCoord.xy);
+  vec4 a = texelFetch(uAdd, b, 0);
+  if (uInit == 1) {
+    // (as the processor starts: the reference's samples, weighed 1 where it has a pixel)
+    outColor = vec4(a.rgb, a.a > 0.0 ? 1.0 : 0.0);
+    return;
+  }
+  vec4 acc = texelFetch(uAcc, b, 0);
+  outColor = a.a > 0.0 ? acc + a : acc;
+}`;
+const COUNT = `${COMMON}
+uniform sampler2D uSrc;
+uniform sampler2D uFlags;  // first pass: the agree flags (r > 0.5) where the share's weight is above 0
+uniform int uFirst;
+out vec4 outColor;
+void main() {
+  ivec2 o = ivec2(gl_FragCoord.xy) * 16;
+  ivec2 size = textureSize(uSrc, 0);
+  float n = 0.0;
+  for (int y = 0; y < 16; y++) {
+    for (int x = 0; x < 16; x++) {
+      ivec2 q = o + ivec2(x, y);
+      if (q.x >= size.x || q.y >= size.y) continue;
+      if (uFirst == 1) n += texelFetch(uSrc, q, 0).a > 0.0 && texelFetch(uFlags, q, 0).r > 0.5 ? 1.0 : 0.0;
+      else n += texelFetch(uSrc, q, 0).r;
+    }
+  }
+  outColor = vec4(n, 0.0, 0.0, 1.0);
+}`;
+
 // On `gpu` (a GpuRenderer): { reference(job), camera(job) }, the two steps of fuse (core/l16fusion.js), as described there.
 export function l16FuseGpu(gpu) {
   const gl = gpu.gl;
   const filters = l16FilterTextures(gpu);
   let progs = null;
-  const P = () => (progs = progs || { ref: program(gl, REF), cam: program(gl, CAM), masked: program(gl, MASKED), share: program(gl, SHARE), weight: program(gl, WEIGHT) });
+  const P = () => (progs = progs || { ref: program(gl, REF), cam: program(gl, CAM), masked: program(gl, MASKED), share: program(gl, SHARE), weight: program(gl, WEIGHT), acc: program(gl, ACC), count: program(gl, COUNT) });
+  // (the merge kept on the card between begin and end: { W, H, refT, zT, acc: [a, b], cur })
+  let kept = null;
+  const dropKept = () => {
+    if (kept) for (const t of [kept.refT, kept.zT, ...kept.acc]) gl.deleteTexture(t);
+    kept = null;
+  };
   // (a picture of 3 values a pixel, as it is: an RGB32F texture)
   const rgbTex = (made, { width, height, rgb }) => {
     const t = gpu.texture(width, height, gl.RGB32F);
@@ -211,6 +255,54 @@ export function l16FuseGpu(gpu) {
         }
       });
     },
+    // The merge kept on the card (one band only, the half size merge): the reference (refUnd, valid) and the depth sent once, the running sums started from the
+    // reference's samples. Returns false (and nothing is kept) where the merge is made in bands. Then camera() adds each share there, and end() reads the sums back.
+    begin({ W, H, S, refUnd, valid, z }) {
+      dropKept();
+      const r = Math.max(2, Math.round(12 / S));
+      if (H > Math.max(1, bandRows(W) - 2 * (r + 4))) return false;
+      const refBuf = new Float32Array(4 * W * H);
+      for (let j = 0; j < W * H; j++) {
+        refBuf[4 * j] = refUnd[3 * j];
+        refBuf[4 * j + 1] = refUnd[3 * j + 1];
+        refBuf[4 * j + 2] = refUnd[3 * j + 2];
+        refBuf[4 * j + 3] = valid[j];
+      }
+      const refT = gpu.texture(W, H, gl.RGBA32F);
+      gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, W, H, gl.RGBA, gl.FLOAT, refBuf);
+      const zT = gpu.texture(W, H, gl.R32F);
+      gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, W, H, gl.RED, gl.FLOAT, z);
+      kept = { W, H, refT, zT, acc: [gpu.texture(W, H, gl.RGBA32F), gpu.texture(W, H, gl.RGBA32F)], cur: 0 };
+      const pr = P();
+      gpu.target(kept.acc[0], W, H);
+      gl.useProgram(pr.acc.p);
+      gl.uniform1i(pr.acc.u.uAcc, 1);
+      gpu.bindTex(1, refT);
+      gl.uniform1i(pr.acc.u.uAdd, 2);
+      gpu.bindTex(2, refT);
+      gl.uniform1i(pr.acc.u.uInit, 1);
+      gpu.draw();
+      return true;
+    },
+    // The sums kept on the card read back into out (3 a pixel) and weight, and the card's copies let go.
+    end({ out, weight }) {
+      try {
+        if (!kept) throw new Error('no merge kept on the graphics card');
+        const { W, H } = kept;
+        const buf = new Float32Array(4 * W * H);
+        gpu.target(kept.acc[kept.cur], W, H);
+        gl.readPixels(0, 0, W, H, gl.RGBA, gl.FLOAT, buf);
+        for (let j = 0; j < W * H; j++) {
+          out[3 * j] = buf[4 * j];
+          out[3 * j + 1] = buf[4 * j + 1];
+          out[3 * j + 2] = buf[4 * j + 2];
+          weight[j] = buf[4 * j + 3];
+        }
+      } finally {
+        dropKept();
+      }
+    },
+    drop: dropKept,
     // One camera's share added to out (3 a pixel) and weight; returns how many pixels agreed. Made in bands of rows, each with a margin above and below as deep as
     // the blurs reach, so the band's own rows come out as from the whole picture.
     camera({ img, W, H, S, K, cam, rel, corr, gain, mono, mg, z, refUnd, valid, out: acc, weight }) {
@@ -250,18 +342,27 @@ export function l16FuseGpu(gpu) {
               return t;
             };
             try {
-              for (let i = 0; i < W * en; i++) {
-                const j = e0 * W + i;
-                refBuf[4 * i] = refUnd[3 * j];
-                refBuf[4 * i + 1] = refUnd[3 * j + 1];
-                refBuf[4 * i + 2] = refUnd[3 * j + 2];
-                refBuf[4 * i + 3] = valid[j];
+              // (the reference and the depth: kept on the card for every camera when the merge is kept there, else sent for the band)
+              const onCard = kept && kept.W === W && kept.H === H && e0 === 0 && en === H;
+              let refT;
+              let zT;
+              if (onCard) {
+                refT = kept.refT;
+                zT = kept.zT;
+              } else {
+                for (let i = 0; i < W * en; i++) {
+                  const j = e0 * W + i;
+                  refBuf[4 * i] = refUnd[3 * j];
+                  refBuf[4 * i + 1] = refUnd[3 * j + 1];
+                  refBuf[4 * i + 2] = refUnd[3 * j + 2];
+                  refBuf[4 * i + 3] = valid[j];
+                }
+                refT = ltex();
+                gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, W, en, gl.RGBA, gl.FLOAT, refBuf);
+                zT = ltex(gl.R32F);
+                zBuf.set(z.subarray(e0 * W, (e0 + en) * W));
+                gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, W, en, gl.RED, gl.FLOAT, zBuf.subarray(0, W * en));
               }
-              const refT = ltex();
-              gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, W, en, gl.RGBA, gl.FLOAT, refBuf);
-              const zT = ltex(gl.R32F);
-              zBuf.set(z.subarray(e0 * W, (e0 + en) * W));
-              gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, W, en, gl.RED, gl.FLOAT, zBuf.subarray(0, W * en));
               // the camera's picture at each pixel
               const smp = ltex();
               draw(pr.cam, smp, en, [['uImg', src], ['uRefU', refT], ['uZ', zT]], (u) => {
@@ -303,6 +404,42 @@ export function l16FuseGpu(gpu) {
                 gpu.bindTex(k + 1, t);
               });
               gpu.draw();
+              gl.drawBuffers([gl.COLOR_ATTACHMENT0]);
+              gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+              if (onCard) {
+                // (added to the running sums on the card, and the agreeing pixels counted there)
+                const next = kept.acc[1 - kept.cur];
+                draw(pr.acc, next, H, [['uAcc', kept.acc[kept.cur]], ['uAdd', outT]], (u) => gl.uniform1i(u.uInit, 0));
+                kept.cur = 1 - kept.cur;
+                let cur = outT;
+                let cw = W;
+                let ch = H;
+                let first = 1;
+                while (first || cw > 64 || ch > 64) {
+                  const nw = Math.ceil(cw / 16);
+                  const nh = Math.ceil(ch / 16);
+                  const t = gpu.texture(nw, nh, gl.RGBA32F);
+                  local.push(t);
+                  gpu.target(t, nw, nh);
+                  gl.useProgram(pr.count.p);
+                  gl.uniform1i(pr.count.u.uSrc, 1);
+                  gpu.bindTex(1, cur);
+                  gl.uniform1i(pr.count.u.uFlags, 2);
+                  gpu.bindTex(2, agreeT);
+                  gl.uniform1i(pr.count.u.uFirst, first);
+                  gpu.draw();
+                  cur = t;
+                  cw = nw;
+                  ch = nh;
+                  first = 0;
+                }
+                const cb = new Float32Array(4 * cw * ch);
+                gl.readPixels(0, 0, cw, ch, gl.RGBA, gl.FLOAT, cb);
+                for (let i = 0; i < cw * ch; i++) agreed += cb[4 * i];
+                continue;
+              }
+              gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
+              gl.drawBuffers([gl.COLOR_ATTACHMENT0, gl.COLOR_ATTACHMENT1]);
               // (the band's own rows, read back and added up)
               const skip = y0 - e0;
               gl.readBuffer(gl.COLOR_ATTACHMENT0);
