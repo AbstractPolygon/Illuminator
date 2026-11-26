@@ -1765,16 +1765,22 @@ function drawPair(img) {
 
 let histogramQueued = false;
 
-// At most once per frame: the picture can change on every pointer move.
+// At most once per frame: the picture can change on every pointer move. The histogram and focus peaking read the picture shown back, which (a picture from the graphics card)
+// waits until the card has finished all the worker's work: while the worker is busy they wait for it to finish, so the page is not held up.
 function scheduleHistogram() {
   if (histogramQueued) return;
   histogramQueued = true;
-  requestAnimationFrame(() => {
+  const run = () => {
+    if ([...engine.pending.values()].some((p) => p.type !== 'depthHistogram')) {
+      setTimeout(() => requestAnimationFrame(run), 150);
+      return;
+    }
     histogramQueued = false;
     drawHistogram();
     drawPeaking();
     refreshDepthRuler();
-  });
+  };
+  requestAnimationFrame(run);
 }
 
 // RGB histogram of what the picture currently shows.
