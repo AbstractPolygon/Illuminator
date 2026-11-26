@@ -643,9 +643,10 @@ export function classicDepth(bytes, parsed, options = {}, onProgress = () => {})
     try {
       const [U, V] = colorAxes();
       const pics = frames.map((f, k) => {
-        const pic = halfSize(bytes, f, opts);
+        // (left on the graphics card where it is made there: the views are made from it there)
+        const pic = halfSize(bytes, f, { ...opts, keep: true });
         onProgress('Reading the camera pictures', (0.1 * (k + 1)) / frames.length);
-        return { rgb: pic.rgb, w: pic.width, h: pic.height, dist: cams[k].distort.params || null, mono: monoOf(f), luma: LUMA, axisU: U, axisV: V };
+        return { rgb: pic.rgb || null, tex: pic.tex || null, w: pic.width, h: pic.height, dist: cams[k].distort.params || null, mono: monoOf(f), luma: LUMA, axisU: U, axisV: V };
       });
       const v = costOnCard.views(pics);
       const transforms = pics.map((pic, k) => {

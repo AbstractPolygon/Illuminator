@@ -462,15 +462,19 @@ export function l16ClassicGpu(gpu) {
         const P = prog('view', VIEW);
         for (const pic of pics) {
           if (!pic.dist) throw new Error('a camera without the polynomial distortion');
-          const src = gpu.texture(iw, ih, gl.RGBA32F);
-          const data = new Float32Array(4 * iw * ih);
-          for (let i = 0; i < iw * ih; i++) {
-            data[4 * i] = pic.rgb[3 * i];
-            data[4 * i + 1] = pic.rgb[3 * i + 1];
-            data[4 * i + 2] = pic.rgb[3 * i + 2];
+          // (a picture already on the card, core/l16fusion.js halfSize with `keep`, is used there; else sent)
+          let src = pic.tex || null;
+          if (!src) {
+            src = gpu.texture(iw, ih, gl.RGBA32F);
+            const data = new Float32Array(4 * iw * ih);
+            for (let i = 0; i < iw * ih; i++) {
+              data[4 * i] = pic.rgb[3 * i];
+              data[4 * i + 1] = pic.rgb[3 * i + 1];
+              data[4 * i + 2] = pic.rgb[3 * i + 2];
+            }
+            gl.bindTexture(gl.TEXTURE_2D, src);
+            gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, iw, ih, gl.RGBA, gl.FLOAT, data);
           }
-          gl.bindTexture(gl.TEXTURE_2D, src);
-          gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, iw, ih, gl.RGBA, gl.FLOAT, data);
           const view = gpu.texture(iw, ih, gl.RGBA32F);
           views.push(view);
           gpu.target(view, iw, ih);
@@ -485,6 +489,7 @@ export function l16ClassicGpu(gpu) {
           gl.uniform3fv(P.u.uAxisV, pic.axisV);
           gpu.draw();
           gl.deleteTexture(src);
+          pic.tex = null;
         }
         const stats = views.map((v) => ({ sums: [...sumsOf(v, iw, ih, 0), ...sumsOf(v, iw, ih, 1).slice(0, 3), ...sumsOf(v, iw, ih, 2).slice(0, 3)] }));
         return {
@@ -541,6 +546,11 @@ export function l16ClassicGpu(gpu) {
         };
       } catch (e) {
         for (const v of views) gl.deleteTexture(v);
+        // (and the pictures handed over on the card that were not used)
+        for (const pic of pics) {
+          if (pic.tex) gl.deleteTexture(pic.tex);
+          pic.tex = null;
+        }
         throw e;
       }
     },

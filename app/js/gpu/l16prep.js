@@ -428,6 +428,12 @@ export function l16PrepGpu(gpu) {
             for (const t of local) gl.deleteTexture(t);
           }
         },
+        // The picture as it now stands, left on the card for the caller (RGBA32F, w x h; the caller deletes it): not deleted by release().
+        take() {
+          const i = made.indexOf(latest);
+          if (i >= 0) made.splice(i, 1);
+          return latest;
+        },
         release() {
           for (const t of made) gl.deleteTexture(t);
         },

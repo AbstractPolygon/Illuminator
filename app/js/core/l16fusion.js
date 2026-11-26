@@ -245,10 +245,13 @@ function correctChroma(frame, rgb, W, H, scale, measureHere, card = null) {
         if (Math.max(...[m.r, m.b].flatMap((q) => [q.s, q.tx, q.ty].map(Math.abs))) < 0.02) break;
       }
       chromaOf.set(frame, ca);
-      rgb.set(card.current());
+      if (rgb) rgb.set(card.current());
       return;
     }
-    if (ca) rgb.set(card.unshift(ca, scale));
+    if (ca) {
+      const out = card.unshift(ca, scale, !!rgb);
+      if (rgb) rgb.set(out);
+    }
     return;
   }
   if (!ca && measureHere) {
@@ -426,7 +429,9 @@ export function setL16PrepGpu(fn) {
 
 // Each 2 x 2 sensor cell as one pixel (red, the mean of the greens, blue; the monochrome module's mean for all three): a quarter-size picture, quick to make.
 // `crop` ({ x, y, w, h }, in pixels of the half size picture): only that part is made (the returned picture is that part, at ox, oy of the whole).
-export function halfSize(bytes, frame, { black = 42, white = 1023, gains = [1, 1, 1], hot = true } = {}, rawCache = null, crop = null) {
+// `keep`: on the graphics card, the picture is left there ({ width, height, tex (RGBA32F: rgb, the caller deletes it) }) instead of read back; without the card it is made
+// here as always.
+export function halfSize(bytes, frame, { black = 42, white = 1023, gains = [1, 1, 1], hot = true, keep = false } = {}, rawCache = null, crop = null) {
   const key = frame.module.id;
   let decoded = rawCache && rawCache.get(key);
   const decode = () => {
@@ -464,6 +469,10 @@ export function halfSize(bytes, frame, { black = 42, white = 1023, gains = [1, 1
       const packed = packedRows(bytes, frame);
       const input = packed ? { packed: { ...packed, x0: sx0, y0: sy0, black, scale } } : { plane: planeOf() };
       card = prepOnCard({ ...input, W, H, w, h, red: o, mono, hot: hot && isLongExposure(frame) ? 'long' : hot, gains });
+      if (keep && !crop) {
+        if (!mono) correctChroma(frame, null, w, h, 1, true, card);
+        return { width: w, height: h, tex: card.take() };
+      }
       // (with the color fringes taken out, only the corrected picture is read back)
       let out;
       if (!crop && !mono) {
