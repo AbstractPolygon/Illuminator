@@ -9,13 +9,15 @@ const LUT1 = Uint8Array.from(AWB_LUT1, (ch) => parseInt(ch, 16));
 const LUT2 = Uint8Array.from(AWB_LUT2, (ch) => parseInt(ch, 16));
 
 // The engine's colour units (raw less black over 1023, divided by the modulation frame normalised by its mean per colour): one RGBA texel per
-// lens (alpha is BT.601 luma). `grid` is the engine's lens lattice in pixel indices (pitch, rowStep, rotation, ox, oy).
-export function awbImage(raw, modulation, cam, dev, grid, W, H) {
+// lens (alpha is BT.601 luma). `grid` is the engine's lens lattice in pixel indices (pitch, rowStep, rotation, ox, oy). `frameMean`: the frame's mean per color less its
+// black, where it is known (taken on the graphics card with the modulation plane, gpu/enginemod.js); it is measured here otherwise.
+export function awbImage(raw, modulation, cam, dev, grid, W, H, frameMean = null) {
   const { width, height } = cam;
   const cfa = dev.cfa;
   const mean = [0, 0, 0];
   const count = [0, 0, 0];
-  for (let y = 0; y < height; y++) {
+  if (frameMean) for (let c = 0; c < 3; c++) mean[c] = frameMean[c];
+  else for (let y = 0; y < height; y++) {
     const row = cfa[y & 1];
     for (let x = 0; x < width; x++) {
       const ch = row[x & 1];
@@ -23,7 +25,7 @@ export function awbImage(raw, modulation, cam, dev, grid, W, H) {
       count[ch]++;
     }
   }
-  for (let c = 0; c < 3; c++) mean[c] = mean[c] / count[c] || 1;
+  if (!frameMean) for (let c = 0; c < 3; c++) mean[c] = mean[c] / count[c] || 1;
   const value = (x, y) => {
     const ch = cfa[y & 1][x & 1];
     const i = y * width + x;

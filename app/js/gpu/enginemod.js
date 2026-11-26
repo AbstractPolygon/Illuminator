@@ -39,6 +39,17 @@ void main() {
   outColor = vec4(float(((m << 6) | (m >> 4)) - uBlack16));
 }`;
 
+// The white image less each color's black (none below 0), for the engine's white balance (core/enginewb.js awbImage: the frame's mean per color)
+const AWBV = `${HEAD}
+uniform usampler2D uMod;
+uniform ivec4 uBlackP;  // the black of each Bayer phase
+out vec4 outColor;
+void main() {
+  ivec2 q = ivec2(gl_FragCoord.xy);
+  int m = int(texelFetch(uMod, q, 0).r);
+  outColor = vec4(float(max(0, m - uBlackP[((q.y & 1) << 1) | (q.x & 1)])));
+}`;
+
 // Per cell of the grid: the sum of the values of each Bayer phase (mode 0), or the maximum of A (mode 1)
 const CELLS = `${HEAD}
 uniform sampler2D uSrc;
@@ -203,7 +214,7 @@ export function engineModulationGpu(gpu, mod, cam, dev, grid, hot) {
   const lutch = phaseChannels(cfa);
   const programs = (gpu.modPrograms ||= {
     build: program(gl, BUILD), cells: program(gl, CELLS), hot: program(gl, HOT_FRAGMENT, HOT_VERTEX), s1: program(gl, S1),
-    hist: program(gl, HIST_FRAGMENT, HIST_VERTEX), disk: program(gl, DISK), final: program(gl, FINAL),
+    hist: program(gl, HIST_FRAGMENT, HIST_VERTEX), disk: program(gl, DISK), final: program(gl, FINAL), awbv: program(gl, AWBV),
   });
   const owned = [];
   const make = (w, h, fmt, filter) => {
@@ -244,7 +255,6 @@ export function engineModulationGpu(gpu, mod, cam, dev, grid, hot) {
       gpu.bindTex(1, M);
       gl.uniform1i(u.uBlack16, black16);
     });
-    drop(M);
 
     const cellTex = make(GRID, GRID, gl.RGBA32F, gl.NEAREST);
     const cells = (src, mode, mean) => {
@@ -257,6 +267,29 @@ export function engineModulationGpu(gpu, mod, cam, dev, grid, hot) {
       });
       return readFloat(cellTex, GRID, GRID);
     };
+    // the frame's mean per color less its black, for the engine's white balance (core/enginewb.js awbImage); each cell's sum is a whole number below 2^24, so exact
+    let awbMean = null;
+    if (dev.black && dev.black.length >= 3) {
+      const A = make(W, H, gl.R32F, gl.NEAREST);
+      fullscreen(programs.awbv, A, W, H, (u) => {
+        gl.uniform1i(u.uMod, 1);
+        gpu.bindTex(1, M);
+        gl.uniform4i(u.uBlackP, ...[0, 1, 2, 3].map((p) => dev.black[cfa[p >> 1][p & 1]]));
+      });
+      const cs = cells(A, 0);
+      drop(A);
+      const ps = [0, 0, 0, 0];
+      for (let k = 0; k < GRID * GRID; k++) for (let p = 0; p < 4; p++) ps[p] += cs[4 * k + p];
+      const ms = [0, 0, 0];
+      const ns = [0, 0, 0];
+      for (let p = 0; p < 4; p++) {
+        const ch = cfa[p >> 1][p & 1];
+        ms[ch] += ps[p];
+        ns[ch] += (W / 2) * (H / 2);
+      }
+      if ((W / 2) * (H / 2) * 4 === N && ((W * H) / GRID / GRID) * 1023 * 2 < EXACT_COUNT) awbMean = ms.map((m, c) => m / ns[c] || 1);
+    }
+    drop(M);
     // pixels of each phase in each cell
     const spans = (n) => Array.from({ length: GRID }, (_, c) => [Math.ceil((c * n) / GRID), Math.ceil(((c + 1) * n) / GRID)]);
     const cx = spans(W);
@@ -470,6 +503,7 @@ export function engineModulationGpu(gpu, mod, cam, dev, grid, hot) {
     gl.readPixels(0, 0, W / 2, H, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(out.buffer));
     if (gl.getError() !== gl.NO_ERROR) throw new Error('The GPU could not build the modulation plane');
     out.eUnit = MOD_UNIT;
+    if (awbMean) out.awbMean = awbMean;
     return out;
   } finally {
     for (const t of owned) gl.deleteTexture(t);

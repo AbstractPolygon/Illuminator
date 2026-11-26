@@ -80,6 +80,15 @@ async function runScene(t, W, H, sizes) {
       const t1 = performance.now();
       const out = engineModulationGpu(gpu, mod, cam, dev, grid, hot);
       const t2 = performance.now();
+      // the frame's mean per color less its black (core/enginewb.js awbImage's), taken with the plane
+      const awbMean = [0, 0, 0];
+      const awbCount = [0, 0, 0];
+      for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+        const ch = dev.cfa[y & 1][x & 1];
+        awbMean[ch] += Math.max(0, mod[y * W + x] - dev.black[ch]);
+        awbCount[ch]++;
+      }
+      const awbDiff = out.awbMean ? Math.max(...awbMean.map((m, c) => Math.abs(m / awbCount[c] - out.awbMean[c]))) : -1;
       let worst = 0;
       let over = 0;
       let sum = 0;
@@ -102,7 +111,7 @@ async function runScene(t, W, H, sizes) {
         }
         chunked.push({ size, vsSingle, vsCpu });
       }
-      return { worst, over, mean: sum / cpu.length, n: cpu.length, cpuMs: t1 - t0, gpuMs: t2 - t1, unit: out.eUnit, err: gl.getError(), chunked };
+      return { worst, over, mean: sum / cpu.length, n: cpu.length, cpuMs: t1 - t0, gpuMs: t2 - t1, unit: out.eUnit, err: gl.getError(), chunked, awbDiff };
     }, { W, H, sizes });
     if (!res) return t.skip('No float render targets');
     if (res.skip) return t.skip(res.skip);
@@ -119,6 +128,7 @@ test('the GPU modulation plane matches the CPU version', async (t) => {
     console.log(JSON.stringify(res));
     assert.equal(res.err, 0);
     assert.equal(res.unit, 30000);
+    assert.equal(res.awbDiff, 0, 'the frame’s mean per color differs from the processor’s');
     // Measured on SwiftShader: mean 0.0025, 83 of 1.2M values over 2 units, worst 48 (of 30000). The limits leave about 2x for other GPUs' float rounding.
     assert.ok(res.mean < 0.006, `mean difference ${res.mean} units of 30000`);
     assert.ok(res.over / res.n < 2e-4, `${res.over} values differ by more than 2 units`);
