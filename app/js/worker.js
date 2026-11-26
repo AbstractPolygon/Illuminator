@@ -28,7 +28,8 @@ import { l16NccGpu } from './gpu/l16ncc.js';
 import { l16SgmGpu } from './gpu/l16sgm.js';
 import { l16ReduceGpu } from './gpu/l16reduce.js';
 import { l16DepthFinishGpu } from './gpu/l16depthfinish.js';
-import { normalizeGrid, measureGrid, calibrateGrid, lensCenters, lensCenter, toLocal } from './core/lenslet.js';
+import { normalizeGrid, measureGrid, calibrateGrid, lensCenters, lensCenter, toLocal, setLensletGpu } from './core/lenslet.js';
+import { lensletGpu } from './gpu/lenslet.js';
 import {
   buildSampler, renderView, makeDevelopParams, apertureSamples, refocus,
   colorMatrix, autoExposure, toneMap, sensorToOutput, viewSizes,
@@ -1137,6 +1138,11 @@ async function open({ id, bytes, synthetic, userDepth = null, depthCache = null,
       },
     };
   }
+  // (the microlens grid's fit on the graphics card, gpu/lenslet.js: long loops, which a software renderer runs slower than the processor)
+  setLensletGpu(!debugFlags().noGpuLenslet ? (raw, width, height) => {
+    const gpu = rawPhotoGpu({ width, height });
+    return gpu && hardwareGpu() ? lensletGpu(gpu, raw, width, height) : null;
+  } : null);
   let decoded;
   try {
     decoded = await decodeLightField(data, { onProgress, hot: state.settings.hotPixels !== false, l16Cache: l16Cache ? decodeL16Cache(l16Cache) : null, l16Pool });
@@ -1169,11 +1175,7 @@ async function open({ id, bytes, synthetic, userDepth = null, depthCache = null,
   }
   if (state.lf.raw) {
     // (the graphics card first: the hot pixels are taken out there too)
-    if (state.gpu === null && state.settings.gpu !== false) {
-      state.gpu = GpuRenderer.create(state.lf.cam) || false;
-      DEPTH_REGIONS.gpu = state.gpu && !debugFlags().noGpuRegions ? regionsGpu(state.gpu, gpuFellBack) : null;
-      if (state.gpu && state.lut) state.gpu.setLut(state.lut);
-    }
+    rawPhotoGpu(state.lf.cam);
     state.rawOriginal = state.lf.raw;
     state.rawFixed = null;
     if (state.settings.hotPixels !== false) useHotPixelFix(true);
@@ -2729,14 +2731,24 @@ function cameraHotPixels() {
   return cal.hotPixels.length ? cal.hotPixels : null;
 }
 
+// The graphics card for a raw photo of the camera `cam` (its sensor size), made when no photo has made it yet; false where there is none.
+function rawPhotoGpu(cam) {
+  if (state.gpu === null && state.settings.gpu !== false) {
+    state.gpu = GpuRenderer.create(cam) || false;
+    DEPTH_REGIONS.gpu = state.gpu && !debugFlags().noGpuRegions ? regionsGpu(state.gpu, gpuFellBack) : null;
+    if (state.gpu && state.lut) state.gpu.setLut(state.lut);
+  }
+  return state.gpu || false;
+}
+
 // Remove hot pixels: the raw image with hot and dead pixels fixed (made
 // once per photo) or the original.
 function useHotPixelFix(on) {
   const { lf } = state;
   if (on && !state.rawFixed) {
     const listed = cameraHotPixels();
-    // (on the graphics card where there is one and the camera's list of defective pixels is not used, gpu/hotpixels.js; the same pixels)
-    if (!listed && state.gpu && !debugFlags().noGpuHotPixels && hotPixelsGpuAvailable(state.gpu, lf.cam.width, lf.cam.height)) {
+    // (on a real graphics card, which runs it faster than the processor, where the camera’s list of defective pixels is not used, gpu/hotpixels.js; the same pixels)
+    if (!listed && hardwareGpu() && !debugFlags().noGpuHotPixels && hotPixelsGpuAvailable(state.gpu, lf.cam.width, lf.cam.height)) {
       try {
         state.rawFixed = fixHotPixelsGpu(state.gpu, state.rawOriginal, lf.cam.width, lf.cam.height);
       } catch (e) {

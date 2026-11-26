@@ -150,35 +150,55 @@ function score(g, lum, samples) {
   return s;
 }
 
-function searchOffset(g, lum, samples, range, step) {
-  let best = g;
-  let bestScore = -Infinity;
-  for (let dy = -range.y; dy <= range.y + 1e-9; dy += step) {
-    for (let dx = -range.x; dx <= range.x + 1e-9; dx += step) {
-      const cand = { ...g, ox: g.ox + dx, oy: g.oy + dy };
-      const s = score(cand, lum, samples);
-      if (s > bestScore) {
-        bestScore = s;
-        best = cand;
-      }
+// The search's choice among candidate grids: the first with the highest score (as a plain loop that keeps a candidate only when it scores higher). With `card` (the graphics
+// card's scores, gpu/lenslet.js) every candidate is scored there and only the best few are scored again here: the same choice wherever the card's single precision keeps
+// the best among them.
+const RESCORED = 8;
+function choose(cands, lum, samples, card, keepFirst = false) {
+  let order = cands.map((_, k) => k);
+  if (card && cands.length > RESCORED) {
+    try {
+      const s = card.scores(cands, samples);
+      const top = order.sort((a, b) => s[b] - s[a] || a - b).slice(0, RESCORED);
+      // (the grid a search starts from stays a candidate: it is kept unless one scores higher)
+      if (keepFirst && !top.includes(0)) top.push(0);
+      order = top.sort((a, b) => a - b);
+    } catch (e) {
+      console.warn('The microlens grid search on the graphics card failed; using the processor', e);
+      card.failed = true;
     }
   }
-  return { grid: best, score: bestScore };
+  let best = -1;
+  let bestScore = -Infinity;
+  for (const k of order) {
+    const v = score(cands[k], lum, samples);
+    if (v > bestScore) {
+      bestScore = v;
+      best = k;
+    }
+  }
+  return { grid: cands[best], score: bestScore };
 }
 
-function searchParam(g, lum, samples, apply, range, steps) {
-  let best = g;
-  let bestScore = score(g, lum, samples);
-  for (let i = -steps; i <= steps; i++) {
-    if (i === 0) continue;
-    const cand = apply(g, (range * i) / steps);
-    const s = score(cand, lum, samples);
-    if (s > bestScore) {
-      bestScore = s;
-      best = cand;
-    }
+function searchOffset(g, lum, samples, range, step, card = null) {
+  const cands = [];
+  for (let dy = -range.y; dy <= range.y + 1e-9; dy += step) {
+    for (let dx = -range.x; dx <= range.x + 1e-9; dx += step) cands.push({ ...g, ox: g.ox + dx, oy: g.oy + dy });
   }
-  return best;
+  return choose(cands, lum, samples, card);
+}
+
+function searchParam(g, lum, samples, apply, range, steps, card = null) {
+  // (the grid as it is first: a candidate replaces it only when it scores higher)
+  const cands = [g];
+  for (let i = -steps; i <= steps; i++) if (i !== 0) cands.push(apply(g, (range * i) / steps));
+  return choose(cands, lum, samples, card, true).grid;
+}
+
+// Only the worker sets this: (raw, width, height) -> the card's scorer (gpu/lenslet.js), or null.
+let lensletOnCard = null;
+export function setLensletGpu(fn) {
+  lensletOnCard = fn || null;
 }
 
 // Aligns the grid to the image: microlens images are brightest at their
@@ -188,31 +208,44 @@ export function calibrateGrid(raw, cam, initial, onProgress = () => {}) {
   const { width, height } = cam;
   const lum = makeLuminance(raw, width, height);
   let g = normalizeGrid(initial, cam);
-
-  const center = pickSamples(g, width, height, 0.12, 1500);
-  onProgress(0.05);
-  g = searchOffset(g, lum, center, { x: g.pitch / 2, y: g.rowStep / 2 }, 0.5).grid;
-  onProgress(0.25);
-  g = searchOffset(g, lum, center, { x: 0.5, y: 0.5 }, 0.1).grid;
-  onProgress(0.35);
-
-  const wide = pickSamples(g, width, height, 0.9, 4000);
-  const rotate = (grid, d) => ({ ...grid, rotation: grid.rotation + d });
-  const scale = (grid, d) => ({ ...grid, pitch: grid.pitch * (1 + d), rowStep: grid.rowStep * (1 + d) });
-  const stretchY = (grid, d) => ({ ...grid, rowStep: grid.rowStep * (1 + d) });
-  let rotRange = 0.004;
-  let scaleRange = 0.01;
-  for (let iter = 0; iter < 4; iter++) {
-    g = searchParam(g, lum, wide, rotate, rotRange, 10);
-    g = searchParam(g, lum, wide, scale, scaleRange, 10);
-    g = searchParam(g, lum, wide, stretchY, scaleRange / 4, 5);
-    g = searchOffset(g, lum, center, { x: 0.3, y: 0.3 }, 0.1).grid;
-    rotRange /= 3;
-    scaleRange /= 3;
-    onProgress(0.35 + 0.15 * (iter + 1));
+  let card = null;
+  try {
+    card = lensletOnCard ? lensletOnCard(raw, width, height) : null;
+  } catch (e) {
+    console.warn('The microlens grid search on the graphics card failed; using the processor', e);
   }
-  g = normalizeGrid(g, cam);
-  return { grid: g, quality: gridQuality(g, lum, wide) };
+  try {
+    return fit();
+  } finally {
+    if (card) card.release();
+  }
+  function fit() {
+    const c = () => (card && !card.failed ? card : null);
+    const center = pickSamples(g, width, height, 0.12, 1500);
+    onProgress(0.05);
+    g = searchOffset(g, lum, center, { x: g.pitch / 2, y: g.rowStep / 2 }, 0.5, c()).grid;
+    onProgress(0.25);
+    g = searchOffset(g, lum, center, { x: 0.5, y: 0.5 }, 0.1, c()).grid;
+    onProgress(0.35);
+
+    const wide = pickSamples(g, width, height, 0.9, 4000);
+    const rotate = (grid, d) => ({ ...grid, rotation: grid.rotation + d });
+    const scale = (grid, d) => ({ ...grid, pitch: grid.pitch * (1 + d), rowStep: grid.rowStep * (1 + d) });
+    const stretchY = (grid, d) => ({ ...grid, rowStep: grid.rowStep * (1 + d) });
+    let rotRange = 0.004;
+    let scaleRange = 0.01;
+    for (let iter = 0; iter < 4; iter++) {
+      g = searchParam(g, lum, wide, rotate, rotRange, 10, c());
+      g = searchParam(g, lum, wide, scale, scaleRange, 10, c());
+      g = searchParam(g, lum, wide, stretchY, scaleRange / 4, 5, c());
+      g = searchOffset(g, lum, center, { x: 0.3, y: 0.3 }, 0.1, c()).grid;
+      rotRange /= 3;
+      scaleRange /= 3;
+      onProgress(0.35 + 0.15 * (iter + 1));
+    }
+    g = normalizeGrid(g, cam);
+    return { grid: g, quality: gridQuality(g, lum, wide) };
+  }
 }
 
 // Normalized contrast in [0, 1]-ish; low values mean the grid is off.
