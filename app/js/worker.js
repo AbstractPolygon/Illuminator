@@ -4548,6 +4548,14 @@ function processedGpu(params, message) {
     gpu.setDepth(e.neg, pp.depth.width, pp.depth.height);
     state.ppDepthOnGpu = null;
     tex = gpu.extendView(state.ppSrcTex.tex, w, h, [0, 0], [du, dv], 0, e.detail, e.range, searchSteps(e.range, 0, [du, dv], e.detail));
+  } else if (pp.kind === 'single' && pp.images.length === 1 && !moved && !debugFlags().noGpuKeptPicture) {
+    // (one picture, the viewpoint where it was taken: the picture itself, kept on the card, whatever the focus; it was copied and sent to the card again at each focus change)
+    const img = pp.images[0];
+    if (!state.ppSrcTex || state.ppSrcTex.img !== img) {
+      if (state.ppSrcTex) gpu.gl.deleteTexture(state.ppSrcTex.tex);
+      state.ppSrcTex = { img, tex: gpu.holdCopy(gpu.uploadRGB(pp.linear(img), w, h, { full: true }), w, h) };
+    }
+    tex = state.ppSrcTex.tex;
   } else {
     // (the picture for the viewpoint and focus, kept while only the blur or the colors change)
     const baseKey = `${u},${v},${alpha}`;
