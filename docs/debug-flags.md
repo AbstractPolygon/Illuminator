@@ -77,6 +77,7 @@ Read with `debugFlags().name`. In the worker, a harness usually prepends a line 
 | `noGpuL16Specks` | turns a stage off | app/js/worker.js |  |
 | `noGpuModulation` | turns a stage off | app/js/worker.js |  |
 | `noGpuNr` | turns a stage off | app/js/worker.js |  |
+| `noGpuProcessedSmooth` | turns a stage off | app/js/worker.js |  |
 | `noGpuRegions` | turns a stage off | app/js/worker.js |  |
 | `noGpuSoftEdges` | turns a stage off | app/js/worker.js |  |
 | `noGpuSolve` | turns a stage off | app/js/worker.js |  |

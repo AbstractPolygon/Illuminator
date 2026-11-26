@@ -15,6 +15,12 @@
 import { applyDepthOfField, shapeOptions } from './dof.js';
 import { fxOptions, applyBokehFx, addFxLight } from './bokehfx.js';
 import { smoothDepth } from './depth.js';
+
+// The depth smoothing on the graphics card (the renderer's smoothDepth), or null for the processor's: set by the worker that has the card.
+let smoother = null;
+export function setProcessedSmoother(f) {
+  smoother = f || null;
+}
 import { nthSmallest } from './typed.js';
 import { withExtension, uncoveredMask, depthRange } from './viewextend.js';
 
@@ -179,7 +185,17 @@ export class ProcessedPicture {
         for (let c = 0; c < 3; c++) guide[3 * (y * d.width + x) + c] = img[3 * (sy * w + sx) + c];
       }
     }
-    this.depth = { ...d, lambda: smoothDepth(d.lambda, d.width, d.height, guide, { amount }) };
+    // (on the graphics card where there is one, the renderer's smoothDepth, as a raw photo's depth; here if it fails)
+    let lambda = null;
+    if (smoother) {
+      try {
+        lambda = smoother(d.lambda, d.width, d.height, guide, { amount });
+      } catch (e) {
+        console.warn('Depth smoothing on the graphics card failed; smoothing here', e);
+        smoother = null;
+      }
+    }
+    this.depth = { ...d, lambda: lambda || smoothDepth(d.lambda, d.width, d.height, guide, { amount }) };
   }
 
   get canDrag() {

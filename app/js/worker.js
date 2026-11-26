@@ -64,7 +64,7 @@ import { nrFilterGpu, nrFilterTex } from './gpu/enginenr.js';
 import { engineDepthMap, engineLabels, fillBlownDepth } from './core/enginedepth.js';
 import { engineCostVolumeGpu, engineCostVolumeResident } from './gpu/enginecost.js';
 import { mergeViews, mergeSigma } from './core/mvdenoise.js';
-import { ProcessedPicture, decodeDepth, FOCUS_RANGE, APERTURE_RADIUS } from './core/processed.js';
+import { ProcessedPicture, decodeDepth, FOCUS_RANGE, APERTURE_RADIUS, setProcessedSmoother } from './core/processed.js';
 import { cameraInfo } from './core/raw.js';
 import { parseRayWarp, FOCUS_FIELD } from './core/raywarp.js';
 import { parseGeometryTable, geometryAt } from './core/geometrytable.js';
@@ -1156,12 +1156,12 @@ async function open({ id, bytes, synthetic, userDepth = null, depthCache = null,
     const built = await buildProcessed(state.lf);
     checkOpen();
     state.pp = built;
-    state.pp.setSmoothing(state.settings.depthSmoothing ?? 0.3);
-    // (the graphics card for its blur, effects and color pass, processedGpu: made here when no raw photo has made it yet)
+    // (the graphics card for its blur, effects and color pass, processedGpu, and the depth's smoothing: made here when no raw photo has made it yet)
     if (state.gpu === null && state.settings.gpu !== false) {
       state.gpu = GpuRenderer.create({ width: built.width, height: built.height }) || false;
       if (state.gpu && state.lut) state.gpu.setLut(state.lut);
     }
+    ppSmoothing(state.settings.depthSmoothing ?? 0.3);
     updateColor();
   }
   if (state.lf.raw) {
@@ -2906,14 +2906,14 @@ async function settings({ id, settings: s }) {
       } else progress('Removing hot pixels', null);
       const built = await buildProcessed(state.lf);
       state.pp = built;
-      state.pp.setSmoothing(state.settings.depthSmoothing ?? 0.3);
+      ppSmoothing(state.settings.depthSmoothing ?? 0.3);
     }
     // A Light L16 photo's depth method: Classic Depth (the depth measured when it opened) or Illuminator (its cameras' cost volume with a raw photo's smoothing, measured on
     // first use and kept).
     if (state.lf && state.lf.l16 && (await l16DepthMethod(id))) {
       const built = await buildProcessed(state.lf);
       state.pp = built;
-      state.pp.setSmoothing(state.settings.depthSmoothing ?? 0.3);
+      ppSmoothing(state.settings.depthSmoothing ?? 0.3);
       state.ppDepthOnGpu = null;
       state.ppMaskDepth = null;
       post({ type: 'depthReady', reapply: true, openSeq: state.openSeq });
@@ -3919,10 +3919,16 @@ function equalizedCenter() {
 // The widest softening of object edges (pixels of the depth map; the slider's top).
 const OBJECT_SOFT_MAX = 8;
 
+// A processed photo's depth smoothing (ProcessedPicture.setSmoothing), on the graphics card where there is one.
+function ppSmoothing(amount) {
+  setProcessedSmoother(state.gpu && !debugFlags().noGpuProcessedSmooth ? state.gpu.smoothDepth.bind(state.gpu) : null);
+  state.pp.setSmoothing(amount);
+}
+
 function applyDepthSmoothing() {
   const amount = state.settings.depthSmoothing ?? 0.3;
   if (state.pp) {
-    state.pp.setSmoothing(amount);
+    ppSmoothing(amount);
     return;
   }
   if (!state.depthRaw) return;
