@@ -19,6 +19,8 @@ concurrency:
 
 jobs:
   publish:
+    # (the wiki is the public app's only)
+    if: github.repository == 'AbstractPolygon/Illuminator'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5

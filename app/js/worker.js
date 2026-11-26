@@ -48,7 +48,8 @@ import { VERSION } from './version.js';
 import { CACHE_REV } from './core/cacherev.js';
 import { removePeriodicPatternRepeatedly, removeLatticeByTiles } from './core/notch.js';
 import { snapDepthEdges, snapToObjects, softenObjectEdges, EDGE_SNAP_DEPTH } from './core/segments.js';
-import { methodDepthModel, readDepthModel } from './core/depthmodels.js';
+import { methodDepthModel, readDepthModel, DEPTH_MODELS } from './core/depthmodels.js';
+import { EXTRA } from './extra.js';
 import { releaseDepthSession, runDepthModel, fitModelDepth, shapeModelDepth, fuseModelDepth } from './core/depthmodel.js';
 import { depthStats, fillNonFinite, shapeDepthContrast, setDepthStyle, estimateDepth, estimateDepthPooled, poolable, DEPTH_FAST_SEARCH, focusAtPoint, smoothDepth, finishDepth, depthGuide, depthColorGuide, luminance, brightnessFloor, DEPTH_SEARCH, DEPTH_LCOST, DEPTH_CBCA, DEPTH_TRWS, DEPTH_COARSE, DEPTH_STEP, DEPTH_REGIONS, combineCoarse } from './core/depth.js';
 import { applyDepthOfField, smoothMap, shapeOptions } from './core/dof.js';
@@ -945,6 +946,7 @@ function summary() {
       const c = lf.metadata ? cameraInfo(lf.metadata) : null;
       if (c) cam = { model: c.model, make: c.make, capture: c.capture };
       else if (lf.l16 && lf.l16.camera) cam = lf.l16.camera;
+      else if (lf.photo && lf.photo.camera) cam = lf.photo.camera;
     } catch {
       // Not every processed file keeps the camera metadata.
     }
@@ -1161,9 +1163,9 @@ async function open({ id, bytes, synthetic, userDepth = null, depthCache = null,
   // The grid the photo opens with (the metadata's, or the calibrated one): depth and the pictures made from it are keyed on the grid only when it later differs (gridTag).
   state.openGrid = decoded.grid ? JSON.stringify(decoded.grid) : null;
   lap('decode');
-  if (!state.lf.raw && (state.lf.stacks.length || state.lf.l16)) {
+  if (!state.lf.raw && (state.lf.stacks.length || state.lf.l16 || state.lf.photo)) {
     onProgress('Decoding images', 0.5);
-    const built = await buildProcessed(state.lf);
+    const built = await buildProcessed(state.lf, onProgress);
     checkOpen();
     state.pp = built;
     // (the graphics card for its blur, effects and color pass, processedGpu, and the depth's smoothing: made here when no raw photo has made it yet)
@@ -2935,14 +2937,14 @@ async function settings({ id, settings: s }) {
         const d = developL16(l16.bytes, l16.parsed, l16.measured, l16.ref, l16.colorOptions, progress);
         Object.assign(l16, { picture: d.picture, gain: d.gain, colorMatrix: d.colorMatrix, wide: d.wide, corrections: null });
       } else progress('Removing hot pixels', null);
-      const built = await buildProcessed(state.lf);
+      const built = await buildProcessed(state.lf, progress);
       state.pp = built;
       ppSmoothing(state.settings.depthSmoothing ?? 0.3);
     }
     // A Light L16 photo's depth method: Classic Depth (the depth measured when it opened) or Illuminator (its cameras' cost volume with a raw photo's smoothing, measured on
     // first use and kept).
     if (state.lf && state.lf.l16 && (await l16DepthMethod(id))) {
-      const built = await buildProcessed(state.lf);
+      const built = await buildProcessed(state.lf, (stage, p) => post({ id, type: 'progress', stage, progress: p }));
       state.pp = built;
       ppSmoothing(state.settings.depthSmoothing ?? 0.3);
       state.ppDepthOnGpu = null;
@@ -4417,7 +4419,9 @@ async function l16DepthMethod(id) {
   return true;
 }
 
-async function buildProcessed(lf) {
+async function buildProcessed(lf, onProgress = () => {}) {
+  // a photo app/js/extra.js opens (its picture and a depth of its own making)
+  if (lf.photo && EXTRA) return EXTRA.buildProcessed(lf, onProgress, { ProcessedPicture, halvePicture, runDepthModel, readDepthModel, DEPTH_MODELS, debugFlags, post });
   // a Light L16 photo: the developed picture and the depth map measured between its cameras
   if (lf.l16) {
     // the full size picture and, for the quick views, half and quarter size ones (the depth in lambda scales with the picture's size)

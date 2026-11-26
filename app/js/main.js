@@ -18,6 +18,9 @@ import { initMarks } from './ui/marks.js';
 import { initLooks } from './ui/looks.js';
 import { initQueue } from './ui/queue.js';
 import { blobReader, readPhotoSummary, openContainer } from './core/lfp.js';
+import { hashBytes } from './core/keptpicture.js';
+import { LIGHT_FIELD_FILE, PHOTO_ACCEPT } from './core/photoformats.js';
+import { EXTRA } from './extra.js';
 import { findRecipe, recipeToEdits } from './core/recipe.js';
 import { decodePngGray, parseDepthRange, stackDepth } from './core/userdepth.js';
 import { upscaleBits16 } from './gpu/upscale.js';
@@ -289,7 +292,8 @@ async function openLibrary() {
   thumbs.clear();
   // (the pictures still waiting belong to the library being left)
   thumbWaiting.length = 0;
-  const readSummary = (f) => readPhotoSummary(blobReader(f));
+  // (a photo app/js/extra.js opens: what it keeps of it)
+  const readSummary = (f) => (EXTRA && !LIGHT_FIELD_FILE.test(f.name) ? EXTRA.readSummary(f, hashBytes) : readPhotoSummary(blobReader(f)));
   try {
     // (the hidden copy that makes the render queue's files keeps no library of its own)
     if (QUEUE_RUNNER) throw new Error('queue runner');
@@ -371,8 +375,8 @@ function saveThumbnail() {
 }
 
 const EMPTY_LIBRARY = CAMERA_IMPORT
-  ? 'Open .LFR / .LFP / .LRI files, drop them here, or import from a camera or Lytro Desktop.'
-  : 'Open .LFR / .LFP / .LRI files, drop them here, or import from Lytro Desktop.';
+  ? `${EXTRA ? EXTRA.openHint : 'Open .LFR / .LFP / .LRI files, drop them here, or import from'} a camera or Lytro Desktop.`
+  : `${EXTRA ? EXTRA.openHint : 'Open .LFR / .LFP / .LRI files, drop them here, or import from'} Lytro Desktop.`;
 
 // The Camera section's state (see setCameraSection).
 const cameraThumbs = new Map();
@@ -5676,11 +5680,13 @@ async function importAlbumArchive(file) {
 // albums.
 async function openPicked(files) {
   for (const f of files.filter((f) => /\.zip$/i.test(f.name))) await importAlbumArchive(f);
-  const entries = groupPhotos(files.filter((f) => isLightFieldName(f.name)).map((f) => ({ path: f.name, file: f })));
+  const entries = groupPhotos(files.filter((f) => isLightFieldName(f.name) || /\.xmp$/i.test(f.name)).map((f) => ({ path: f.name, file: f })));
   const added = await importPhotos(entries);
   if (added.length) openItem(added[0]);
 }
 
+// (the file picker takes what app/js/extra.js opens too, with the .xmp files beside them)
+if (EXTRA) $('file-input').accept = `${PHOTO_ACCEPT},.xmp,.XMP,.zip`;
 $('open-btn').onclick = async () => openPicked(await openFiles());
 $('library-import').onclick = () => importFolder();
 // Commands from the desktop app's menu bar.
@@ -6695,7 +6701,7 @@ document.addEventListener('drop', (e) => {
   const files = [...(e.dataTransfer ? e.dataTransfer.files : [])];
   if (!files.length) return;
   if (!files.some((f) => isLightFieldName(f.name))) {
-    showError(new Error(`${files[0].name} is not a Lytro or Light L16 file. Drop an .LFR, .LFP, .LRI or .RAW file.`));
+    showError(new Error(EXTRA ? `${files[0].name} is not a photo Illuminator can open. Drop ${EXTRA.dropHint}.` : `${files[0].name} is not a Lytro or Light L16 file. Drop an .LFR, .LFP, .LRI or .RAW file.`));
     return;
   }
   openPicked(files);

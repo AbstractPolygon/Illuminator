@@ -1,6 +1,7 @@
 // updates: moved out of main.js. initUpdates() runs where the section used to, with what it uses from the rest of the page.
 import { VERSION } from '../version.js';
 import { releaseHighlights } from '../core/releasenotes.js';
+import { EXTRA } from '../extra.js';
 
 // Whether version `a` is newer than version `b` (dotted numbers).
 export function newerVersion(a, b) {
@@ -93,6 +94,11 @@ export function initUpdates({ showNotice, $ }) {
 
   async function checkForUpdate(manual = false) {
     if (!window.lytroNative || (!manual && !updateCheckOn())) return;
+    // (a build whose releases this check cannot read, app/js/extra.js: new versions are downloaded by hand)
+    if (EXTRA && EXTRA.updates === false) {
+      if (manual) showNotice('Updates are downloaded by hand', `This is version ${VERSION}. Download new versions from the releases of the repository this build comes from.`);
+      return;
+    }
     let release;
     try {
       release = await fetchLatestRelease();

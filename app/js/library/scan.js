@@ -13,7 +13,8 @@
 // Lytro Desktop computed, kept as `stack` beside raw.lfp. Everywhere else photos are IMG_0001.LFR files, optionally with
 // an IMG_0001.LFP exported next to them.
 
-const LIGHT_FIELD = /\.(lfr|lfp|raw|lri)$/i;
+import { LIGHT_FIELD_FILE as LIGHT_FIELD } from '../core/photoformats.js';
+import { EXTRA } from '../extra.js';
 const VIEW = /(^|\.)view\.lfp$/i;
 const THUMB = /thumb.*\.(jpe?g|png)$/i;
 const DEPTH_MAP = /userdepthmap(\.(png|jpe?g|tiff?|bmp))?$/i;
@@ -63,6 +64,11 @@ export function groupPhotos(entries) {
       if (photoFiles.includes(f) || VIEW.test(f.name)) continue;
       // An exported LFP is a photo too (it keeps its own pictures and depth).
       photos.push({ name: f.name, label: title(f.name), file: f.file, sidecar: null, thumb: null });
+    }
+    // (the photos app/js/extra.js opens, by the names the light fields have not taken)
+    if (EXTRA) {
+      const taken = new Set(photos.filter((p) => files.some((f) => f.file === p.file)).map((p) => stem(p.name)));
+      photos.push(...EXTRA.groupFiles(files, { taken, stem, title, isLightField: (n) => LIGHT_FIELD.test(n), skip: (n) => THUMB.test(n) || DEPTH_MAP.test(n) }));
     }
     // A lone edits file picked with a single photo belongs to it.
     const single = photos.filter((p) => files.some((f) => f.file === p.file));

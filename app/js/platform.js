@@ -2,7 +2,7 @@
 // provide `window.lytroNative` to replace these with native dialogs and USB
 // camera access.
 
-const LF_FILE = /\.(lfr|lfp|raw|lri)$/i;
+import { PHOTO_FILE as LF_FILE } from './core/photoformats.js';
 
 
 // Lytro, Inc.'s USB vendor ID (as electron/camera.cjs).
@@ -89,8 +89,9 @@ export async function openCalibrationFile() {
   return (await pickWithInput(document.getElementById('cal-input')))[0] || null;
 }
 
+// (a camera's card: its light fields; a folder: every photo, with the thumbnails and the .xmp settings beside them)
 const PHOTO_FILE = /\.(lfr|lfp|lri)$/i;
-const FOLDER_FILE = /\.(lfr|lfp|raw|lri|jpe?g|png)$/i;
+const FOLDER_FILE = new RegExp(`${LF_FILE.source}|\\.xmp$`, 'i');
 const CALIBRATION_FILE = /\.(json|bin|txt|gct|hst|raw)$/i;
 
 async function walkDirectory(handle, prefix, out, wanted = PHOTO_FILE) {
@@ -232,6 +233,7 @@ export async function findSidecar(file) {
   }
 }
 
+// Any photo the app opens (core/photoformats.js).
 export function isLightFieldName(name) {
   return LF_FILE.test(name);
 }

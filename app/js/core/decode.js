@@ -7,6 +7,8 @@ import { decodeL16Pooled, l16PhotoId } from './l16photo.js';
 import { cameraInfo, guessRawLayout, packedSize, unpackRaw } from './raw.js';
 import { findRecipe } from './recipe.js';
 import { gridFromCamera, calibrateGrid, measureGrid, normalizeGrid } from './lenslet.js';
+import { hashBytes } from './keptpicture.js';
+import { EXTRA } from '../extra.js';
 
 export async function decodeLightField(bytes, { onProgress = () => {}, calibrate = true, hot = true, l16Cache = null, l16Pool = null } = {}) {
   onProgress('Reading file', 0);
@@ -19,12 +21,20 @@ export async function decodeLightField(bytes, { onProgress = () => {}, calibrate
   let picture = null;
   let rawBytes = null;
   let layout = null;
+  // (what app/js/extra.js opens before the light fields)
+  const first = EXTRA ? await EXTRA.decodeFirst(bytes, onProgress, hashBytes) : null;
+  if (first) return first;
   if (isLfp(bytes)) {
     picture = await readLightFieldPicture(bufferReader(bytes));
     if (picture.rawRef) rawBytes = await picture.container.readSection(picture.rawRef);
   } else {
     layout = guessRawLayout(bytes.length);
-    if (!layout) throw new LfpError('Unrecognized file: not an LFP/LFR container or a known raw sensor dump');
+    // (not a Lytro sensor dump, which is known by its size: what app/js/extra.js opens, if anything)
+    if (!layout) {
+      const last = EXTRA ? await EXTRA.decodeLast(bytes, onProgress, hashBytes) : null;
+      if (last) return last;
+      throw new LfpError(EXTRA ? 'Unrecognized file: not a photo Illuminator can read' : 'Unrecognized file: not an LFP/LFR container or a known raw sensor dump');
+    }
     rawBytes = bytes;
   }
 

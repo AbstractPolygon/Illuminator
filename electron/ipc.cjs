@@ -5,6 +5,7 @@
 // each with ipcMain.handle(name, (event, ...args) => handlers[name](...args)).
 
 const { isInside, resolveInside } = require('./paths.cjs');
+const { PHOTO_FILE, PHOTO_EXTENSIONS } = require('./photoformats.cjs');
 
 const notFound = (err) => err && (err.code === 'ENOENT' || err.code === 'ENOTDIR');
 
@@ -127,7 +128,7 @@ function createIpc(deps) {
       if (e.name.startsWith('.')) continue;
       const r = rel ? `${rel}/${e.name}` : e.name;
       if (e.isDirectory()) await walk(root, r, out, depth + 1);
-      else if (/\.(lfr|lfp|raw|jpe?g|png)$/i.test(e.name)) out.push(r);
+      else if (PHOTO_FILE.test(e.name) || /\.xmp$/i.test(e.name)) out.push(r);
     }
     return out;
   }
@@ -147,11 +148,11 @@ function createIpc(deps) {
       // `options` picks another kind of file (camera calibration backups).
       const kind = options && options.kind === 'calibration';
       const res = await dialog.showOpenDialog(...withWin({
-        title: kind ? 'Add camera calibration data' : 'Open light field photos',
+        title: kind ? 'Add camera calibration data' : 'Open photos',
         properties: kind ? ['openFile'] : ['openFile', 'multiSelections'],
         filters: kind
           ? [{ name: 'Camera calibration backup', extensions: ['tar', 'TAR'] }]
-          : [{ name: 'Lytro photos and album archives', extensions: ['lfr', 'lfp', 'raw', 'zip', 'LFR', 'LFP', 'RAW', 'ZIP'] }],
+          : [{ name: 'Photos and album archives', extensions: [...PHOTO_EXTENSIONS, 'xmp', 'zip'].flatMap((e) => [e, e.toUpperCase()]) }],
       }));
       if (res.canceled) return [];
       res.filePaths.forEach(allow);

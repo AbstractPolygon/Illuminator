@@ -32,9 +32,10 @@ function resolveInside(root, rel, platform = process.platform) {
   return target;
 }
 
-const LYTRO_EXTENSIONS = /\.(lfr|lfp|lfx|raw)$/i;
+// (every photo the app opens, and Lytro's .lfx)
+const LYTRO_EXTENSIONS = new RegExp(`${require('./photoformats.cjs').PHOTO_FILE.source}|\\.lfx$`, 'i');
 
-// The Lytro files among command line arguments or open-file paths, as absolute paths (options and other files are left out).
+// The photo files among command line arguments or open-file paths, as absolute paths (options and other files are left out).
 function lytroPathsFrom(args, cwd = process.cwd(), platform = process.platform) {
   const p = flavor(platform);
   return args
