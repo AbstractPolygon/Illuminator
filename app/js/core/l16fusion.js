@@ -819,7 +819,8 @@ export function fuse(bytes, parsed, depth, { black = 42, white = 1023, gains = [
   onProgress('Developing the pictures', 0.02);
   const S = grid;
   const load = (frame) => (S === 1 ? demosaic(bytes, frame, opts) : halfSize(bytes, frame, opts));
-  const ref = load(refFrame);
+  // (the half size reference kept on the graphics card where the merge is made there: laid on its grid there)
+  const ref = S === 2 && fuseOnCard ? halfSize(bytes, refFrame, { ...opts, keep: true }) : load(refFrame);
   const { width: W, height: H } = ref;
   // the output grid is the reference's undistorted picture: the value at ideal pixel (x, y) is the sensor picture at distort(x, y)
   const out = new Float32Array(3 * W * H);
@@ -854,6 +855,7 @@ export function fuse(bytes, parsed, depth, { black = 42, white = 1023, gains = [
       card.reference({ img: ref, W, H, S, dist: refCam.distort, refUnd, valid });
     } catch (e) {
       failed(e);
+      if (ref.tex) return fuse(bytes, parsed, depth, { black, white, gains, hot }, onProgress, { grid, corrections });
     }
   }
   if (!card) for (let y = 0; y < H; y++) {
@@ -896,11 +898,30 @@ export function fuse(bytes, parsed, depth, { black = 42, white = 1023, gains = [
     const corr = corrections && corrections[id];
     const R = rel.R;
     const T = rel.T;
-    const img = load(parsed.modules[id][0]);
+    // (kept on the card for the merge kept there: the picture stays there and its color gains are taken on the card)
+    const img = kept && S === 2 ? halfSize(bytes, parsed.modules[id][0], { ...opts, keep: true }) : load(parsed.modules[id][0]);
     const mono = isMono(id);
-    // gains that match this camera's colors to the reference's, from the pixels both see (sampled)
-    const sumR = [0, 0, 0];
-    const sumD = [0, 0, 0];
+    // gains that match this camera's colors to the reference's, from the pixels both see (sampled every 23 pixels); look(x, y) is the camera's picture there, or null
+    const gainsOf = (look) => {
+      const sumR = [0, 0, 0];
+      const sumD = [0, 0, 0];
+      for (let y = 8; y < H; y += 23) {
+        for (let x = 8; x < W; x += 23) {
+          if (!valid[y * W + x]) continue;
+          const s = look(x, y);
+          if (!s) continue;
+          const i = 3 * (y * W + x);
+          for (let c = 0; c < 3; c++) {
+            sumR[c] += refUnd[i + c];
+            sumD[c] += s[c];
+          }
+        }
+      }
+      const g = sumD.map((v, c) => (v > 1e-6 ? sumR[c] / v : 1));
+      // the monochrome camera: one brightness gain, from the reference's brightness over its own
+      const mg = mono ? luma(sumR[0], sumR[1], sumR[2]) / Math.max(1e-9, sumD[1]) : 1;
+      return { g, mg };
+    };
     const sample = [0, 0, 0];
     const at = (x, y) => {
       const Z = z[y * W + x];
@@ -919,19 +940,7 @@ export function fuse(bytes, parsed, depth, { black = 42, white = 1023, gains = [
       }
       return bilinear(img.rgb, img.width, img.height, sx / S, sy / S, sample);
     };
-    for (let y = 8; y < H; y += 23) {
-      for (let x = 8; x < W; x += 23) {
-        if (!valid[y * W + x] || !at(x, y)) continue;
-        const i = 3 * (y * W + x);
-        for (let c = 0; c < 3; c++) {
-          sumR[c] += refUnd[i + c];
-          sumD[c] += sample[c];
-        }
-      }
-    }
-    const g = sumD.map((v, c) => (v > 1e-6 ? sumR[c] / v : 1));
-    // the monochrome camera: one brightness gain, from the reference's brightness over its own
-    const mg = mono ? luma(sumR[0], sumR[1], sumR[2]) / Math.max(1e-9, sumD[1]) : 1;
+    const { g, mg } = img.tex ? { g: null, mg: 1 } : gainsOf((x, y) => (at(x, y) ? sample : null));
     let agreed = 0;
     let done = false;
     if (card) {
@@ -939,7 +948,7 @@ export function fuse(bytes, parsed, depth, { black = 42, white = 1023, gains = [
       const share = new Float32Array(3 * W * H);
       const wshare = new Float32Array(W * H);
       try {
-        agreed = card.camera({ img, W, H, S, K, cam, rel, corr, gain: g, mono, mg, z, refUnd, valid, out: share, weight: wshare });
+        agreed = card.camera({ img, W, H, S, K, cam, rel, corr, gain: g, mono, mg, gainsOf: img.tex ? gainsOf : null, z, refUnd, valid, out: share, weight: wshare });
         // (kept on the card: added there)
         if (!kept) for (let i = 0; i < W * H; i++) {
           if (!wshare[i]) continue;

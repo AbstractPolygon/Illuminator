@@ -145,6 +145,14 @@ void main() {
   outAgree = vec4(w > 0.5 ? 1.0 : 0.0, 0.0, 0.0, 1.0);
 }`;
 
+// The camera's picture at the points its color gains are taken from (every 23 pixels from 8, 8; core/l16fusion.js fuse): (rgb, 1 where it has one).
+const GATHER = `${COMMON}
+uniform sampler2D uSmp;
+out vec4 outColor;
+void main() {
+  outColor = texelFetch(uSmp, ivec2(gl_FragCoord.xy) * 23 + 8, 0);
+}`;
+
 const setDist = (gl, u, dist) => {
   const p = dist && dist.params;
   gl.uniform1i(u.uHasDist, p ? 1 : 0);
@@ -197,7 +205,7 @@ export function l16FuseGpu(gpu) {
   const gl = gpu.gl;
   const filters = l16FilterTextures(gpu);
   let progs = null;
-  const P = () => (progs = progs || { ref: program(gl, REF), cam: program(gl, CAM), masked: program(gl, MASKED), share: program(gl, SHARE), weight: program(gl, WEIGHT), acc: program(gl, ACC), count: program(gl, COUNT) });
+  const P = () => (progs = progs || { ref: program(gl, REF), cam: program(gl, CAM), masked: program(gl, MASKED), share: program(gl, SHARE), weight: program(gl, WEIGHT), acc: program(gl, ACC), count: program(gl, COUNT), gather: program(gl, GATHER) });
   // (the merge kept on the card between begin and end: { W, H, refT, zT, acc: [a, b], cur })
   let kept = null;
   const dropKept = () => {
@@ -226,10 +234,12 @@ export function l16FuseGpu(gpu) {
   };
   return {
     // The reference on its undistorted grid (W x H, `S` sensor pixels a grid pixel): fills refUnd (3 a pixel) and valid.
+    // `img` may be a picture kept on the card ({ width, height, tex }: let go here).
     reference({ img, W, H, S, dist, refUnd, valid }) {
       scoped((made) => {
+        if (img.tex) made.push(img.tex);
         const p = P().ref;
-        const src = rgbTex(made, img);
+        const src = img.tex || rgbTex(made, img);
         const rows = Math.min(H, bandRows(W));
         const out = gpu.texture(W, rows, gl.RGBA32F);
         made.push(out);
@@ -304,11 +314,13 @@ export function l16FuseGpu(gpu) {
     },
     drop: dropKept,
     // One camera's share added to out (3 a pixel) and weight; returns how many pixels agreed. Made in bands of rows, each with a margin above and below as deep as
-    // the blurs reach, so the band's own rows come out as from the whole picture.
-    camera({ img, W, H, S, K, cam, rel, corr, gain, mono, mg, z, refUnd, valid, out: acc, weight }) {
+    // the blurs reach, so the band's own rows come out as from the whole picture. `img` may be a picture kept on the card ({ width, height, tex }: let go here), with
+    // `gainsOf` (look(x, y) -> the camera's picture there or null, -> { g, mg }) in place of gain and mg: the gains taken from the card's samples (the merge kept on the card).
+    camera({ img, W, H, S, K, cam, rel, corr, gain, mono, mg, gainsOf, z, refUnd, valid, out: acc, weight }) {
       return scoped((made) => {
+        if (img.tex) made.push(img.tex);
         const pr = P();
-        const src = rgbTex(made, img);
+        const src = img.tex || rgbTex(made, img);
         const r = Math.max(2, Math.round(12 / S));
         const margin = r + 4;
         const rows = Math.min(H, Math.max(1, bandRows(W) - 2 * margin));
@@ -377,6 +389,24 @@ export function l16FuseGpu(gpu) {
                 gl.uniform3f(u.uCx, corr ? corr.ax[0] : 0, corr ? corr.ax[1] : 0, corr ? corr.ax[2] : 0);
                 gl.uniform3f(u.uCy, corr ? corr.ay[0] : 0, corr ? corr.ay[1] : 0, corr ? corr.ay[2] : 0);
               });
+              if (gainsOf) {
+                if (e0 !== 0 || en !== H) throw new Error('the color gains are taken on the card only for a merge made in one band');
+                const gw = Math.ceil((W - 8) / 23);
+                const gh = Math.ceil((H - 8) / 23);
+                const gt = gpu.texture(gw, gh, gl.RGBA32F);
+                local.push(gt);
+                gpu.target(gt, gw, gh);
+                gl.useProgram(pr.gather.p);
+                gl.uniform1i(pr.gather.u.uSmp, 1);
+                gpu.bindTex(1, smp);
+                gpu.draw();
+                const gb = new Float32Array(4 * gw * gh);
+                gl.readPixels(0, 0, gw, gh, gl.RGBA, gl.FLOAT, gb);
+                ({ g: gain, mg } = gainsOf((x, y) => {
+                  const i = 4 * (((y - 8) / 23) * gw + (x - 8) / 23);
+                  return gb[i + 3] > 0 ? gb.subarray(i, i + 3) : null;
+                }));
+              }
               // the local color ratio: both pictures blurred where both have pixels
               const refM = ltex();
               draw(pr.masked, refM, en, [['uA', refT], ['uOk', smp]]);
