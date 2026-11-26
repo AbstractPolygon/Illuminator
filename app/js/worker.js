@@ -59,6 +59,7 @@ import { makeDetail, applyDetail, detailForSize, engineUnsharp, engineUsmMap, to
 import { engineDenoise, engineNrTables, NR_SPACE } from './core/enginenr.js';
 import { engineModulation } from './core/enginemod.js';
 import { engineModulationGpu, engineModulationGpuAvailable } from './gpu/enginemod.js';
+import { fixHotPixelsGpu, hotPixelsGpuAvailable } from './gpu/hotpixels.js';
 import { setMemoryLimits, fitsMemory, memoryProblem, superResVram, superResRam } from './core/memorybudget.js';
 import { guideDepthEdges } from './core/depthguide.js';
 import { nrFilterGpu, nrFilterTex } from './gpu/enginenr.js';
@@ -1167,6 +1168,12 @@ async function open({ id, bytes, synthetic, userDepth = null, depthCache = null,
     updateColor();
   }
   if (state.lf.raw) {
+    // (the graphics card first: the hot pixels are taken out there too)
+    if (state.gpu === null && state.settings.gpu !== false) {
+      state.gpu = GpuRenderer.create(state.lf.cam) || false;
+      DEPTH_REGIONS.gpu = state.gpu && !debugFlags().noGpuRegions ? regionsGpu(state.gpu, gpuFellBack) : null;
+      if (state.gpu && state.lut) state.gpu.setLut(state.lut);
+    }
     state.rawOriginal = state.lf.raw;
     state.rawFixed = null;
     if (state.settings.hotPixels !== false) useHotPixelFix(true);
@@ -1187,11 +1194,6 @@ async function open({ id, bytes, synthetic, userDepth = null, depthCache = null,
     }
     // The photo's own distortion, from its ray table, rather than the one fitted for its zoom.
     state.lf.cam.distortionFit = state.rayWarp && !hook('noTableLens') ? fitDistortion(state.rayWarp.distortionProfile(state.lf.cam.width, state.lf.cam.height)) : null;
-    if (state.gpu === null && state.settings.gpu !== false) {
-      state.gpu = GpuRenderer.create(state.lf.cam) || false;
-      DEPTH_REGIONS.gpu = state.gpu && !debugFlags().noGpuRegions ? regionsGpu(state.gpu, gpuFellBack) : null;
-      if (state.gpu && state.lut) state.gpu.setLut(state.lut);
-    }
     lap('setup');
     if (state.gpu) {
       try {
@@ -2731,7 +2733,18 @@ function cameraHotPixels() {
 // once per photo) or the original.
 function useHotPixelFix(on) {
   const { lf } = state;
-  if (on && !state.rawFixed) state.rawFixed = fixHotPixels(state.rawOriginal, lf.cam.width, lf.cam.height, cameraHotPixels());
+  if (on && !state.rawFixed) {
+    const listed = cameraHotPixels();
+    // (on the graphics card where there is one and the camera's list of defective pixels is not used, gpu/hotpixels.js; the same pixels)
+    if (!listed && state.gpu && !debugFlags().noGpuHotPixels && hotPixelsGpuAvailable(state.gpu, lf.cam.width, lf.cam.height)) {
+      try {
+        state.rawFixed = fixHotPixelsGpu(state.gpu, state.rawOriginal, lf.cam.width, lf.cam.height);
+      } catch (e) {
+        console.warn('Remove hot pixels on the graphics card failed; using the processor', e);
+      }
+    }
+    if (!state.rawFixed) state.rawFixed = fixHotPixels(state.rawOriginal, lf.cam.width, lf.cam.height, listed);
+  }
   lf.raw = on ? state.rawFixed.raw : state.rawOriginal;
   lf.hotPixels = on ? state.rawFixed.count : 0;
 }
