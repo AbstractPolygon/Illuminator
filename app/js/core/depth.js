@@ -370,8 +370,14 @@ function sortSmall(a, n) {
   }
 }
 
-// 5x5 median: removes isolated speckles of wrong depth.
+// 5x5 median: removes isolated speckles of wrong depth. (On the graphics card where there is one, gpu/regions.js: the same values.)
 function median5(src, w, h) {
+  const card = DEPTH_REGIONS.gpu && DEPTH_REGIONS.gpu.median5 && !debugFlags().noGpuMedian ? DEPTH_REGIONS.gpu.median5(src instanceof Float32Array ? src : Float32Array.from(src), w, h) : null;
+  return card || median5Here(src, w, h);
+}
+// (the processor's, exported for the tests)
+export { median5Here as median5ForTests };
+function median5Here(src, w, h) {
   const out = new Float32Array(src.length);
   const win = new Float32Array(25);
   for (let y = 0; y < h; y++) {

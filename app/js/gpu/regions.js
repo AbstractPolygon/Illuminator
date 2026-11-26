@@ -628,6 +628,28 @@ const SC_BELOW_N = scatterVertex(
   'uniform sampler2D uAlpha; uniform sampler2D uLoHi;',
 );
 // |depth - median of its object|
+// core/depth.js median5: the median of the 5 x 5 pixels around (edges repeated), sorted as the processor sorts them, so the same value.
+const MEDIAN5 = `${HEAD}
+uniform sampler2D uSrc;
+void main() {
+  ivec2 p = ivec2(gl_FragCoord.xy);
+  ivec2 last = textureSize(uSrc, 0) - 1;
+  float a[25];
+  int k = 0;
+  for (int dy = -2; dy <= 2; dy++) {
+    for (int dx = -2; dx <= 2; dx++) a[k++] = texelFetch(uSrc, clamp(p + ivec2(dx, dy), ivec2(0), last), 0).r;
+  }
+  for (int i = 1; i < 25; i++) {
+    float x = a[i];
+    int j = i - 1;
+    while (j >= 0 && a[j] > x) {
+      a[j + 1] = a[j];
+      j--;
+    }
+    a[j + 1] = x;
+  }
+  o = vec4(a[12]);
+}`;
 const ABS_DEV = `${HEAD}
 uniform sampler2D uDepth;
 uniform sampler2D uSlot;
@@ -916,6 +938,7 @@ function programs(gpu) {
       scOne: sc(SC_ONE),
       scBelowN: sc(SC_BELOW_N),
       absDev: frag(ABS_DEV),
+      median5: frag(MEDIAN5),
       haloW0: frag(HALO_W0),
       scSums1: sc(SC_SUMS1),
       scSums2: sc(SC_SUMS2),
@@ -1529,6 +1552,9 @@ export function regionsGpu(gpu, fellBack = () => {}) {
       if (!labels.length) return depth;
       return sc.readRed(sc.flattenHalos(sc.upR(w, h, depth), sc.upU(w, h, objects), w, h, labels, opts), w, h);
     }),
+
+    // core/depth.js median5 (the same values)
+    median5: guard('Cleaning the depth', (sc, depth, w, h) => sc.readRed(sc.pass(sc.prog.median5, w, h, (U) => sc.bind(U, [['uSrc', sc.upR(w, h, depth)]])), w, h)),
 
     guidedFilter: guard('Filtering the depth', (sc, depth, lab, w, h, r = 6, eps = 0.004) => sc.readRed(sc.guidedFilter(sc.upR(w, h, depth), sc.up3(w, h, lab), w, h, r, eps), w, h)),
 
