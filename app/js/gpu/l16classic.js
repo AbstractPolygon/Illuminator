@@ -6,7 +6,10 @@ import { program } from './renderer.js';
 
 const MAX_MODULES = 8;
 
-const COST = `#version 300 es
+const TW = 2048;
+const TWE = 4096;   // the list's entries a row, as gpu/l16classicsgm.js reads them
+
+const COST_SHARED = `#version 300 es
 precision highp float;
 precision highp int;
 precision highp usampler2D;
@@ -75,18 +78,8 @@ int planeCost(int m, vec3 a, vec3 T, vec4 k, int start, int d) {
   return 0;
 }
 
-void main() {
-  ivec2 o = ivec2(gl_FragCoord.xy);
-  int tw = textureSize(uBlocks, 0).x;
-  if (o.y * tw + o.x >= uBlockCount) {
-    outColor = uvec4(0u);
-    return;
-  }
-  uvec4 b = texelFetch(uBlocks, o, 0);
-  int p = int(b.x);
-  int start = int(b.y);
-  int k0 = int(b.z);
-  int count = int(b.w);
+// the costs of planes k0 .. k0 + 3 of pixel p's range (from start; past count: 255)
+uvec4 costsOf(int p, int start, int k0, int count) {
   ivec2 size = textureSize(uRef, 0);
   int x = min(uScale * (p % uW) + (uScale >> 1), size.x - 1);
   int y = min(uScale * (p / uW) + (uScale >> 1), size.y - 1);
@@ -108,7 +101,49 @@ void main() {
   }
   uvec4 raw = uvec4(255u);
   for (int j = 0; j < 4; j++) if (k0 + j < count) raw[j] = uint(min(255.0, floor(float(sum[j]) * uNorm)));
-  outColor = raw;
+  return raw;
+}
+`;
+const COST = COST_SHARED + `
+void main() {
+  ivec2 o = ivec2(gl_FragCoord.xy);
+  int tw = textureSize(uBlocks, 0).x;
+  if (o.y * tw + o.x >= uBlockCount) {
+    outColor = uvec4(0u);
+    return;
+  }
+  uvec4 b = texelFetch(uBlocks, o, 0);
+  outColor = costsOf(int(b.x), int(b.y), int(b.z), int(b.w));
+}`;
+const COST_ENTRIES = COST_SHARED + `
+uniform usampler2D uInfo;     // per pixel (w x h): its range's first plane, its count, measured (0) or only smoothed into (1)
+uniform usampler2D uOffs;     // where each pixel's run starts in the list (cap planes, a multiple of 8), PW a row
+uniform int uNpx;
+uniform uint uCount;
+uint offAt(int i) { return texelFetch(uOffs, ivec2(i % 2048, i / 2048), 0).r; }
+void main() {
+  // (four entries a texel: a pixel's run starts at a multiple of 8, so the four are always the same pixel's)
+  uint e = 4u * uint(int(gl_FragCoord.y) * ${TWE} / 4 + int(gl_FragCoord.x));
+  if (e >= uCount) {
+    outColor = uvec4(0u);
+    return;
+  }
+  int lo = 0;
+  int hi = uNpx;
+  while (hi - lo > 1) {
+    int mid = (lo + hi) >> 1;
+    if (offAt(mid) <= e) lo = mid;
+    else hi = mid;
+  }
+  int k = int(e - offAt(lo));
+  uvec4 inf = texelFetch(uInfo, ivec2(lo % uW, lo / uW), 0);
+  int count = int(inf.y);
+  if (inf.z == 1u || k >= count) {
+    // (a pixel only smoothed into: 0 for its planes; past a pixel's planes: 255)
+    uvec4 v = uvec4(255u);
+    for (int j = 0; j < 4; j++) if (k + j < count) v[j] = 0u;
+    outColor = v;
+  } else outColor = costsOf(lo, int(inf.x), k, count);
 }`;
 
 // The pictures, as core/l16classic.js viewPicture makes them: a camera's half size picture (linear RGB, RGBA32F) through its lens's distortion into its pinhole view,
@@ -208,7 +243,6 @@ void main() {
   outColor = uvec4(uvec3(floor(s / n + 0.5)), 0u);
 }`;
 
-const TW = 2048;
 
 // On `gpu` (a GpuRenderer):
 //   open({ ref, W, H, mods, planes, K }): the pictures made on the processor (ref and mods[i].img: Uint8Array, 3 per pixel) -> session
@@ -310,6 +344,58 @@ export function l16ClassicGpu(gpu) {
             for (let k = 0; k < count[i]; k += 4, b++) for (let j = 0; j < 4 && k + j < count[i]; j++) raw[o + k + j] = out[4 * b + j];
           }
           return raw;
+        } finally {
+          for (const t of made) gl.deleteTexture(t);
+        }
+      },
+      // The costs left on the card in the list's order, for the smoothing (gpu/l16classicsgm.js): { tex (RGBA8UI: four entries a texel, TWE entries a row), release() }.
+      costsTex({ w, scale, start, count, skip, off }) {
+        const npx = skip.length;
+        const E = off[npx];
+        const rows = Math.max(1, Math.ceil(E / TWE));
+        const prow = Math.max(1, Math.ceil(npx / 2048));
+        const made = [];
+        try {
+          const P2 = prog('costEntries', COST_ENTRIES);
+          const info = new Uint32Array(4 * npx);
+          for (let i = 0; i < npx; i++) info.set([start[i], count[i], skip[i] ? 1 : 0, 0], 4 * i);
+          const infoTex = gpu.texture(w, npx / w, gl.RGBA32UI);
+          made.push(infoTex);
+          gl.bindTexture(gl.TEXTURE_2D, infoTex);
+          gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, w, npx / w, gl.RGBA_INTEGER, gl.UNSIGNED_INT, info);
+          const offs = new Uint32Array(2048 * prow);
+          offs.set(off.subarray(0, npx));
+          const offTex = gpu.texture(2048, prow, gl.R32UI);
+          made.push(offTex);
+          gl.bindTexture(gl.TEXTURE_2D, offTex);
+          gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, 2048, prow, gl.RED_INTEGER, gl.UNSIGNED_INT, offs);
+          const out = gpu.texture(TWE / 4, rows, gl.RGBA8UI);
+          gpu.target(out, TWE / 4, rows);
+          gl.useProgram(P2.p);
+          const u = P2.u;
+          gl.uniform1i(u.uRef, 1);
+          gpu.bindTex(1, refTex);
+          gl.activeTexture(gl.TEXTURE2);
+          gl.bindTexture(gl.TEXTURE_2D_ARRAY, modTex);
+          gl.uniform1i(u.uMods, 2);
+          gl.uniform1i(u.uPlanes, 3);
+          gpu.bindTex(3, planeTex);
+          gl.uniform1i(u.uParams, 4);
+          gpu.bindTex(4, paramTex);
+          gl.uniform1i(u.uInfo, 5);
+          gpu.bindTex(5, infoTex);
+          gl.uniform1i(u.uOffs, 6);
+          gpu.bindTex(6, offTex);
+          gl.uniform1i(u.uM, mods.length);
+          gl.uniform3iv(gl.getUniformLocation(P2.p, 'uWq'), wq);
+          gl.uniform1i(u.uW, w);
+          gl.uniform1i(u.uScale, scale);
+          gl.uniform1i(u.uNpx, npx);
+          gl.uniform1ui(u.uCount, E);
+          gl.uniform4f(u.uK, K[0], K[2], K[4], K[5]);
+          gl.uniform1f(u.uNorm, 1 / 27 / mods.length);
+          gpu.draw();
+          return { tex: out, release: () => gl.deleteTexture(out) };
         } finally {
           for (const t of made) gl.deleteTexture(t);
         }

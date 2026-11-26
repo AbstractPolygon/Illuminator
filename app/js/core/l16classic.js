@@ -415,6 +415,42 @@ function runLayer(ctx, L, onRow) {
   let fromCard = false;
   const agg = new Uint16Array(off[npx]);
   const sc = L.scale;
+  // the guide: the reference's filtered picture at each layer pixel
+  const guideOf = () => {
+    const guide = new Float32Array(3 * npx);
+    for (let y = 0; y < h; y++) {
+      const yi = Math.min(sc * y + (sc >> 1), ctx.H - 1);
+      for (let x = 0; x < w; x++) {
+        const xi = Math.min(sc * x + (sc >> 1), ctx.W - 1);
+        for (let c = 0; c < 3; c++) guide[3 * (y * w + x) + c] = ctx.ref[3 * (yi * ctx.W + xi) + c];
+      }
+    }
+    return guide;
+  };
+  // each pixel's depth and confidence from the card's winners
+  const fromWinners = (r) => {
+    const depth = new Float32Array(npx);
+    const confidence = new Float32Array(npx);
+    for (let i = 0; i < npx; i++) {
+      depth[i] = ctx.planes[start[i] + r.arg[i]];
+      const second = r.second[i];
+      confidence[i] = second < 0xffff && second > 0 ? Math.max(0, Math.min(1, 1 - r.best[i] / second)) : 1;
+    }
+    if (onRow) onRow(1);
+    return { depth, confidence };
+  };
+  // (the costs and the smoothing both on the graphics card: the costs stay there, in the order the smoothing reads them; each part on its own below if this fails)
+  if (ctx.card && ctx.card.costsTex && smoothOnCard) {
+    let t = null;
+    try {
+      t = ctx.card.costsTex({ w, scale: sc, start, count, skip, off });
+      return fromWinners(smoothOnCard({ w, h, start, count, cap, off, raw: null, rawTex: t.tex, guide: guideOf(), gw: GUIDE }));
+    } catch (e) {
+      console.warn('Classic Depth on the graphics card (costs kept there) failed; trying each part on its own', e);
+    } finally {
+      if (t) t.release();
+    }
+  }
   if (ctx.card) {
     // (on the graphics card, gpu/l16classic.js: the same costs; here if it fails)
     try {
@@ -450,28 +486,11 @@ function runLayer(ctx, L, onRow) {
     }
     if (onRow) onRow((0.6 * (y + 1)) / h);
   }
-  // the guide: the reference's filtered picture at each layer pixel
-  const guide = new Float32Array(3 * npx);
-  for (let y = 0; y < h; y++) {
-    const yi = Math.min(sc * y + (sc >> 1), ctx.H - 1);
-    for (let x = 0; x < w; x++) {
-      const xi = Math.min(sc * x + (sc >> 1), ctx.W - 1);
-      for (let c = 0; c < 3; c++) guide[3 * (y * w + x) + c] = ctx.ref[3 * (yi * ctx.W + xi) + c];
-    }
-  }
+  const guide = guideOf();
   // (on the graphics card, gpu/l16classicsgm.js: the same smoothing and each pixel's least plane; here if it fails)
   if (smoothOnCard) {
     try {
-      const r = smoothOnCard({ w, h, start, count, cap, off, raw, guide, gw: GUIDE });
-      const depth = new Float32Array(npx);
-      const confidence = new Float32Array(npx);
-      for (let i = 0; i < npx; i++) {
-        depth[i] = ctx.planes[start[i] + r.arg[i]];
-        const second = r.second[i];
-        confidence[i] = second < 0xffff && second > 0 ? Math.max(0, Math.min(1, 1 - r.best[i] / second)) : 1;
-      }
-      if (onRow) onRow(1);
-      return { depth, confidence };
+      return fromWinners(smoothOnCard({ w, h, start, count, cap, off, raw, guide, gw: GUIDE }));
     } catch (e) {
       console.warn('Classic Depth smoothing on the graphics card failed; smoothing here', e);
       smoothOnCard = null;

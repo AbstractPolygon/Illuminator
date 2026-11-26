@@ -37,7 +37,7 @@ uvec4 info(ivec2 p) { return texelFetch(uInfo, p, 0); }
 
 // One step: the entries of one line (a row, or a column on the columns' list), each path's value from the line before.
 const STEP = `${COMMON}
-uniform usampler2D uRaw;     // the costs, in the list's order
+uniform usampler2D uRaw;     // the costs, in the list's order (four entries a texel)
 uniform usampler2D uPrev;    // the values so far (the line before is read), in the list's order
 uniform usampler2D uMin;     // per pixel: the least value of each path over its run (the line before is read)
 uniform highp sampler2D uGuide;  // per pixel: the reference's filtered picture
@@ -48,6 +48,7 @@ uniform uint uFirst;         // the line's first entry and one past its last
 uniform uint uLast;
 uniform vec3 uGw;            // the guide's weights
 out uvec4 outColor;
+uint rawAt(uint e) { int t = int(e >> 2); return texelFetch(uRaw, ivec2(t % ${TW / 4}, t / ${TW / 4}), 0)[int(e & 3u)]; }
 uint prevAt(uint e, int c) { return texelFetch(uPrev, ivec2(int(e) % ${TW}, int(e) / ${TW}), 0)[c]; }
 void main() {
   uint e = uint(int(gl_FragCoord.y) * ${TW} + int(gl_FragCoord.x));
@@ -59,7 +60,7 @@ void main() {
   uvec4 me = info(p);
   uint k = e - offAt(o);
   uint q = me.z + k;
-  uint raw = texelFetch(uRaw, ivec2(int(e) % ${TW}, int(e) / ${TW}), 0).r;
+  uint raw = rawAt(e);
   vec3 g = texelFetch(uGuide, p, 0).rgb;
   uvec4 outv = uvec4(0u);
   int paths = uCols == 1 ? 1 : 3;
@@ -171,13 +172,34 @@ void main() {
   outColor = vec4(float(arg), float(best), float(second), 1.0);
 }`;
 
+// The costs in the columns' order from the rows' (when they come from the card, gpu/l16classic.js costsTex): each entry of the columns' list finds its pixel and plane.
+const GATHER = `${COMMON}
+uniform usampler2D uRaw;
+uniform usampler2D uRowOffs;   // the runs' starts in the rows' list, PW a row
+uniform uint uCount;
+out uvec4 outColor;
+uint rawAt(uint e) { int t = int(e >> 2); return texelFetch(uRaw, ivec2(t % ${TW / 4}, t / ${TW / 4}), 0)[int(e & 3u)]; }
+void main() {
+  // (four entries a texel, all the same pixel's: its run starts at a multiple of 8 in both lists)
+  uint e = 4u * uint(int(gl_FragCoord.y) * ${TW / 4} + int(gl_FragCoord.x));
+  if (e >= uCount) {
+    outColor = uvec4(0u);
+    return;
+  }
+  int j = findIn(0, uW * uH, e);
+  uint k = e - offAt(j);
+  int i = (j % uH) * uW + j / uH;
+  uint s = texelFetch(uRowOffs, ivec2(i % ${PW}, i / ${PW}), 0).r + k;
+  outColor = uvec4(rawAt(s), rawAt(s + 1u), rawAt(s + 2u), rawAt(s + 3u));
+}`;
+
 // On `gpu` (a GpuRenderer): smooth({ w, h, start, count, cap, off, raw (Uint8Array of off[w * h]), guide (Float32Array, 3 per pixel), gw (3) }) -> { arg, best, second }
 // (Float32Array per pixel: the plane of least total in the pixel's range, that total, and the least total not next to it).
 export function l16ClassicSgmGpu(gpu) {
   const gl = gpu.gl;
   const progs = {};
   const prog = (name, src) => (progs[name] = progs[name] || program(gl, src));
-  return function smooth({ w, h, start, count, cap, off, raw, guide, gw }) {
+  return function smooth({ w, h, start, count, cap, off, raw, rawTex = null, guide, gw }) {
     const npx = w * h;
     const E = off[npx];
     const rows = Math.max(1, Math.ceil(E / TW));
@@ -225,10 +247,33 @@ export function l16ClassicSgmGpu(gpu) {
       for (let i = 0; i < npx; i++) gd.set([guide[3 * i], guide[3 * i + 1], guide[3 * i + 2], 0], 4 * i);
       const guideTex = tex(w, h, gl.RGBA32F, gl.RGBA, gl.FLOAT, gd);
       // the costs in both orders
-      const rawRow = tex(TW, rows, gl.R8UI, gl.RED_INTEGER, gl.UNSIGNED_BYTE, pad(Uint8Array, raw, TW * rows));
-      const rawColD = new Uint8Array(TW * rows);
-      for (let i = 0; i < npx; i++) rawColD.set(raw.subarray(off[i], off[i] + cap[i]), offC[i]);
-      const rawCol = tex(TW, rows, gl.R8UI, gl.RED_INTEGER, gl.UNSIGNED_BYTE, rawColD);
+      let rawRow;
+      let rawCol;
+      if (rawTex) {
+        // (left on the card by the costs: the columns' copy made here too)
+        rawRow = rawTex;
+        rawCol = tex(TW / 4, rows, gl.RGBA8UI);
+        const G = prog('gather', GATHER);
+        gpu.target(rawCol, TW / 4, rows);
+        gl.useProgram(G.p);
+        gl.uniform1i(G.u.uInfo, 1);
+        gpu.bindTex(1, infoTex);
+        gl.uniform1i(G.u.uOffs, 2);
+        gpu.bindTex(2, offColTex);
+        gl.uniform1i(G.u.uW, w);
+        gl.uniform1i(G.u.uH, h);
+        gl.uniform1i(G.u.uRaw, 3);
+        gpu.bindTex(3, rawRow);
+        gl.uniform1i(G.u.uRowOffs, 4);
+        gpu.bindTex(4, offRowTex);
+        gl.uniform1ui(G.u.uCount, offC[npx]);
+        gpu.draw();
+      } else {
+        rawRow = tex(TW / 4, rows, gl.RGBA8UI, gl.RGBA_INTEGER, gl.UNSIGNED_BYTE, pad(Uint8Array, raw, TW * rows));
+        const rawColD = new Uint8Array(TW * rows);
+        for (let i = 0; i < npx; i++) rawColD.set(raw.subarray(off[i], off[i] + cap[i]), offC[i]);
+        rawCol = tex(TW / 4, rows, gl.RGBA8UI, gl.RGBA_INTEGER, gl.UNSIGNED_BYTE, rawColD);
+      }
       const sweeps = [tex(TW, rows, gl.RGBA16UI), tex(TW, rows, gl.RGBA16UI)];
       const mins = tex(w, h, gl.RGBA16UI);
       const totals = [tex(TW, rows, gl.R32UI), tex(TW, rows, gl.R32UI)];
