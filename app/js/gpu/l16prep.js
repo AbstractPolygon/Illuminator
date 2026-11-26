@@ -344,12 +344,16 @@ export function l16PrepGpu(gpu) {
       gl.uniform1i(D.u.uMono, mono ? 1 : 0);
       gl.uniform3f(D.u.uGains, gains[0], gains[1], gains[2]);
       gpu.draw();
-      const rgb = read(half, w, h);
+      // (read back only when it is asked for: where the color fringes are taken out next, what comes back is the corrected picture, and this one was read for nothing)
+      let rgb = null;
       let out = null;
       // (the picture as it now stands: the unshifted one, or the last unshift)
       let latest = half;
       return {
-        rgb,
+        get rgb() {
+          if (!rgb) rgb = read(half, w, h);
+          return rgb;
+        },
         // The picture with red and blue shifted by `ca` ({ r, b }: { s, tx, ty } each) times k, from the unshifted one (read back unless `readBack` is false).
         unshift(ca, k = 1, readBack = true) {
           if (!out) out = tex(w, h, gl.RGBA32F);

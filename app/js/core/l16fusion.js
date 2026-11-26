@@ -290,8 +290,12 @@ function fullOnCard(input, frame, W, H, { gains, hot }) {
   let card = null;
   try {
     card = prepOnCard({ ...input, W, H, w: W >> 1, h: H >> 1, red: o, mono, hot: hot && isLongExposure(frame) ? 'long' : hot, gains, full: true });
-    const out = card.rgb;
-    if (!mono) correctChroma(frame, out, W, H, 2, false, card);
+    // (with the color fringes known for this camera, only the corrected picture is read back)
+    let out;
+    if (!mono && chromaOf.get(frame)) {
+      out = new Float32Array(3 * W * H);
+      correctChroma(frame, out, W, H, 2, false, card);
+    } else out = card.rgb;
     return { width: W, height: H, rgb: out };
   } catch (e) {
     console.warn('L16 camera picture on the graphics card failed; using the processor', e);
@@ -460,8 +464,12 @@ export function halfSize(bytes, frame, { black = 42, white = 1023, gains = [1, 1
       const packed = packedRows(bytes, frame);
       const input = packed ? { packed: { ...packed, x0: sx0, y0: sy0, black, scale } } : { plane: planeOf() };
       card = prepOnCard({ ...input, W, H, w, h, red: o, mono, hot: hot && isLongExposure(frame) ? 'long' : hot, gains });
-      const out = card.rgb;
-      if (!crop && !mono) correctChroma(frame, out, w, h, 1, true, card);
+      // (with the color fringes taken out, only the corrected picture is read back)
+      let out;
+      if (!crop && !mono) {
+        out = new Float32Array(3 * w * h);
+        correctChroma(frame, out, w, h, 1, true, card);
+      } else out = card.rgb;
       return crop ? { width: w, height: h, rgb: out, ox: cx, oy: cy } : { width: w, height: h, rgb: out };
     } catch (e) {
       console.warn('L16 camera picture on the graphics card failed; using the processor', e);
