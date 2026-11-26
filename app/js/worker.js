@@ -12,6 +12,7 @@ import { l16PrepGpu } from './gpu/l16prep.js';
 import { setL16PrepGpu, setL16FuseGpu, setL16SpecksGpu, removeMergedSpecks, isLongExposure } from './core/l16fusion.js';
 import { l16SpecksGpu } from './gpu/l16specks.js';
 import { softEdgesGpu } from './gpu/softedges.js';
+import { blendViewsGpu } from './gpu/blendviews.js';
 import { l16FuseGpu } from './gpu/l16fuse.js';
 import { l16DevelopGpu } from './gpu/l16develop.js';
 import { l16FiltersGpu } from './gpu/l16filters.js';
@@ -1004,6 +1005,7 @@ function releasePhoto({ all = false } = {}) {
     'lensOffsets', 'lensShiftFor', 'lensOut', 'lensCacheIn', 'depthCacheIn', 'depthCacheOut', 'openOut', 'usmDepth', 'usmMap', 'engineScale', 'engineWb', 'scratch', 'ppGpuFailed', 'ppDepthOnGpu']) state[k] = null;
   if (state.ppSrcTex && state.gpu) state.gpu.gl.deleteTexture(state.ppSrcTex.tex);
   state.ppSrcTex = null;
+  if (state.blendViews && state.blendViews.gpu === state.gpu) state.blendViews.run.release();
   processedBase = null;
   state.engineViews = undefined;
   state.modulation = undefined;
@@ -4523,6 +4525,16 @@ function processedPixels(params, { reuse = false } = {}) {
 // depth map, the lens effects, detail, local tone, retouching, local adjustments and the color pass run on the card, as for a raw photo (presentGpu). Posts
 // `message` with the picture and returns true; false (nothing posted) where the card cannot, and the processor path makes it.
 let processedBase = null;
+// The saved pictures of a focus stack or a set of viewpoints mixed on the card (gpu/blendviews.js), or null where it fails (the processor mixes them then).
+function blendViewsOnGpu(pp, u, v, lambda) {
+  try {
+    if (!state.blendViews || state.blendViews.gpu !== state.gpu) state.blendViews = { gpu: state.gpu, run: blendViewsGpu(state.gpu) };
+    return state.blendViews.run.base(pp, u, v, lambda);
+  } catch (e) {
+    console.warn('Mixing the saved pictures on the graphics card failed; mixing here', e);
+    return null;
+  }
+}
 function processedGpu(params, message) {
   const gpu = state.gpu;
   if (!gpu || !state.pp || debugFlags().noProcessedGpu) return false;
@@ -4556,6 +4568,8 @@ function processedGpu(params, message) {
       state.ppSrcTex = { img, tex: gpu.holdCopy(gpu.uploadRGB(pp.linear(img), w, h, { full: true }), w, h) };
     }
     tex = state.ppSrcTex.tex;
+  } else if ((pp.kind === 'focus' || pp.kind === 'perspective') && pp.images.length > 1 && !debugFlags().noGpuKeptPicture && (tex = blendViewsOnGpu(pp, u, v, lambda))) {
+    // (a focus stack or a set of viewpoints: the saved pictures kept on the card and mixed there, gpu/blendviews.js)
   } else {
     // (the picture for the viewpoint and focus, kept while only the blur or the colors change)
     const baseKey = `${u},${v},${alpha}`;
