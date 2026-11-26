@@ -49,7 +49,9 @@ for (const rel of ['js', 'luts', 'vendor', 'models', 'styles.css']) copyTree(rel
 
 const html = fs.readFileSync(path.join(app, 'index.html'), 'utf8');
 const body = html.split(/<body[^>]*>/)[1].split('</body>')[0].replace(/^\n+/, '').trimEnd();
-const page = `<title>Illuminator</title>\n  <link rel="stylesheet" href="styles.css">\n${body}\n  <script type="module" src="js/share.js"></script>\n`;
+// (the app's title, as app/index.html has it)
+const title = (/<title>([^<]*)<\/title>/.exec(html) || [, 'Illuminator'])[1];
+const page = `<title>${title}</title>\n  <link rel="stylesheet" href="styles.css">\n${body}\n  <script type="module" src="js/share.js"></script>\n`;
 const pagePath = path.join(mirror, 'page.html');
 if (!fs.existsSync(pagePath) || fs.readFileSync(pagePath, 'utf8') !== page) {
   fs.writeFileSync(pagePath, page);
