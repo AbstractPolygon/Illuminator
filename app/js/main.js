@@ -38,7 +38,7 @@ import { openStorage, memoryStorage } from './library/storage.js';
 import { groupPhotos } from './library/scan.js';
 import { MAX_MASKS } from './core/local.js';
 import { ARCHIVE_SUFFIX } from './library/archive.js';
-import { TRACKS, FPS as DEFAULT_FPS, emptyAnimation, frameCount, valueAt, isSettingTrack } from './core/keyframes.js';
+import { FPS as DEFAULT_FPS, emptyAnimation, frameCount, valueAt, isSettingTrack } from './core/keyframes.js';
 
 // Frames a second of animations: for playback, keyframe times and video
 // (the Frame rate setting).
@@ -5621,7 +5621,7 @@ const { curve } = initToneCurve({ $, applySettingsSoon: (...a) => applySettingsS
 const { setPicking, pickWhiteBalance } = initWhiteBalancePicker({ state, canRender: (...a) => canRender(...a), $, canvas, viewPoint: (...a) => viewPoint(...a), engine, showSliderValue: (...a) => showSliderValue(...a), applySettings: (...a) => applySettings(...a), scheduleSave: (...a) => scheduleSave(...a), showError: (...a) => showError(...a) });
 
 // export: ui/export.js
-const { baseName, shownScale, showAtPhotoSize, savePhoto, showPhotoFormat, savePng, showVideoCodecs, readParams, showUpscaleControls, frameList, frameGeometry, exportVideo } = initExport({ state, $, canvas, ctx, layoutCanvas: (...a) => layoutCanvas(...a), showsCamera: (...a) => showsCamera(...a), stereoShown, showNotice: (...a) => showNotice(...a), engine, cameraParams: (...a) => cameraParams(...a), showProgress: (...a) => showProgress(...a), hideProgress: (...a) => hideProgress(...a), modelUpscaleParams: (...a) => modelUpscaleParams(...a), sharpenParams: (...a) => sharpenParams(...a), finishModelEnlargement: (...a) => finishModelEnlargement(...a), showError: (...a) => showError(...a), showSliderValue: (...a) => showSliderValue(...a), scheduleSave: (...a) => scheduleSave(...a), draw: (...a) => draw(...a), cropValues: (...a) => cropValues(...a), animationRequest: (...a) => animationRequest(...a), eyeOffset, eyeParams, ensureAnimation: (...a) => ensureAnimation(...a), drawGeometry: (...a) => drawGeometry(...a), stereoTag, ensureFullLevel: () => ensureFullLevel() });
+const { baseName, shownScale, showAtPhotoSize, savePhoto, showPhotoFormat, savePng, showVideoCodecs, readParams, showUpscaleControls, frameList, exportVideo } = initExport({ state, $, canvas, ctx, layoutCanvas: (...a) => layoutCanvas(...a), showsCamera: (...a) => showsCamera(...a), stereoShown, showNotice: (...a) => showNotice(...a), engine, cameraParams: (...a) => cameraParams(...a), showProgress: (...a) => showProgress(...a), hideProgress: (...a) => hideProgress(...a), modelUpscaleParams: (...a) => modelUpscaleParams(...a), sharpenParams: (...a) => sharpenParams(...a), finishModelEnlargement: (...a) => finishModelEnlargement(...a), showError: (...a) => showError(...a), showSliderValue: (...a) => showSliderValue(...a), scheduleSave: (...a) => scheduleSave(...a), draw: (...a) => draw(...a), cropValues: (...a) => cropValues(...a), animationRequest: (...a) => animationRequest(...a), eyeOffset, eyeParams, ensureAnimation: (...a) => ensureAnimation(...a), drawGeometry: (...a) => drawGeometry(...a), stereoTag, ensureFullLevel: () => ensureFullLevel() });
 const lenticular = initLenticular({ $, state, engine, cameraParams: (...a) => cameraParams(...a), eyeParams, withPivotZoom: (...a) => withPivotZoom(...a), pivotFor: (...a) => pivotFor(...a), cropValues: (...a) => cropValues(...a), drawGeometry: (...a) => drawGeometry(...a), animationPlan: (...a) => animationPlan(...a), invalidateAnimation: (...a) => invalidateAnimation(...a), showNotice: (...a) => showNotice(...a), showProgress: (...a) => showProgress(...a), hideProgress: (...a) => hideProgress(...a), showError: (...a) => showError(...a), baseName, showSliderValue: (...a) => showSliderValue(...a) , scheduleSave: (...a) => scheduleSave(...a) });
 
 // camera import: ui/cameraimport.js
@@ -6799,12 +6799,6 @@ if (!native && !navigator.usb && CAMERA_IMPORT) {
 if (!native && navigator.usb && CAMERA_IMPORT) {
   const isLytro = (d) => d.vendorId === LYTRO_USB_VENDOR;
   const allowedKey = 'illuminator.usbWatch';
-  let allowed = false;
-  try {
-    allowed = localStorage.getItem(allowedKey) === '1';
-  } catch {
-    allowed = false;
-  }
   let connected = 0;
   const showUsbStatus = () => {
     $('camera-status').textContent = connected ? 'Lytro camera connected' : '';
@@ -6844,7 +6838,6 @@ if (!native && navigator.usb && CAMERA_IMPORT) {
     const cameras = devices.filter(isLytro);
     connected = cameras.length;
     if (connected) {
-      allowed = true;
       if (await openWebUsbCamera(cameras[0])) {
         showUsbStatus();
         return;
@@ -6855,7 +6848,6 @@ if (!native && navigator.usb && CAMERA_IMPORT) {
   state.askCameraPermission = async () => {
     try {
       const device = await navigator.usb.requestDevice({ filters: [{ vendorId: LYTRO_USB_VENDOR }] });
-      allowed = true;
       try {
         localStorage.setItem(allowedKey, '1');
       } catch {

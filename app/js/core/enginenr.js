@@ -87,7 +87,6 @@ function lineSet(w, h, mi) {
 
 // ---- directional box mean (FUN_1800288c0): mirror reflection on straight lines, truncated window on diagonals ----
 const tmpLine = new Float64Array(8192);
-const tmpOut = new Float32Array(8192);
 function lineFilt(src, dst, w, h, line, r) {
   if (r === 0) {
     dst.set(src.subarray(0, w * h));

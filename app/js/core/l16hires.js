@@ -676,7 +676,6 @@ export function renderRegion(bytes, parsed, depth, wide, { x0, y0, w, h, scale, 
   const sigma = scale * 0.9;
   const upLow = gauss(up, W, H, sigma);
   const out = Float32Array.from(up);
-  const weight = new Float32Array(W * H).fill(0.04); // the wide picture's share where no telephoto camera helps
   const agreement = {};
   const details = []; // each camera's high frequency detail (3 per pixel, NaN where it has none or disagrees)
   const wsum = new Float32Array(W * H);

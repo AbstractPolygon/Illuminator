@@ -1241,7 +1241,6 @@ export function measureMatchGpu(gpu, views, w, h, { onProgress } = {}) {
     const depthC = work.tex(w, h, gl.R32F);
     const depthV = work.tex(w, h, gl.R32F);
     const landed = work.tex(w, h, gl.R32F);
-    const seenTex = work.tex(w, h);
     const visTex = work.tex(w, h, gl.R32F);
     const nv = V - 1;
     // Where `other` sees the pixels of `ref`: 1 visible, 0 hidden, into layer `layer` of `target`.

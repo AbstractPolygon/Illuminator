@@ -1426,7 +1426,6 @@ function segmentDepthGpu(gpu, alpha, confidence, rgb, w, h, opts, fellBack) {
   const gl = gpu.gl;
   const sc = new Scope(gpu);
   try {
-    const n = w * h;
     const rgbT = sc.up3(w, h, rgb);
     const labT = sc.lab(rgbT, w, h);
     const alphaT = sc.upR(w, h, alpha);

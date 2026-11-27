@@ -1,7 +1,7 @@
 // patchraw.mjs IN.lfp OUT.lfp kind  : replace the raw section with a synthetic pattern (in place, same size)
 import fs from 'node:fs';
 import { bufferReader, indexSections, readLightFieldPicture } from '../../app/js/core/lfp.js';
-const [inp, outp, kind, p1] = process.argv.slice(2);
+const [inp, outp, kind] = process.argv.slice(2);
 const bytes = new Uint8Array(fs.readFileSync(inp));
 const picture = await readLightFieldPicture(bufferReader(bytes));
 const secs = await indexSections(bufferReader(bytes));

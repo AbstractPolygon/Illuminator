@@ -332,7 +332,6 @@ export function levelPassGpu(nr, X, S, M, I, lvl, A, B, mi, ls) {
 
 
 const MAT1 = [[0.0892999992, 0.344000012, 0.0131000001], [0.25, 0.174999997, 0.00659999996], [0.0284000002, 0.1096, 0.25]].map((r) => r.map(f32));
-const ceilTiles = (n) => n;
 
 // The sigma pyramids of the library's profile (core/enginenr.js noisePyramids): for the R, G and B tile atlases, three arrays (one per output plane) of
 // atlases, one per level, each at that level's size.

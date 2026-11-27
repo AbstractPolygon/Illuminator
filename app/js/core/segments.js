@@ -721,8 +721,6 @@ export function layerSnap(depth, lab, w, h, { radius = 12, stride = 2, minRange 
   const total = hi - lo;
   if (!(total > 0)) return depth;
   const out = Float32Array.from(depth);
-  const near = [];
-  const far = [];
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
       const p = y * w + x;
@@ -745,7 +743,7 @@ export function layerSnap(depth, lab, w, h, { radius = 12, stride = 2, minRange 
       const t = (d0 - wlo) / range;
       if (t < band || t > 1 - band) continue;
       // Mean colors of the two ends.
-      let nL = 0, nA = 0, nB = 0, nC = 0, nD = 0, fL = 0, fA = 0, fB = 0, fC = 0, nVal = 0, fVal = 0;
+      let nL = 0, nA = 0, nB = 0, nC = 0, fL = 0, fA = 0, fB = 0, fC = 0, nVal = 0, fVal = 0;
       for (let dy = -radius; dy <= radius; dy += stride) {
         const yy = y + dy;
         if (yy < 0 || yy >= h) continue;

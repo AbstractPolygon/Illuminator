@@ -79,7 +79,6 @@ if (dry || problems.length) process.exit(problems.length ? 2 : 0);
 // ---- write the module
 const bodyLines = lines.slice(startLine - 1, endLine - 1);
 const indent = (s) => (s.length ? '  ' + s : s);
-const headerComment = []; // keep the section's first comment lines
 const importLines = new Map();
 for (const [nm, info] of imports) {
   const n = info.node; const src = n.source.value.replace(/^\.\//, '../');

@@ -86,7 +86,7 @@ export function buildSampler(grid, cam, detail = 1, kernel = 1.0, offsets = null
     }
   }
   const { cols, rows, r0, c0 } = lenses;
-  const { spacing, xMin, xMax, yMin, yMax, outW, outH } = samplerExtent(lenses, grid, detail, cam);
+  const { spacing, xMin, yMin, outW, outH } = samplerExtent(lenses, grid, detail, cam);
   const idx = new Int32Array(outW * outH * TAPS);
   const wts = new Float32Array(outW * outH * TAPS);
   const radius = Math.min(kernel, MAX_KERNEL) * grid.pitch;

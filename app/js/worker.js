@@ -3106,10 +3106,6 @@ function samplingAt(x0, y0, w, h, scale, alpha, allInFocus) {
     const lx0 = lenses.cx[k];
     const ly0 = lenses.cy[k];
     if (lx0 < x0 - margin || ly0 < y0 - margin || lx0 > x0 + w + margin || ly0 > y0 + h + margin) continue;
-    const r = lenses.r0 + Math.floor(k / lenses.cols);
-    const c = lenses.c0 + (k % lenses.cols);
-    const lensX = c * g.pitch + (r & 1) * g.pitch * 0.5;
-    const lensY = r * g.rowStep;
     const lu = (lx0 - xMin) / unit;
     const lv = (ly0 - yMin) / unit;
     const a = depth ? depthAt(lu, lv) : alpha;
@@ -3859,8 +3855,6 @@ function fieldPlacedGrid(alpha, w, h, sign, exact = false) {
   const { cam, grid: g } = state.lf;
   const unit = g.rowStep;
   const { xMin, yMin } = state.sampler;
-  const cosR = Math.cos(g.rotation);
-  const sinR = Math.sin(g.rotation);
   const out4 = new Float64Array(4);
   const gOut = [0, 0];
   const geo = exact && state.lf.geometryBytes && state.lf.metadata ? (state.geoTableExact ||= parseGeometryTable(state.lf.geometryBytes)) : null;
