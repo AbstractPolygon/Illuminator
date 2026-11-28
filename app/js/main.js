@@ -12,6 +12,7 @@ import { initColorGrading } from './ui/colorwheel.js';
 import { initHistogramEditing } from './ui/histedit.js';
 import { listLibraries, addLibrary, switchLibrary, renameLibrary, removeLibrary, librariesAreFolders } from './library/libraries.js';
 import { Timings, formatDuration, speedLimits, reportText } from './core/speedreport.js';
+import { runBenchmark, benchmarkText, speedup } from './core/benchmark.js';
 import { initScriptingApi } from './ui/api.js';
 import { tiltPreset } from './core/tiltpresets.js';
 import { initMarks } from './ui/marks.js';
@@ -3689,8 +3690,47 @@ function speedReportText() {
     rows: timings.rows(),
     gpuMs: state.gpuMs,
     photo: state.current ? state.current.name : '',
+    benchmark: benchmarkText(benchResult, formatDuration),
   });
 }
+
+// The benchmark (core/benchmark.js): the open photo timed again in two workers of its own, on the graphics card and on the processor.
+let benchResult = null;
+let benchRunning = false;
+function showBenchmark(note = '') {
+  const dl = $('speed-bench');
+  const rows = benchResult ? benchResult.rows : [];
+  const cells = [['Benchmark', note || 'graphics card / processor'], ...rows.map((r) => [r.name, `${formatDuration(r.card ?? NaN)} / ${formatDuration(r.processor ?? NaN)}${speedup(r) ? `, ${speedup(r)}` : ''}`])];
+  for (const [mode, e] of Object.entries((benchResult && benchResult.errors) || {})) if (e) cells.push([mode === 'card' ? 'Graphics card run' : 'Processor run', `stopped: ${e}`]);
+  dl.replaceChildren(...cells.flatMap(([k, v]) => {
+    const dt = document.createElement('dt');
+    dt.textContent = k;
+    const dd = document.createElement('dd');
+    dd.textContent = v;
+    return [dt, dd];
+  }));
+  dl.hidden = false;
+}
+$('speed-bench-run').onclick = async () => {
+  const photo = previewMirror.photoCopy();
+  if (benchRunning || !photo || !state.info) return;
+  benchRunning = true;
+  const button = $('speed-bench-run');
+  button.disabled = true;
+  button.textContent = 'Running benchmark…';
+  benchResult = null;
+  showBenchmark('starting');
+  try {
+    benchResult = await runBenchmark((cpu) => new Engine({ cpu }), photo, cameraParams({ live: true }), (step) => showBenchmark(step));
+    showBenchmark();
+  } catch (err) {
+    showBenchmark(`stopped: ${String((err && err.message) || err).slice(0, 120)}`);
+  } finally {
+    benchRunning = false;
+    button.disabled = false;
+    button.textContent = 'Run benchmark';
+  }
+};
 
 $('speed-copy').onclick = async () => {
   const text = speedReportText();

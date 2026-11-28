@@ -69,6 +69,15 @@ export class PreviewMirror {
     if (this.engine) this.enqueue(type, cloned, this.generation);
   }
 
+  // The open photo as the benchmark (core/benchmark.js) opens it again: its bytes, the open request's other arguments and the requests that set up a worker after
+  // opening; null when no photo is open.
+  photoCopy() {
+    if (!this.hasOpen) return null;
+    const blob = this.openBlob;
+    const after = ['memoryLimits', 'setCalibrations', 'setLut', 'setGrid', 'settings'].filter((t) => this.last.has(t)).map((t) => [t, copy(this.last.get(t))]);
+    return { bytes: async () => (blob ? blob.arrayBuffer() : undefined), open: copy(this.openRest), after };
+  }
+
   // Repeats a request on the mirror after the ones before it.
   enqueue(type, args, generation) {
     this.queued++;

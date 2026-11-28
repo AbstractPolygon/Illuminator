@@ -1,7 +1,9 @@
 // Promise wrapper around the decoding worker.
 
 export class Engine {
-  constructor() {
+  // cpu: a worker without the graphics card (the speed report's benchmark).
+  constructor({ cpu = false } = {}) {
+    this.cpuOnly = cpu;
     this.nextId = 1;
     this.nextJob = 1;
     this.pending = new Map();
@@ -11,7 +13,7 @@ export class Engine {
 
   // Test hook: ?cpu on the page renders without the GPU.
   start() {
-    const cpu = typeof location !== 'undefined' && new URLSearchParams(location.search).has('cpu');
+    const cpu = this.cpuOnly || (typeof location !== 'undefined' && new URLSearchParams(location.search).has('cpu'));
     const worker = new Worker(new URL(`./worker.js${cpu ? '?cpu' : ''}`, import.meta.url), { type: 'module' });
     this.worker = worker;
     worker.onmessage = (event) => { if (worker === this.worker) this.dispatch(event.data); };

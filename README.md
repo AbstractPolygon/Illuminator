@@ -11,6 +11,8 @@ npm run web        # browser version at http://localhost:8080
 npm test
 ```
 
+The graphics card tests run in headless Chromium (a software renderer where there is no card). Real photos are not in git: point `ILLUMINATOR_PHOTOS` at a folder of `.lfr`, `.lfp` and `.lri` files to check what is kept with each against `test/real-photos.json` (`ILLUMINATOR_PHOTOS=/path node --test test/real-photos.test.mjs`; `UPDATE_RECORDS=1` records them again after a deliberate change).
+
 ## Library
 
 Every photo you open, drop or import is copied into the library, each in its folder with its edits next to it:

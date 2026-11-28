@@ -75,7 +75,7 @@ export function speedLimits(facts, rows = []) {
 }
 
 // The report as plain text, to paste into a message.
-export function reportText({ version = '', platform = '', facts = {}, rows = [], gpuMs = null, photo = '' }) {
+export function reportText({ version = '', platform = '', facts = {}, rows = [], gpuMs = null, photo = '', benchmark = [] }) {
   const lines = [`Illuminator ${version} speed report`];
   if (platform) lines.push(`System: ${platform}`);
   lines.push(`Rendering: ${facts.renderer || 'CPU'}${facts.hardware === false && /^GPU/.test(facts.renderer || '') ? ' (software)' : ''}`);
@@ -94,5 +94,6 @@ export function reportText({ version = '', platform = '', facts = {}, rows = [],
     lines.push('', `Depth map (${d.style}, ${d.quality} quality, smoothed on the ${d.smoothing}):`);
     for (const st of d.stages) lines.push(`  ${st.stage}: ${st.pixels} pixels, ${st.nonFinite} not numbers, range ${num(st.min)} to ${num(st.max)}, ${st.spikes} spikes`);
   }
+  if (benchmark.length) lines.push('', ...benchmark);
   return lines.join('\n');
 }

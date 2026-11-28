@@ -1,7 +1,8 @@
 // The caches saved next to a photo (measured depth, lens centers, what opening works out) are keyed on CACHE_REV (app/js/core/cacherev.js), not on the app's version, so a
 // release keeps them. That is only right while the code that makes those numbers is unchanged: this test fails when one of its files changes, so that someone decides.
 // If the change can alter what is measured, raise CACHE_REV (every saved cache is then made again); if it cannot (a refactor, a speed-up with the same result), only update
-// the checksum below.
+// the checksum below. To decide, the cached numbers themselves are checked by test/cache-results.test.mjs (made-up photos, every run) and test/real-photos.test.mjs
+// (real photos, where ILLUMINATOR_PHOTOS points to them): if both still pass, what is kept did not change.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -45,7 +46,7 @@ function importClosure(roots, skip = () => false) {
 }
 
 const FILES = importClosure([...ROOTS, ...KEY_FILES], (f) => IS_L16(f) || IS_EXTRA(f));
-const EXPECTED = { rev: 9, checksum: 'a4dc02b9925b9d74' };
+const EXPECTED = { rev: 9, checksum: '9f6aa0ac8f382cc7' };
 // The Light L16 code (what its cache holds: the depth between the cameras and the merged picture), with core/l16-cache.js itself.
 const L16_FILES = importClosure([...ROOTS, 'core/l16-cache.js']).filter(IS_L16);
 const L16_EXPECTED = { rev: 7, checksum: '6dfbdd33f447379b' };
@@ -72,7 +73,7 @@ test('the checked files are the import closure of the workers and the cache key 
 test('the files that make the saved caches have not changed without a look at CACHE_REV', () => {
   assert.equal(CACHE_REV, EXPECTED.rev, 'CACHE_REV changed: record it in EXPECTED here with the new checksum');
   const actual = checksum();
-  assert.equal(actual, EXPECTED.checksum, `a file that makes the saved depth, lens centers or opening data changed (checksum is now ${actual} over ${FILES.length} files). Raise CACHE_REV in app/js/core/cacherev.js if the change can alter what is measured (and L16_CACHE_REV in core/l16-cache.js too if it can alter a Light L16 photo's depth or merged picture), then put the new checksum in EXPECTED here.`);
+  assert.equal(actual, EXPECTED.checksum, `a file that makes the saved depth, lens centers or opening data changed (checksum is now ${actual} over ${FILES.length} files). Raise CACHE_REV in app/js/core/cacherev.js if the change can alter what is measured (and L16_CACHE_REV in core/l16-cache.js too if it can alter a Light L16 photo's depth or merged picture), then put the new checksum in EXPECTED here. test/cache-results.test.mjs and test/real-photos.test.mjs (with ILLUMINATOR_PHOTOS) show whether the kept numbers changed.`);
 });
 
 test('the Light L16 files that make its saved cache have not changed without a look at L16_CACHE_REV', () => {
