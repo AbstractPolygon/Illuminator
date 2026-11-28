@@ -5,6 +5,8 @@ name: Tests
 
 on:
   push:
+    # (not the branch that only carries test photos to test-photos-release.yml)
+    branches-ignore: [test-photos-upload]
   pull_request:
   workflow_dispatch:
 
