@@ -2,7 +2,7 @@
 import globals from 'globals';
 
 export default [
-  { ignores: ['node_modules/**', 'dist/**', 'out/**', 'app/vendor/**', 'models/**', 'site/gallery/**'] },
+  { ignores: ['node_modules/**', 'dist/**', 'out/**', 'app/vendor/**', 'models/**', 'site/gallery/**', '.claude/**'] },
   {
     files: ['app/**/*.js'],
     languageOptions: { ecmaVersion: 'latest', sourceType: 'module', globals: { ...globals.browser, ...globals.worker } },

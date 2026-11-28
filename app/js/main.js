@@ -1,45 +1,36 @@
-import { peakingPixels, PEAKING_MAX_PIXELS } from './core/peaking.js';
 import { VERSION } from './version.js';
 import { readEdits, writeEdits, editsStore, EDITS_FORMAT, EDITS_VERSION, EDIT_GROUPS } from './edits.js';
 const EDIT_GROUPS_CAMERA = new Set(EDIT_GROUPS.camera);
 import { Engine, toImageData } from './engine.js';
 import { PreviewMirror } from './ui/previewmirror.js';
-import { sliderStep, watchExactSliders } from './ui/exactslider.js';
-import { F_STOPS, fNumberAt } from './core/fstops.js';
+import { sliderStep } from './ui/exactslider.js';
+import { F_STOPS } from './core/fstops.js';
 import { initRetouch } from './ui/retouch.js';
-import { Selection } from './ui/selection.js';
 import { initColorGrading } from './ui/colorwheel.js';
 import { initHistogramEditing } from './ui/histedit.js';
-import { listLibraries, addLibrary, switchLibrary, renameLibrary, removeLibrary, librariesAreFolders } from './library/libraries.js';
-import { Timings, formatDuration, speedLimits, reportText } from './core/speedreport.js';
-import { runBenchmark, benchmarkText, speedup } from './core/benchmark.js';
 import { initScriptingApi } from './ui/api.js';
 import { tiltPreset } from './core/tiltpresets.js';
 import { initMarks } from './ui/marks.js';
 import { initLooks } from './ui/looks.js';
 import { initQueue } from './ui/queue.js';
-import { blobReader, readPhotoSummary, openContainer } from './core/lfp.js';
-import { hashBytes } from './core/keptpicture.js';
-import { LIGHT_FIELD_FILE, PHOTO_ACCEPT } from './core/photoformats.js';
+import { blobReader, openContainer } from './core/lfp.js';
+import { PHOTO_ACCEPT } from './core/photoformats.js';
 import { EXTRA } from './extra.js';
 import { findRecipe, recipeToEdits } from './core/recipe.js';
 import { decodePngGray, parseDepthRange, stackDepth } from './core/userdepth.js';
 import { upscaleBits16 } from './gpu/upscale.js';
-import { importCalibration, listCalibrations, loadCalibration, removeCalibration } from './core/calibration.js';
 import { encodeProcessed, decodeProcessed } from './core/processed-cache.js';
 import { hashKey, stillKeyText } from './core/still-cache.js';
 import { bokehKernel, ballRGB, encodeBokehImage, BOKEH_IMAGE_SIZE } from './core/dof.js';
-import { UPSCALE_MODELS, SHARPEN_MODELS, sharpenMethod, sharpenModelOf, modelMethod, methodModel, modelState, downloadModel, removeModel, readModel } from './core/upscalemodels.js';
-import { aiUpscale, aiSharpen, aiUpscaleAvailable, denoiseRgb16, addGrain16 } from './core/aiupscale.js';
-import { DEPTH_MODELS, depthModelMethod, methodDepthModel, depthModelState, downloadDepthModel, removeDepthModel } from './core/depthmodels.js';
-import { setMemoryLimits, fitsMemory, memoryProblem, superResVram } from './core/memorybudget.js';
-import { NativeFile, openFiles, openCalibrationFile, pickFolder, isLightFieldName, findSidecar, download, native, CAMERA_IMPORT, LYTRO_USB_VENDOR, recallCameraFolder, captureDownloads } from './platform.js';
-import { Library } from './library/library.js';
-import { openStorage, memoryStorage } from './library/storage.js';
+import { sharpenModelOf, methodModel, readModel } from './core/upscalemodels.js';
+import { aiUpscale, aiSharpen, denoiseRgb16, addGrain16 } from './core/aiupscale.js';
+import { methodDepthModel } from './core/depthmodels.js';
+import { fitsMemory, memoryProblem, superResVram } from './core/memorybudget.js';
+import { NativeFile, openFiles, isLightFieldName, findSidecar, download, native, CAMERA_IMPORT, LYTRO_USB_VENDOR, recallCameraFolder, captureDownloads } from './platform.js';
 import { groupPhotos } from './library/scan.js';
 import { MAX_MASKS } from './core/local.js';
 import { ARCHIVE_SUFFIX } from './library/archive.js';
-import { FPS as DEFAULT_FPS, emptyAnimation, frameCount, valueAt, isSettingTrack } from './core/keyframes.js';
+import { FPS as DEFAULT_FPS, emptyAnimation, isSettingTrack } from './core/keyframes.js';
 
 // Frames a second of animations: for playback, keyframe times and video
 // (the Frame rate setting).
@@ -49,9 +40,8 @@ import { preColorKey } from './core/precolorkey.js';
 import { colorSettings as buildColorSettings, renderSettings as buildRenderSettings, FRINGES } from './settingsmap.js';
 import { initStereo } from './ui/stereo.js';
 import { initLenticular } from './ui/lenticular.js';
-import { FILL_MODEL, fillModelState, downloadFillModel, removeFillModel } from './core/fillmodel.js';
 import { initFrameRate } from './ui/framerate.js';
-import { initUpdates, updateCheckOn } from './ui/updates.js';
+import { initUpdates } from './ui/updates.js';
 import { initLocalAdjustments } from './ui/localadjust.js';
 import { initLivingFilters } from './ui/livingfilters.js';
 import { initKeyframes } from './ui/keyframes.js';
@@ -64,8 +54,22 @@ import { initLut } from './ui/lut.js';
 import { initWhiteBalancePicker } from './ui/whitebalance.js';
 import { initColorMatrix } from './ui/colormatrix.js';
 import { initToneCurve } from './ui/tonecurve.js';
+import { initAnimation } from './ui/animation.js';
+import { initL16Zoom } from './ui/l16zoom.js';
+import { initModes } from './ui/modes.js';
+import { initHistogram } from './ui/histogram.js';
+import { initPeaking } from './ui/peaking.js';
 import { initNumberFields } from './ui/numberfields.js';
-import { createOpenSequencer } from './core/openseq.js';
+import { initProgress } from './ui/progress.js';
+import { initLibrary } from './ui/library.js';
+import { initMenus } from './ui/menus.js';
+import { initAlbums } from './ui/albums.js';
+import { initGrid } from './ui/grid.js';
+import { initFilmstrip } from './ui/filmstrip.js';
+import { initLenslets } from './ui/lenslets.js';
+import { initInfo } from './ui/info.js';
+import { initSpeedReport } from './ui/speedreport.js';
+import { initSettings } from './ui/settings.js';
 
 const $ = (id) => document.getElementById(id);
 const engine = new Engine();
@@ -81,21 +85,12 @@ engine.onWorkerLost = () => {
   state.view.pending = false;
   spreadView.busy = false;
   spreadView.pending = false;
-  applyAgain = false;
+  state.applyAgain = false;
   hideProgress();
   showNotice('The rendering stopped unexpectedly', 'Open the photo again to keep working on it.');
 };
 // (the new worker is told again to keep full sensor pictures)
 engine.onRecreate = () => { if (native) engine.request('stillStore', { on: true }).catch(() => {}); };
-// Events for scripts and plugins (ui/api.js), set once the interface exists.
-let emitEvent = () => {};
-// Ratings, flags and keywords of the library (ui/marks.js), set once the page is ready.
-let marks = null;
-// The Retouch section (ui/retouch.js), set once the page is ready.
-let retouchUi = null;
-// The render queue panel (ui/queue.js).
-let queueUi = null;
-let looks = null;
 const canvas = $('view');
 const ctx = canvas.getContext('2d', { willReadFrequently: true });
 
@@ -136,1244 +131,54 @@ const state = {
   webUsbDevice: null,
   webUsbReport: '',
   askCameraPermission: async () => false, // set when the desktop app can watch for a camera
+  emitEvent: () => {}, // events for scripts and plugins (ui/api.js), set once the interface exists
+  marks: null, // ratings, flags and keywords of the library (ui/marks.js), set once the page is ready
+  retouchUi: null, // the Retouch section (ui/retouch.js), set once the page is ready
+  queueUi: null, // the render queue panel (ui/queue.js)
+  looks: null, // the Looks panel (ui/looks.js)
+  previewing: false, // an Animation > Preview is rendering
+  processing: null, // { photo, my, drawn, prepared } for the photo being opened
+  libReady: null, // the library's opening (a promise)
+  calReady: Promise.resolve(), // the calibrations sent to the engine
+  selectMode: false, // a click picks a photo (otherwise it opens it, and Ctrl/Cmd-click or Shift-click pick)
+  gridOrder: [], // the ids of the photos the grid shows, in order
+  gridTiles: new Map(), // the grid's tiles by photo id
+  menuEl: null, // the open menu
+  pressHandledUntil: 0, // a press on a photo was handled (see the opening section)
+  pressHandledId: null,
+  nrFinalTimer: 0, // the finished picture with noise reduction, asked for once the changes stop
+  recoveryRunning: false,
+  autoRenderTimer: 0,
+  speedFacts: null, // the Speed block's facts (the speed report section)
+  suppressClick: false, // a drag suppresses the click that follows it
+  lastClick: null, // the last focus click
+  depthModelShown: null, // the depth model method whose settings the sliders hold
+  checkForUpdateNow: () => {}, // set by ui/updates.js
+  saveTimer: 0,
+  lastHistoryKey: 0,
+  applyAgain: false,
 };
 // Lenslets mode view: `z` screen pixels per sensor pixel, (x, y) the sensor
 // point at the middle of the viewer.
 const lensView = { x: null, y: null, z: 4 };
 
-// ---------------------------------------------------------------- progress
+// progress: ui/progress.js
+const { PREVIEW_IDS, busy, busyBadge, beginProcessing, updateProcessing, FIRST_PICTURE, processingStep, endProcessing, showProgress, noteBusy, clearBusy, hideProgress, openSeq, staleSeq, progressFor, showError, showOpenError } = initProgress({ $: (...a) => $(...a), state, canvas, showNotice: (...a) => showNotice(...a), startNoticeTimer: (...a) => startNoticeTimer(...a) });
 
-// Animation > Preview: its controls, and whether a preview is rendering.
-const PREVIEW_IDS = ['pv-res', 'pv-render', 'pv-first', 'pv-prev', 'pv-stop', 'pv-play', 'pv-next', 'pv-last', 'pv-loop', 'pv-scrub'];
-let previewing = false;
+// library: ui/library.js
+const { thumbs, PHOTO_DRAG, selection, QUEUE_RUNNER, openLibrary, thumbFor, saveThumbnail, EMPTY_LIBRARY, cameraThumbs, photoSig, renderLibrary } = initLibrary({ state, renderLibraryHead: (...a) => renderLibraryHead(...a), canvas, openSeq, virtualMasterName: (...a) => virtualMasterName(...a), busy, renderAlbums: (...a) => renderAlbums(...a), $: (...a) => $(...a), photoMenu: (...a) => photoMenu(...a), busyBadge: (...a) => busyBadge(...a), chooseListedPhoto: (...a) => chooseListedPhoto(...a), renderCameraSection: (...a) => renderCameraSection(...a), renderCameraGrid: (...a) => renderCameraGrid(...a), renderGrid: (...a) => renderGrid(...a), renderFilmstrip: (...a) => renderFilmstrip(...a) });
 
-// Photos being processed (opened and prepared for the first time): their rows and tiles show a spinner, and the picture area says what is going on.
-const busy = new Map(); // photo id -> { stage, progress }
-let processing = null; // { photo, my, drawn, prepared } for the photo being opened
+// libraries and the albums list: ui/albums.js
+const { renderLibraryHead, useLibrary, renderAlbums } = initAlbums({ $: (...a) => $(...a), editName: (...a) => editName(...a), showError: (...a) => showError(...a), flushSave: (...a) => flushSave(...a), flushProcessed: (...a) => flushProcessed(...a), state, closePhoto: (...a) => closePhoto(...a), setSelectMode: (...a) => setSelectMode(...a), openLibrary: (...a) => openLibrary(...a), sendCalibrations: (...a) => sendCalibrations(...a), showGrid: (...a) => showGrid(...a), confirmInMenu: (...a) => confirmInMenu(...a), showMenu: (...a) => showMenu(...a), albumMenu: (...a) => albumMenu(...a), PHOTO_DRAG, renderLibrary: (...a) => renderLibrary(...a) });
 
-function showBusy() {
-  const mark = (el, id) => {
-    const b = busy.get(id);
-    el.classList.toggle('busy', !!b);
-    if (b) el.setAttribute('aria-busy', 'true');
-    else el.removeAttribute('aria-busy');
-    const badge = el.querySelector('.busy-badge');
-    if (badge) badge.title = b ? `${b.stage}…` : '';
-  };
-  for (const li of $('library-list').children) mark(li, li.dataset.photoId);
-  for (const tile of $('photo-grid').children) mark(tile, tile.dataset.id);
-}
+// film strip and the way back to the thumbnails: ui/filmstrip.js
+const { showPhotoNav, renderFilmstrip } = initFilmstrip({ state, $: (...a) => $(...a), thumbFor: (...a) => thumbFor(...a), selection, chooseListedPhoto: (...a) => chooseListedPhoto(...a), photoMenu: (...a) => photoMenu(...a), showGrid: (...a) => showGrid(...a) });
 
-// A spinner on a row or tile (shown while the photo is busy).
-const busyBadge = () => {
-  const b = Object.assign(document.createElement('span'), { className: 'busy-badge' });
-  b.setAttribute('aria-hidden', 'true');
-  return b;
-};
+// grid: ui/grid.js
+const { showGrid, setThumbSize, renderGrid, showSelection, setSelectMode, deletionWhere, removePhotos, editName, newAlbum } = initGrid({ state, showPhotoNav, $: (...a) => $(...a), setPlaying: (...a) => setPlaying(...a), renderLibrary: (...a) => renderLibrary(...a), layoutCanvas: (...a) => layoutCanvas(...a), selection, thumbFor: (...a) => thumbFor(...a), photoSig: (...a) => photoSig(...a), PHOTO_DRAG, busyBadge: (...a) => busyBadge(...a), busy, virtualMasterName: (...a) => virtualMasterName(...a), photoMenu: (...a) => photoMenu(...a), openItem: (...a) => openItem(...a), EMPTY_LIBRARY, showMenu: (...a) => showMenu(...a), confirmInMenu: (...a) => confirmInMenu(...a), cancelSaves: (...a) => cancelSaves(...a), thumbs, closePhoto: (...a) => closePhoto(...a) });
 
-function beginProcessing(photo, my) {
-  endProcessing();
-  processing = { photo, my, drawn: false, prepared: false };
-  busy.set(photo.id, { stage: 'Opening', progress: null });
-  showBusy();
-  showProgress(`Opening ${photo.name}`, null);
-  // With no picture on show yet the area would stay blank until the first one is drawn.
-  if (!state.info || canvas.classList.contains('hidden')) {
-    const ph = $('placeholder');
-    ph.hidden = false;
-    const text = Object.assign(document.createElement('p'), { textContent: `Opening ${photo.name}…` });
-    ph.replaceChildren(Object.assign(document.createElement('div'), { className: 'spinner' }), text);
-  }
-}
-
-function updateProcessing(my, stage, p) {
-  if (!processing || processing.my !== my) return;
-  busy.set(processing.photo.id, { stage, progress: p });
-  showBusy();
-}
-
-// `what`: 'drawn' (the first picture is on screen) or 'prepared' (the background preparation is done). The mark goes when both are.
-const FIRST_PICTURE = 'Processing';
-function processingStep(my, what) {
-  if (!processing || processing.my !== my) return;
-  processing[what] = true;
-  if (what === 'drawn') {
-    if ($('progress-text').textContent === FIRST_PICTURE) hideProgress();
-    if ($('placeholder').querySelector('.spinner')) $('placeholder').hidden = true;
-  }
-  if (processing.drawn && processing.prepared) endProcessing(my);
-}
-
-function endProcessing(my) {
-  if (!processing || (my != null && processing.my !== my)) return;
-  busy.delete(processing.photo.id);
-  processing = null;
-  showBusy();
-}
-
-function showProgress(stage, p) {
-  emitEvent('progress', { stage, progress: p ?? 0 });
-  $('progress').hidden = false;
-  // No known amount (opening): a moving bar rather than an empty one.
-  $('progress').classList.toggle('indeterminate', p == null);
-  $('progress-text').textContent = stage;
-  $('progress-fill').style.width = p == null ? '' : `${Math.round(p * 100)}%`;
-  // (how far along, as a number, when it is known)
-  $('progress-pct').hidden = p == null;
-  $('progress-pct').textContent = p == null ? '' : `${Math.round(Math.min(1, Math.max(0, p)) * 100)}%`;
-}
-
-// A change that is slow to show (another depth method, the high quality depth): its message stays up from the change until the next picture is drawn (draw()),
-// with the worker's own stages over it as they come.
-let busyNote = '';
-let busyTimer = 0;
-function noteBusy(text) {
-  busyNote = text;
-  showProgress(text, null);
-  // (never left up for good if no picture comes: an error, the lenslets view)
-  clearTimeout(busyTimer);
-  busyTimer = setTimeout(clearBusy, 180000);
-}
-function clearBusy() {
-  if (!busyNote) return;
-  busyNote = '';
-  hideProgress();
-}
-
-function hideProgress() {
-  if (busyNote) {
-    showProgress(busyNote, null);
-    return;
-  }
-  $('progress').hidden = true;
-}
-
-// Every open (a library photo, a dropped file, a script) takes the next number; a request, render or save that belongs to an earlier number is stale and must not
-// touch what is on show now. The worker echoes the number it was sent with (`openSeq` on the open request and on its cache messages).
-const openSeq = createOpenSequencer();
-const staleSeq = (n) => openSeq.isStale(n);
-// A progress callback for work that began at generation `gen`: it stays silent once another photo is on its way in.
-const progressFor = (gen) => (stage, p) => { if (!openSeq.superseded(gen)) showProgress(stage, p); };
-
-// A failure that leaves the photo as it was (export, look, import, render, settings): a notice over the picture.
-function showError(err, title = 'Something went wrong') {
-  hideProgress();
-  console.error(err);
-  showNotice(title, (err && err.message) || String(err));
-  startNoticeTimer();
-}
-
-// A photo that could not be opened: the placeholder says so (openWith and closePhoto put it back).
-function showOpenError(err) {
-  hideProgress();
-  console.error(err);
-  $('placeholder').hidden = false;
-  $('placeholder').innerHTML = '<p>Could not open this file.</p><p class="hint"></p>';
-  $('placeholder').querySelector('.hint').textContent = err.message || String(err);
-}
-
-// ---------------------------------------------------------------- library
-
-// The photo library (library/library.js): every photo opened, dropped or
-// imported is copied into it, in a folder of its own.
-let libReady = null;
-let calReady = Promise.resolve();
-const thumbs = new Map(); // photo id -> object URL (null while loading)
-const PHOTO_DRAG = 'application/x-illuminator-photo';
-// Picking several photos in the grid to delete them together.
-const selection = new Selection();
-let selectMode = false; // a click picks a photo (otherwise it opens it, and Ctrl/Cmd-click or Shift-click pick)
-let gridOrder = []; // the ids of the photos the grid shows, in order
-
-// The render queue's renders run in a hidden copy of this page opened with ?queue (ui/queue.js).
-const QUEUE_RUNNER = typeof location !== 'undefined' && /[?&]queue\b/.test(location.search);
-
-async function openLibrary() {
-  for (const url of thumbs.values()) if (url) URL.revokeObjectURL(url);
-  thumbs.clear();
-  // (the pictures still waiting belong to the library being left)
-  thumbWaiting.length = 0;
-  // (a photo app/js/extra.js opens: what it keeps of it)
-  const readSummary = (f) => (EXTRA && !LIGHT_FIELD_FILE.test(f.name) ? EXTRA.readSummary(f, hashBytes) : readPhotoSummary(blobReader(f)));
-  try {
-    // (the hidden copy that makes the render queue's files keeps no library of its own)
-    if (QUEUE_RUNNER) throw new Error('queue runner');
-    state.lib = await new Library(await openStorage(), { readSummary }).load();
-  } catch (err) {
-    if (!QUEUE_RUNNER) console.warn('Could not open the library; photos are kept for this session only', err);
-    state.lib = await new Library(memoryStorage(), { readSummary }).load();
-  }
-  if (state.album && !state.lib.album(state.album)) state.album = null;
-  renderLibrary();
-  renderLibraryHead();
-  return state.lib;
-}
-
-async function asBlob(f) {
-  if (!f || f instanceof Blob) return f;
-  return new Blob([await f.arrayBuffer()], { type: /\.png$/i.test(f.name) ? 'image/png' : 'image/jpeg' });
-}
-
-// The library's pictures load a few at a time, and the list is drawn again once for a batch of them, not once for each: drawing the whole list after every
-// picture made opening a big library cost the square of its size.
-const THUMB_LOADS_AT_ONCE = 6;
-const thumbWaiting = [];
-let thumbWorkers = 0;
-let thumbRedraw = null;
-async function loadThumbs() {
-  while (thumbWaiting.length) {
-    const photo = thumbWaiting.shift();
-    const lib = state.lib;
-    if (!lib || lib.get(photo.id) !== photo) continue; // removed from the library meanwhile, or from another library
-    try {
-      const blob = await asBlob(await lib.thumbnail(photo));
-      if (state.lib !== lib || !blob || thumbs.get(photo.id) !== null) continue;
-      thumbs.set(photo.id, URL.createObjectURL(blob));
-      thumbRedraw ||= setTimeout(() => {
-        thumbRedraw = null;
-        renderLibrary();
-      }, 150);
-    } catch {
-      // (the picture stays missing)
-    }
-  }
-}
-
-function thumbFor(photo) {
-  if (thumbs.has(photo.id)) return thumbs.get(photo.id);
-  thumbs.set(photo.id, null);
-  if (photo.thumb) {
-    thumbWaiting.push(photo);
-    if (thumbWorkers < THUMB_LOADS_AT_ONCE) {
-      thumbWorkers++;
-      loadThumbs().finally(() => thumbWorkers--);
-    }
-  }
-  return null;
-}
-
-// A small picture of the photo as first shown, for photos whose file has no
-// thumbnail of its own (Lytro Desktop's raw.lfp).
-function saveThumbnail() {
-  state.wantThumb = false;
-  const photo = state.current && state.current.photo;
-  if (!photo || !state.lib || !canvas.width) return;
-  const gen = openSeq.current();
-  const s = Math.min(1, 320 / Math.max(canvas.width, canvas.height));
-  const c = document.createElement('canvas');
-  c.width = Math.round(canvas.width * s);
-  c.height = Math.round(canvas.height * s);
-  c.getContext('2d').drawImage(canvas, 0, 0, c.width, c.height);
-  c.toBlob((blob) => {
-    if (!blob || openSeq.superseded(gen)) return;
-    state.lib.saveThumbnail(photo, blob).then(() => {
-      const old = thumbs.get(photo.id);
-      if (old) URL.revokeObjectURL(old);
-      thumbs.set(photo.id, URL.createObjectURL(blob));
-      renderLibrary();
-    }).catch(() => {});
-  }, 'image/jpeg', 0.85);
-}
-
-const EMPTY_LIBRARY = CAMERA_IMPORT
-  ? `${EXTRA ? EXTRA.openHint : 'Open .LFR / .LFP / .LRI files, drop them here, or import from'} a camera or Lytro Desktop.`
-  : `${EXTRA ? EXTRA.openHint : 'Open .LFR / .LFP / .LRI files, drop them here, or import from'} Lytro Desktop.`;
-
-// The Camera section's state (see setCameraSection).
-const cameraThumbs = new Map();
-
-// Rows and tiles are built again only when what they show changed (a thumbnail arriving, a rating, the open photo, a busy photo, a name): the others are reused, so
-// drawing a big library after each thumbnail costs only what changed, not the whole list again.
-let listRows = new Map();
-let gridTiles = new Map();
-function photoSig(photo, current, url) {
-  return JSON.stringify([photo.name, photo.master ? virtualMasterName(photo) : '', url || '', photo === current, !!(queueUi && queueUi.isPicked(photo)), busy.has(photo.id), photo.rating || 0, photo.flag || '', photo.keywords || []]);
-}
-
-function renderLibrary() {
-  renderAlbums();
-  const album = state.lib && state.album ? state.lib.album(state.album) : null;
-  const everyone = state.lib ? state.lib.list(state.album) : [];
-  const photos = marks ? marks.applyFilter(everyone) : everyone;
-  $('photos-title').textContent = album ? album.name : 'All photos';
-  const current = state.current && state.current.photo;
-  state.listedPhotos = photos;
-  // Rebuilding the list would drop the keyboard focus: put it back on the same row (or its ••• button).
-  const focused = document.activeElement && document.activeElement.closest ? document.activeElement.closest('#library-list li') : null;
-  const focusId = focused ? focused.dataset.photoId : null;
-  const focusMore = !!focused && document.activeElement !== focused;
-  const nextRows = new Map();
-  $('library-list').replaceChildren(...photos.map((photo) => {
-    const url = thumbFor(photo);
-    const sig = photoSig(photo, current, url);
-    const kept = listRows.get(photo.id);
-    if (kept && kept.sig === sig) {
-      nextRows.set(photo.id, kept);
-      return kept.el;
-    }
-    const li = document.createElement('li');
-    li.className = (photo === current ? 'current' : '') + (selection.has(photo.id) ? ' selected' : '');
-    li.dataset.photoId = photo.id;
-    li.tabIndex = 0;
-    li.setAttribute('role', 'button');
-    if (queueUi && queueUi.isPicked(photo)) li.classList.add('picked');
-    if (photo.master) li.title = `Virtual copy of ${virtualMasterName(photo)}`;
-    li.draggable = true;
-    li.ondragstart = (e) => {
-      e.dataTransfer.setData(PHOTO_DRAG, photo.id);
-      e.dataTransfer.effectAllowed = 'copy';
-    };
-    const img = url ? Object.assign(document.createElement('img'), { src: url, alt: '' }) : Object.assign(document.createElement('div'), { className: 'noimg' });
-    const name = document.createElement('span');
-    name.textContent = photo.name;
-    const more = Object.assign(document.createElement('button'), { className: 'more', type: 'button', textContent: '•••', title: 'Albums, copy and paste settings, delete' });
-    more.setAttribute('aria-label', `Actions for ${photo.name}`);
-    more.setAttribute('aria-haspopup', 'menu');
-    more.onclick = (e) => {
-      e.stopPropagation();
-      photoMenu(photo, more);
-    };
-    const mark = marks && marks.badge(photo);
-    li.append(img, name, more, busyBadge());
-    if (busy.has(photo.id)) li.classList.add('busy');
-    if (marks) li.append(marks.rater(photo));
-    if (mark) li.append(mark);
-    li.onclick = (e) => {
-      // (a press that was already acted on when the pointer was released, see below)
-      if (performance.now() < pressHandledUntil && pressHandledId === photo.id) return;
-      chooseListedPhoto(photo, e);
-    };
-    li.onkeydown = (e) => {
-      // (the ••• button inside keeps its keys)
-      if (e.target !== li || (e.key !== 'Enter' && e.key !== ' ')) return;
-      e.preventDefault();
-      li.onclick(e);
-    };
-    li.oncontextmenu = (e) => {
-      e.preventDefault();
-      photoMenu(photo, more, { x: e.clientX, y: e.clientY });
-    };
-    nextRows.set(photo.id, { el: li, sig });
-    return li;
-  }));
-  listRows = nextRows;
-  if (focusId) {
-    const row = [...$('library-list').children].find((el) => el.dataset.photoId === focusId);
-    if (row) (focusMore ? row.querySelector('.more') || row : row).focus({ preventScroll: true });
-  }
-  if (state.cameraView && !state.cameraSection.note && !state.cameraSection.cam) state.cameraView = false;
-  renderCameraSection();
-  if (state.cameraView) renderCameraGrid();
-  else renderGrid(photos, album);
-  renderFilmstrip(photos, current);
-  if (marks) marks.renderKeywordList();
-  if (queueUi && state.queueView) queueUi.render();
-  if (looks) looks.render();
-  const empty = $('library-empty');
-  empty.hidden = photos.length > 0;
-  if (everyone.length && !photos.length) empty.textContent = 'No photos match the filter.';
-  else if (album) empty.textContent = 'No photos in this album yet. Drag photos onto the album, or use ••• on a photo.';
-  else if (state.lib && !state.lib.persistent) empty.textContent = `${EMPTY_LIBRARY} This browser cannot store a library, so photos are kept until the page is closed.`;
-  else empty.textContent = EMPTY_LIBRARY;
-}
-
-// ------------------------------------------------ libraries and the albums list
-
-// The albums list can be folded away (kept for the next start).
-const ALBUMS_COLLAPSED_KEY = 'illuminator.albumsCollapsed';
-let albumsCollapsed = (() => {
-  try {
-    return localStorage.getItem(ALBUMS_COLLAPSED_KEY) === '1';
-  } catch {
-    return false;
-  }
-})();
-
-function showAlbumsToggle() {
-  const b = $('albums-toggle');
-  b.setAttribute('aria-expanded', String(!albumsCollapsed));
-  const label = albumsCollapsed ? 'Show the albums' : 'Collapse the albums';
-  b.title = label;
-  b.setAttribute('aria-label', label);
-}
-
-$('albums-toggle').onclick = () => {
-  albumsCollapsed = !albumsCollapsed;
-  try {
-    localStorage.setItem(ALBUMS_COLLAPSED_KEY, albumsCollapsed ? '1' : '0');
-  } catch {
-    // (not kept)
-  }
-  showAlbumsToggle();
-  renderAlbums();
-};
-showAlbumsToggle();
-
-// Which libraries there are (library/libraries.js), for the name at the top of the sidebar and its menu.
-let libraryInfo = null;
-
-async function renderLibraryHead() {
-  try {
-    libraryInfo = await listLibraries();
-  } catch (err) {
-    console.warn('Could not list the libraries', err);
-    libraryInfo = null;
-  }
-  const cur = libraryInfo && libraryInfo.list.find((l) => l.id === libraryInfo.current);
-  $('library-name').textContent = cur ? cur.name : 'Library';
-  $('library-switch').title = cur && cur.detail ? `${cur.detail}\nLibraries: switch, add or rename. Each is a separate set of photos and albums` : 'Libraries: switch, add or rename. Each is a separate set of photos and albums';
-}
-
-// A text field in the sidebar's heading, for the name of a library (restored when done).
-function askLibraryName(value, label, onName) {
-  const head = $('library-head');
-  const kids = [...head.childNodes];
-  editName(head, value, async (name) => {
-    head.replaceChildren(...kids);
-    if (name) {
-      try {
-        await onName(name);
-      } catch (err) {
-        showError(err);
-      }
-    }
-  }, label);
-}
-
-// Another library takes the place of this one: everything of this photo and library is written first, so nothing of it lands in the next.
-async function useLibrary(change) {
-  await flushSave();
-  await flushProcessed();
-  if (state.lib) await state.lib.close().catch((err) => console.warn('Could not close the library', err));
-  const result = await change();
-  if (result === null) return; // (cancelled: this library stays in use)
-  closePhoto();
-  setSelectMode(false);
-  state.album = null;
-  state.cameraView = false;
-  libReady = openLibrary();
-  calReady = libReady.then(() => sendCalibrations()).catch(() => {});
-  await libReady;
-  showGrid(true);
-}
-
-function libraryMenu() {
-  renderLibraryHead().then(() => {
-    const info = libraryInfo;
-    if (!info) return;
-    const memory = state.lib && state.lib.store.kind === 'memory';
-    const items = [];
-    if (memory) {
-      items.push({ label: 'This browser cannot keep several libraries', disabled: true, action: () => {} });
-    } else {
-      for (const l of info.list) {
-        items.push({ label: l.name, checked: l.id === info.current, action: () => useLibrary(() => (l.id === info.current ? null : switchLibrary(l.id))).catch((err) => showError(err)) });
-      }
-      items.push('-');
-      items.push({
-        label: librariesAreFolders() ? 'Add library folder…' : 'New library…',
-        action: () => {
-          if (librariesAreFolders()) return useLibrary(() => addLibrary()).catch((err) => showError(err));
-          askLibraryName('', 'Library name', (name) => useLibrary(() => addLibrary(name)));
-        },
-      });
-      const cur = info.list.find((l) => l.id === info.current);
-      if (cur) items.push({ label: 'Rename this library…', action: () => askLibraryName(cur.name, 'Library name', async (name) => { await renameLibrary(cur.id, name); await renderLibraryHead(); }) });
-      for (const l of info.list.filter((x) => x.id !== info.current)) {
-        const folders = librariesAreFolders();
-        items.push({
-          label: folders ? `Remove “${l.name}” from the list…` : `Delete library “${l.name}”…`,
-          danger: true,
-          action: () => confirmInMenu(
-            folders ? `Remove “${l.name}” from the list? Its folder and photos stay where they are.` : `Delete the library “${l.name}” and all its photos from this browser?`,
-            folders ? 'Remove' : 'Delete',
-            async () => {
-              await removeLibrary(l.id);
-              await renderLibraryHead();
-            },
-          ),
-        });
-      }
-    }
-    showMenu($('library-switch'), items);
-  });
-}
-$('library-switch').onclick = () => libraryMenu();
-
-function renderAlbums() {
-  const list = $('album-list');
-  if (!state.lib) {
-    list.replaceChildren();
-    return;
-  }
-  const rows = [{ id: null, name: 'All photos', count: state.lib.photos.length }, ...state.lib.albums.map((a) => ({ id: a.id, name: a.name, count: a.photos.length }))];
-  list.replaceChildren(...rows.map((row) => {
-    const li = document.createElement('li');
-    li.classList.toggle('current', !state.cameraView && state.album === row.id);
-    // Collapsed, the list keeps All photos and the album being shown.
-    li.hidden = albumsCollapsed && row.id !== null && state.album !== row.id;
-    const b = Object.assign(document.createElement('button'), { type: 'button', className: 'album' });
-    const name = Object.assign(document.createElement('span'), { className: 'name', textContent: row.name });
-    const count = Object.assign(document.createElement('span'), { className: 'count', textContent: row.count });
-    b.append(name, count);
-    b.onclick = () => {
-      state.album = row.id;
-      state.cameraView = false;
-      showGrid(true);
-    };
-    li.append(b);
-    if (row.id) {
-      const more = Object.assign(document.createElement('button'), { className: 'more', type: 'button', textContent: '•••', title: 'Rename, delete' });
-      more.setAttribute('aria-label', `Actions for album ${row.name}`);
-      more.setAttribute('aria-haspopup', 'menu');
-      more.onclick = () => albumMenu(row.id, li, more);
-      li.append(more);
-      // Photos dragged from the list are added to the album.
-      li.ondragover = (e) => {
-        if (![...e.dataTransfer.types].includes(PHOTO_DRAG)) return;
-        e.preventDefault();
-        e.dataTransfer.dropEffect = 'copy';
-        li.classList.add('drop');
-      };
-      li.ondragleave = () => li.classList.remove('drop');
-      li.ondrop = async (e) => {
-        const id = e.dataTransfer.getData(PHOTO_DRAG);
-        li.classList.remove('drop');
-        if (!id) return;
-        e.preventDefault();
-        e.stopPropagation();
-        await state.lib.addToAlbum(row.id, [id]);
-        renderLibrary();
-      };
-    }
-    return li;
-  }));
-}
-
-// ------------------------------------------------ film strip and the way back to the thumbnails
-
-// The film strip under the picture (the photos of the list, as the sidebar has them) can be folded away; the choice is kept for the next start.
-const FILMSTRIP_KEY = 'illuminator.filmstrip';
-let filmstripCollapsed = (() => {
-  try {
-    return localStorage.getItem(FILMSTRIP_KEY) === '0';
-  } catch {
-    return false;
-  }
-})();
-let filmstripCentered = null;
-// The items of the strip as drawn last, by photo id (renderFilmstrip).
-let filmItems = new Map();
-
-// With a library photo open (not the thumbnails): the strip and the button back to the thumbnails show.
-function showPhotoNav() {
-  const open = !!(state.lib && state.current && state.current.photo && !state.grid);
-  $('grid-back-btn').hidden = !open;
-  $('filmstrip').hidden = !(open && state.listedPhotos && state.listedPhotos.length);
-  $('filmstrip').classList.toggle('collapsed', filmstripCollapsed);
-  const t = $('filmstrip-toggle');
-  t.setAttribute('aria-expanded', String(!filmstripCollapsed));
-  t.title = filmstripCollapsed ? 'Show the film strip' : 'Hide the film strip';
-}
-
-function renderFilmstrip(photos, current) {
-  showPhotoNav();
-  const strip = $('filmstrip');
-  if (strip.hidden) {
-    filmstripCentered = null;
-    filmItems = new Map();
-    return;
-  }
-  const list = $('filmstrip-list');
-  const scroll = list.scrollLeft;
-  // An item is built again only when what it shows changed (a thumbnail arriving, a rating, the open photo): the rest are reused, so a big album costs no more than the
-  // few that changed each time the library is drawn.
-  const kept = new Map();
-  list.replaceChildren(...photos.map((photo) => {
-    const url = thumbFor(photo);
-    const sig = JSON.stringify([photo.name, photo.master || '', url || '', photo === current, photo.rating || 0, photo.flag || '', photo.keywords || []]);
-    const old = filmItems.get(photo.id);
-    if (old && old.sig === sig) {
-      kept.set(photo.id, old);
-      return old.el;
-    }
-    // (an item holds the thumbnail button, which opens the photo, and the pick box and stars over it: ui/marks.js)
-    const item = document.createElement('div');
-    item.className = (photo === current ? 'film current' : 'film') + (selection.has(photo.id) ? ' selected' : '');
-    item.dataset.photoId = photo.id;
-    item.title = photo.master ? `${photo.name} (virtual copy)` : photo.name;
-    item.setAttribute('role', 'listitem');
-    const b = document.createElement('button');
-    b.type = 'button';
-    b.className = 'film-open';
-    b.setAttribute('aria-label', photo.name);
-    if (photo === current) b.setAttribute('aria-current', 'true');
-    if (url) b.append(Object.assign(document.createElement('img'), { src: url, alt: '', draggable: false }));
-    b.onclick = (e) => chooseListedPhoto(photo, e);
-    item.append(b);
-    const mark = marks && marks.badge(photo);
-    if (mark) {
-      mark.classList.add('film-marks');
-      item.append(mark);
-    }
-    if (marks) item.append(marks.rater(photo));
-    // The same ••• menu as the list and the grid have, at the top right (also on a right-click).
-    const more = Object.assign(document.createElement('button'), { className: 'more', type: 'button', textContent: '•••', title: 'Rename, copy and paste settings, albums, delete' });
-    more.setAttribute('aria-label', `Actions for ${photo.name}`);
-    more.setAttribute('aria-haspopup', 'menu');
-    more.onclick = (e) => {
-      e.stopPropagation();
-      photoMenu(photo, more);
-    };
-    item.oncontextmenu = (e) => {
-      e.preventDefault();
-      photoMenu(photo, more, { x: e.clientX, y: e.clientY });
-    };
-    item.append(more);
-    kept.set(photo.id, { el: item, sig });
-    return item;
-  }));
-  filmItems = kept;
-  // The photo that is open comes into view when it changes; otherwise the strip stays where the user scrolled it.
-  const here = current ? current.id : null;
-  if (here !== filmstripCentered) {
-    filmstripCentered = here;
-    const el = list.querySelector('.film.current');
-    if (el) el.scrollIntoView({ inline: 'center', block: 'nearest' });
-  } else list.scrollLeft = scroll;
-}
-
-$('filmstrip-toggle').onclick = () => {
-  filmstripCollapsed = !filmstripCollapsed;
-  try {
-    localStorage.setItem(FILMSTRIP_KEY, filmstripCollapsed ? '0' : '1');
-  } catch {
-    // Storage unavailable: the choice is not kept.
-  }
-  showPhotoNav();
-};
-$('grid-back-btn').onclick = () => showGrid(true);
-
-// ------------------------------------------------ grid
-
-// Choosing an album shows its photos as thumbnails in place of the picture;
-// opening a photo goes back to the picture.
-const THUMB_SIZE_KEY = 'illuminator.thumbSize';
-
-function showGrid(on) {
-  if (on && queueUi) queueUi.setView(false, { open: false });
-  state.grid = on;
-  showPhotoNav();
-  document.querySelector('.stage').classList.toggle('grid', on);
-  $('grid-view').hidden = !on;
-  if (on) {
-    if (state.playing) setPlaying(false);
-    renderLibrary();
-  } else {
-    layoutCanvas();
-  }
-}
-
-function setThumbSize(px) {
-  const input = $('thumb-size');
-  const v = Math.min(+input.max, Math.max(+input.min, Math.round(px / 10) * 10));
-  input.value = v;
-  $('photo-grid').style.setProperty('--thumb', `${v}px`);
-  $('thumb-smaller').disabled = v <= +input.min;
-  $('thumb-bigger').disabled = v >= +input.max;
-  try {
-    localStorage.setItem(THUMB_SIZE_KEY, String(v));
-  } catch {
-    // Storage unavailable: the size is not remembered.
-  }
-}
-
-$('thumb-size').oninput = () => setThumbSize(+$('thumb-size').value);
-$('thumb-smaller').onclick = () => setThumbSize(+$('thumb-size').value / 1.25);
-$('thumb-bigger').onclick = () => setThumbSize(+$('thumb-size').value * 1.25);
-{
-  let saved = 180;
-  try {
-    saved = +(localStorage.getItem(THUMB_SIZE_KEY) || 180);
-  } catch {
-    // Storage unavailable: default size.
-  }
-  setThumbSize(saved);
-}
-
-function renderGrid(photos, album) {
-  if (!state.grid) return;
-  $('grid-import-all').hidden = true;
-  $('grid-camera-choose-row').hidden = true;
-  $('grid-title').textContent = album ? album.name : 'All photos';
-  $('grid-count').textContent = `${photos.length} photo${photos.length === 1 ? '' : 's'}`;
-  const current = state.current && state.current.photo;
-  gridOrder = photos.map((p) => p.id);
-  selection.keepOnly(gridOrder);
-  const nextTiles = new Map();
-  $('photo-grid').replaceChildren(...photos.map((photo) => {
-    const url = thumbFor(photo);
-    const sig = photoSig(photo, current, url);
-    const kept = gridTiles.get(photo.id);
-    if (kept && kept.sig === sig) {
-      nextTiles.set(photo.id, kept);
-      return kept.el;
-    }
-    const tile = document.createElement('div');
-    tile.className = (photo === current ? 'tile current' : 'tile') + (selection.has(photo.id) ? ' selected' : '');
-    tile.dataset.id = photo.id;
-    tile.tabIndex = 0;
-    tile.setAttribute('role', 'button');
-    tile.setAttribute('aria-label', `Open ${photo.name}`);
-    tile.draggable = true;
-    tile.ondragstart = (e) => {
-      e.dataTransfer.setData(PHOTO_DRAG, photo.id);
-      e.dataTransfer.effectAllowed = 'copy';
-    };
-    const frame = Object.assign(document.createElement('div'), { className: 'frame' });
-    frame.append(busyBadge());
-    if (busy.has(photo.id)) tile.classList.add('busy');
-    const thumb = url ? Object.assign(document.createElement('img'), { src: url, alt: '' }) : null;
-    if (thumb) frame.prepend(thumb);
-    const name = Object.assign(document.createElement('div'), { className: 'name', textContent: photo.name, title: photo.master ? `Virtual copy of ${virtualMasterName(photo)}` : photo.name });
-    const more = Object.assign(document.createElement('button'), { className: 'more', type: 'button', textContent: '•••', title: 'Albums, copy and paste settings, delete' });
-    more.setAttribute('aria-label', `Actions for ${photo.name}`);
-    more.setAttribute('aria-haspopup', 'menu');
-    more.onclick = (e) => {
-      e.stopPropagation();
-      photoMenu(photo, more);
-    };
-    const mark = marks && marks.badge(photo);
-    if (marks) {
-      // The stars and the pick checkbox sit on the picture itself, not on the empty space around it: the layer takes the thumbnail's shape (--ar, width over height).
-      const layer = marks.rater(photo);
-      const shape = () => thumb.naturalWidth && thumb.naturalHeight && layer.style.setProperty('--ar', String(thumb.naturalWidth / thumb.naturalHeight));
-      if (thumb) {
-        if (thumb.complete) shape();
-        else thumb.addEventListener('load', shape);
-      }
-      frame.append(layer);
-    }
-    tile.append(frame, name, more);
-    if (mark) tile.append(mark);
-    tile.onclick = (e) => tileClick(e, photo);
-    tile.oncontextmenu = (e) => {
-      e.preventDefault();
-      photoMenu(photo, more, { x: e.clientX, y: e.clientY });
-    };
-    tile.onkeydown = (e) => {
-      if (e.target === tile && (e.key === 'Enter' || e.key === ' ')) {
-        e.preventDefault();
-        if (selectMode) {
-          selection.toggle(photo.id);
-          showSelection();
-        } else openItem(photo);
-      }
-    };
-    nextTiles.set(photo.id, { el: tile, sig });
-    return tile;
-  }));
-  gridTiles = nextTiles;
-  showSelection();
-  $('grid-empty').hidden = photos.length > 0;
-  $('grid-empty').textContent = album
-    ? 'No photos in this album yet. Drag photos onto the album in the sidebar, or use ••• on a photo.'
-    : EMPTY_LIBRARY;
-}
-
-// A click on a photo in the grid: it opens the photo, or (Ctrl/Cmd, Shift, or Select mode on) picks it.
-function tileClick(e, photo) {
-  if (e.shiftKey) selection.range(gridOrder, photo.id);
-  else if (e.ctrlKey || e.metaKey || selectMode) selection.toggle(photo.id);
-  else {
-    if (selection.size) {
-      selection.clear();
-      showSelection();
-    }
-    openItem(photo);
-    return;
-  }
-  showSelection();
-}
-
-// The grid's selection as the page shows it: the tiles, the count and the buttons (the grid itself is not drawn again, so it keeps its scroll).
-function showSelection() {
-  const grid = $('photo-grid');
-  for (const tile of grid.children) tile.classList.toggle('selected', selection.has(tile.dataset.id));
-  // (the sidebar list and the film strip show the same selection)
-  for (const row of $('library-list').children) row.classList.toggle('selected', selection.has(row.dataset.photoId));
-  for (const item of $('filmstrip-list').children) item.classList.toggle('selected', selection.has(item.dataset.photoId));
-  grid.classList.toggle('selecting', selectMode || selection.size > 0);
-  $('grid-select').setAttribute('aria-pressed', String(selectMode));
-  $('grid-selection').hidden = !(selectMode || selection.size > 0);
-  const n = selection.size;
-  $('grid-sel-count').textContent = n ? `${n} selected` : 'Click photos to pick them';
-  $('grid-delete').disabled = n === 0;
-  $('grid-select-all').disabled = gridOrder.length === 0 || n === gridOrder.length;
-}
-
-function setSelectMode(on) {
-  selectMode = on;
-  if (!on) selection.clear();
-  showSelection();
-}
-
-$('grid-select').onclick = () => setSelectMode(!selectMode);
-$('grid-select-all').onclick = () => {
-  selection.selectAll(gridOrder);
-  showSelection();
-};
-$('grid-delete').onclick = () => deleteSelected();
-document.addEventListener('keydown', (e) => {
-  const t = e.target;
-  // (the selection's keys work in the grid, and in the sidebar list and the film strip when one of them has the focus)
-  const inList = !!(t && t.closest && t.closest('#library-list, #filmstrip-list'));
-  if (document.querySelector('dialog[open]') || ($('grid-view').hidden && !inList)) return;
-  if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
-  if (menuEl && !menuEl.hidden && menuEl.contains(document.activeElement)) return;
-  if ((e.key === 'Delete' || e.key === 'Backspace') && selection.size) {
-    e.preventDefault();
-    deleteSelected();
-  } else if (e.key === 'Escape' && (selection.size || selectMode)) {
-    setSelectMode(false);
-  } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a' && t && t.closest && (t.closest('#photo-grid') || inList)) {
-    e.preventDefault();
-    selection.selectAll(inList ? (state.listedPhotos || []).map((p) => p.id) : gridOrder);
-    showSelection();
-  }
-});
-
-// Where deleted photos go, in words (the same for one photo and for several).
-function deletionWhere() {
-  return state.lib.store.kind === 'folder'
-    ? 'Their folders (each photo and its edits) are moved to the trash.'
-    : 'The photos and their edits are deleted from this browser’s storage.';
-}
-
-// Asks, by the Delete button, before deleting the picked photos.
-function deleteSelected() {
-  const photos = state.lib.photos.filter((p) => selection.has(p.id));
-  if (!photos.length) return;
-  const n = photos.length;
-  const label = state.lib.persistent ? `Delete ${n}` : `Remove ${n}`;
-  const anchorEl = !$('grid-view').hidden ? $('grid-delete') : document.activeElement && document.activeElement.closest && document.activeElement.closest('#library-list li, #filmstrip-list .film') || $('library-list');
-  showMenu(anchorEl, []);
-  confirmInMenu(
-    `${state.lib.persistent ? 'Delete' : 'Remove'} ${n} photo${n === 1 ? '' : 's'} from the library? ${state.lib.persistent ? deletionWhere() : 'They go from the list; their files are not touched.'}`,
-    label,
-    () => removePhotos(photos),
-  );
-}
-
-// Takes photos out of the library, one after the other (a folder that cannot go to the trash is asked about once, then the rest go the same way).
-async function removePhotos(list) {
-  let permanent = false;
-  for (const photo of list) {
-    // (a photo's virtual copies go with it)
-    const withCopies = [photo, ...state.lib.photos.filter((p) => p.master === photo.id)];
-    // Nothing pending may write the photo's folder again once it is gone (edits are not flushed: the photo is deleted).
-    for (const p of withCopies) cancelSaves(p);
-    try {
-      await state.lib.remove([photo.id], permanent ? { permanent: true } : undefined);
-    } catch (err) {
-      // The desktop app does not delete for good behind the user's back: when the trash is not available (network drives, some Linux systems) it asks first.
-      if (!/could not be moved to the trash/i.test(String((err && err.message) || err))) throw err;
-      if (!window.confirm(`${err.message}`)) break;
-      permanent = true;
-      await state.lib.remove([photo.id], { permanent: true });
-    }
-    for (const p of withCopies) {
-      const url = thumbs.get(p.id);
-      if (url) URL.revokeObjectURL(url);
-      thumbs.delete(p.id);
-      selection.ids.delete(p.id);
-      if (state.current && state.current.photo === p) closePhoto();
-    }
-  }
-  renderLibrary();
-}
-
-// An inline text field in place of `li`'s contents (new album, rename).
-function editName(li, value, onDone, label = 'Album name') {
-  const input = Object.assign(document.createElement('input'), { type: 'text', value, maxLength: 80 });
-  input.setAttribute('aria-label', label);
-  li.replaceChildren(input);
-  let done = false;
-  const finish = (ok) => {
-    if (done) return;
-    done = true;
-    onDone(ok ? input.value.trim() : '');
-  };
-  input.onkeydown = (e) => {
-    if (e.key === 'Enter') finish(true);
-    else if (e.key === 'Escape') {
-      e.stopPropagation();
-      finish(false);
-    }
-  };
-  input.onblur = () => finish(true);
-  input.focus();
-  input.select();
-}
-
-function newAlbum(photoIds = []) {
-  if (!state.lib) return;
-  const li = document.createElement('li');
-  $('album-list').append(li);
-  editName(li, '', async (name) => {
-    if (name) {
-      const album = await state.lib.createAlbum(name);
-      if (photoIds.length) await state.lib.addToAlbum(album.id, photoIds);
-      else {
-        state.album = album.id;
-        state.cameraView = false;
-      }
-    }
-    renderLibrary();
-  });
-}
-
-$('album-new').onclick = () => newAlbum();
-
-// ------------------------------------------------ menus
-
-let menuEl = null;
-let menuButton = null;
-let menuAt = null;
-
-function closeMenu() {
-  if (!menuEl) return;
-  menuEl.remove();
-  menuEl = null;
-  if (menuButton) menuButton.setAttribute('aria-expanded', 'false');
-  menuButton = null;
-}
-
-function placeMenu(anchor, at = null) {
-  const r = at ? { left: at.x, top: at.y, bottom: at.y } : anchor.getBoundingClientRect();
-  const m = menuEl;
-  const left = Math.max(8, Math.min(r.left, innerWidth - m.offsetWidth - 8));
-  let top = r.bottom + 4;
-  if (top + m.offsetHeight > innerHeight - 8) top = Math.max(8, r.top - m.offsetHeight - 4);
-  m.style.left = `${left}px`;
-  m.style.top = `${top}px`;
-}
-
-// items: { label, action, checked?, danger? } | { heading } | '-'. An action
-// that returns true keeps the menu open.
-// at: { x, y } to open at the pointer (right-click) instead of below anchor.
-function showMenu(anchor, items, at = null) {
-  closeMenu();
-  const m = document.createElement('div');
-  m.className = 'menu';
-  m.setAttribute('role', 'menu');
-  menuEl = m;
-  menuButton = anchor;
-  menuAt = at;
-  anchor.setAttribute('aria-expanded', 'true');
-  fillMenu(items);
-  document.body.append(m);
-  placeMenu(anchor, at);
-  const first = m.querySelector('button');
-  if (first) first.focus();
-}
-
-function fillMenu(items) {
-  menuEl.replaceChildren(...items.map((it) => {
-    if (it === '-') return document.createElement('hr');
-    if (it.heading) return Object.assign(document.createElement('p'), { className: 'menu-heading', textContent: it.heading });
-    const b = Object.assign(document.createElement('button'), { type: 'button' });
-    b.setAttribute('role', it.checked === undefined ? 'menuitem' : 'menuitemcheckbox');
-    if (it.checked !== undefined) b.setAttribute('aria-checked', String(it.checked));
-    if (it.danger) b.classList.add('danger');
-    if (it.disabled) b.disabled = true;
-    if (it.checked !== undefined) b.append(Object.assign(document.createElement('span'), { className: 'tick', textContent: it.checked ? '✓' : '' }));
-    b.append(document.createTextNode(it.label));
-    b.onclick = async (e) => {
-      e.stopPropagation();
-      let keepOpen = false;
-      try {
-        keepOpen = (await it.action()) === true;
-      } catch (err) {
-        showError(err);
-      } finally {
-        if (!keepOpen) closeMenu();
-      }
-    };
-    return b;
-  }));
-}
-
-// Replaces the menu with a question and two buttons.
-function confirmInMenu(text, label, onYes) {
-  const p = Object.assign(document.createElement('p'), { textContent: text });
-  const row = Object.assign(document.createElement('div'), { className: 'menu-row' });
-  const no = Object.assign(document.createElement('button'), { type: 'button', textContent: 'Cancel' });
-  const yes = Object.assign(document.createElement('button'), { type: 'button', textContent: label, className: 'danger' });
-  no.onclick = closeMenu;
-  yes.onclick = async () => {
-    closeMenu();
-    try {
-      await onYes();
-    } catch (err) {
-      showError(err);
-    }
-  };
-  row.append(no, yes);
-  menuEl.replaceChildren(p, row);
-  placeMenu(menuButton, menuAt);
-  yes.focus();
-  return true;
-}
-
-document.addEventListener('pointerdown', (e) => {
-  if (menuEl && !menuEl.contains(e.target) && e.target !== menuButton) closeMenu();
-}, true);
-document.addEventListener('keydown', (e) => {
-  if (menuEl && e.key === 'Escape') {
-    e.stopPropagation();
-    const b = menuButton;
-    closeMenu();
-    if (b) b.focus();
-  }
-}, true);
-window.addEventListener('resize', closeMenu);
-
-// Copy settings / Paste settings (a photo's ••• menu): every setting of one
-// photo onto another, except where it was focused by clicking and its
-// viewpoint, which belong to the scene.
-let copiedSettings = null;
-async function copySettings(photo) {
-  let edits;
-  if (state.current && state.current.photo === photo && state.info) {
-    flushSave();
-    edits = currentEdits();
-  } else {
-    edits = await state.lib.loadEdits(photo);
-    if (edits && edits.reset) edits = null;
-  }
-  copiedSettings = { id: photo.id, name: photo.name, edits: edits ? JSON.parse(JSON.stringify(edits)) : null };
-}
-async function pasteSettings(photo) {
-  if (!copiedSettings) return;
-  const open = state.current && state.current.photo === photo && state.info;
-  const { view, focusPoint, ...rest } = copiedSettings.edits || { format: EDITS_FORMAT, version: EDITS_VERSION };
-  const mine = open ? { view: { ...state.camera }, focusPoint: { ...state.focusPoint } } : (await state.lib.loadEdits(photo)) || {};
-  const edits = { ...rest, photo: { id: photo.id, name: photo.name }, view: mine.view, focusPoint: mine.focusPoint, modified: new Date().toISOString() };
-  if (!copiedSettings.edits) {
-    // Copied from a photo never edited: its defaults.
-    for (const group of Object.keys(DEFAULT_EDITS || {})) edits[group] = DEFAULT_EDITS[group];
-  }
-  if (open) {
-    await flushSave();
-    await applyEdits(state.info, edits);
-    // One undo step, saved like any change.
-    scheduleSave();
-  } else {
-    await state.lib.saveEdits(photo, edits);
-  }
-}
-
-// Rename (a photo's ••• menu): the name is typed in the photo's row or tile; Enter keeps it, Escape leaves the old one.
-function renamePhoto(photo) {
-  const row = [...$('library-list').children].find((el) => el.dataset.photoId === photo.id)
-    || [...$('photo-grid').children].find((el) => el.dataset.id === photo.id);
-  const done = async (name) => {
-    if (name && (await state.lib.renamePhoto(photo, name)) && state.current && state.current.photo === photo) state.current.name = photo.name;
-    renderLibrary();
-  };
-  if (row) editName(row, photo.name, done, 'Photo name');
-  else done(window.prompt('Photo name', photo.name));
-}
-
-// The name of the photo a virtual copy was made from.
-function virtualMasterName(photo) {
-  const m = state.lib.get(photo.master);
-  return m ? m.name : photo.name;
-}
-
-// Create virtual copy (a photo's ••• menu): another entry for the same photo (the same light field files, stored once) with settings of its own, starting from the photo's
-// current settings. The copy is opened so it can be changed at once.
-async function createVirtualCopy(photo) {
-  // What is open has not been saved yet: the copy starts from what is on the screen.
-  if (state.current && state.current.photo === photo && state.info) await flushSave();
-  let copy = null;
-  try {
-    copy = await state.lib.createVirtualCopy(photo);
-  } catch (err) {
-    console.warn('Could not create the virtual copy', err);
-    return showNotice('The virtual copy could not be created.');
-  }
-  if (!copy) return;
-  renderLibrary();
-  openItem(copy);
-}
-
-function photoMenu(photo, button, at = null) {
-  // ••• on one of several picked photos acts on all of them
-  if (selection.size > 1 && selection.has(photo.id)) {
-    const group = state.lib.photos.filter((p) => selection.has(p.id));
-    if (group.length > 1) return photoGroupMenu(group, button, at);
-  }
-  const items = [];
-  items.push({ label: 'Rename…', action: () => renamePhoto(photo) });
-  // Settings first, so they stay in view however many albums there are.
-  items.push({ label: 'Rating, flag and keywords…', action: () => marks.openMarks(photo) });
-  items.push({ label: 'Copy settings', action: () => copySettings(photo) });
-  items.push({ label: 'Create virtual copy', action: () => createVirtualCopy(photo) });
-  items.push({
-    label: copiedSettings ? `Paste settings from ${copiedSettings.name}…` : 'Paste settings',
-    disabled: !copiedSettings || copiedSettings.id === photo.id,
-    action: () => confirmInMenu(`Replace the settings of ${photo.name} with those copied from ${copiedSettings.name}?`, 'Paste', () => pasteSettings(photo)),
-  });
-  items.push({
-    label: 'Reset settings…',
-    action: () => confirmInMenu(`Reset every setting of ${photo.name}? Its adjustments, keyframes and local adjustments go back to how a newly opened photo starts.`, 'Reset', () => resetPhotoSettings(photo)),
-  });
-  // Desktop only: the photo's folder in the library, in the system's file manager.
-  if (native && native.library && native.library.open) {
-    const fileManager = /Mac/i.test(navigator.platform) ? 'Finder' : /Win/i.test(navigator.platform) ? 'Explorer' : 'file manager';
-    items.push({ label: `Open in ${fileManager}`, action: () => native.library.open(`Photos/${photo.master || photo.id}`).catch((err) => console.warn('Could not open the photo folder', err)) });
-  }
-  items.push('-');
-  items.push({ heading: 'Albums' });
-  for (const a of state.lib.albums) {
-    const inside = a.photos.includes(photo.id);
-    items.push({
-      label: a.name,
-      checked: inside,
-      action: async () => {
-        if (inside) await state.lib.removeFromAlbum(a.id, [photo.id]);
-        else await state.lib.addToAlbum(a.id, [photo.id]);
-        renderLibrary();
-      },
-    });
-  }
-  items.push({ label: 'New album…', action: () => newAlbum([photo.id]) });
-  items.push('-');
-  const where = state.lib.store.kind === 'folder'
-    ? 'Its folder (the photo and its edits) is moved to the trash.'
-    : 'The photo and its edits are deleted from this browser’s storage.';
-  items.push({
-    label: state.lib.persistent ? 'Delete from library…' : 'Remove from list',
-    danger: true,
-    action: () => {
-      const remove = () => removePhotos([photo]);
-      if (!state.lib.persistent) return remove();
-      const copies = state.lib.photos.filter((p) => p.master === photo.id).length;
-      const withCopies = copies ? ` Its ${copies === 1 ? 'virtual copy is' : `${copies} virtual copies are`} deleted too.` : '';
-      return confirmInMenu(`Delete ${photo.name} from the library? ${where}${withCopies}`, 'Delete', remove);
-    },
-  });
-  showMenu(button, items, at);
-}
-
-// The ••• menu for several picked photos: paste or reset their settings, put them in an album or take them out, delete them.
-function photoGroupMenu(group, button, at = null) {
-  const n = group.length;
-  const ids = group.map((p) => p.id);
-  const items = [{ heading: `${n} photos` }];
-  items.push({
-    label: copiedSettings ? `Paste settings from ${copiedSettings.name}…` : 'Paste settings',
-    disabled: !copiedSettings,
-    action: () => confirmInMenu(`Replace the settings of ${n} photos with those copied from ${copiedSettings.name}?`, 'Paste', async () => {
-      for (const p of group) if (p.id !== copiedSettings.id) await pasteSettings(p);
-    }),
-  });
-  items.push({
-    label: 'Reset settings…',
-    action: () => confirmInMenu(`Reset every setting of ${n} photos? Their adjustments, keyframes and local adjustments go back to how a newly opened photo starts.`, 'Reset', async () => {
-      for (const p of group) await resetPhotoSettings(p);
-    }),
-  });
-  items.push('-');
-  items.push({ heading: 'Albums' });
-  for (const a of state.lib.albums) {
-    const all = ids.every((id) => a.photos.includes(id));
-    items.push({
-      label: a.name,
-      checked: all,
-      action: async () => {
-        if (all) await state.lib.removeFromAlbum(a.id, ids);
-        else await state.lib.addToAlbum(a.id, ids.filter((id) => !a.photos.includes(id)));
-        renderLibrary();
-      },
-    });
-  }
-  items.push({ label: 'New album…', action: () => newAlbum(ids) });
-  items.push('-');
-  items.push({
-    label: state.lib.persistent ? `Delete ${n} from library…` : `Remove ${n} from list`,
-    danger: true,
-    action: () => {
-      const remove = () => removePhotos(group);
-      if (!state.lib.persistent) return remove();
-      return confirmInMenu(`Delete ${n} photos from the library? ${deletionWhere()}`, 'Delete', remove);
-    },
-  });
-  showMenu(button, items, at);
-}
-
-function albumMenu(id, li, button) {
-  const album = state.lib.album(id);
-  if (!album) return;
-  showMenu(button, [
-    {
-      label: 'Rename…',
-      action: () => editName(li, album.name, async (name) => {
-        if (name) await state.lib.renameAlbum(id, name);
-        renderLibrary();
-      }),
-    },
-    {
-      label: 'Export album…',
-      action: () => exportAlbum(id),
-    },
-    {
-      label: 'Delete album…',
-      danger: true,
-      action: () => confirmInMenu(`Delete the album “${album.name}”? Its photos stay in the library.`, 'Delete', async () => {
-        await state.lib.deleteAlbum(id);
-        if (state.album === id) state.album = null;
-        renderLibrary();
-      }),
-    },
-  ]);
-}
-
-// Copies photos (scan.js entries) into the library, adding them to the
-// album being shown. Returns the library photos.
-async function importPhotos(entries, { album = state.album, replace = false } = {}) {
-  await libReady;
-  if (!entries.length) return [];
-  let added = [];
-  const before = new Map(state.lib.photos.map((p) => [p.id, p.added]));
-  try {
-    added = await state.lib.add(entries, {
-      replace,
-      onProgress: (e, i, n) => {
-        if (e) showProgress(n > 1 ? `Adding ${e.name} to the library (${i + 1} of ${n})` : `Adding ${e.name} to the library`, i / n);
-      },
-    });
-    // Replaced photos: their thumbnails are new, and an open one opens again
-    // from its new files.
-    const replaced = added.filter((p) => before.has(p.id) && before.get(p.id) !== p.added);
-    for (const p of replaced) {
-      const url = thumbs.get(p.id);
-      if (url) URL.revokeObjectURL(url);
-      thumbs.delete(p.id);
-    }
-    const open = state.current && state.current.photo;
-    if (open && replaced.includes(open)) openItem(open);
-    if (album && state.lib.album(album)) await state.lib.addToAlbum(album, added.map((p) => p.id));
-  } catch (err) {
-    showError(err);
-  } finally {
-    hideProgress();
-    renderLibrary();
-  }
-  return added;
-}
+// menus: ui/menus.js
+const { closeMenu, showMenu, confirmInMenu, virtualMasterName, photoMenu, albumMenu, importPhotos } = initMenus({ state, showError: (...a) => showError(...a), flushSave: (...a) => flushSave(...a), currentEdits: (...a) => currentEdits(...a), defaultEdits: () => DEFAULT_EDITS, applyEdits: (...a) => applyEdits(...a), scheduleSave: (...a) => scheduleSave(...a), $: (...a) => $(...a), renderLibrary: (...a) => renderLibrary(...a), editName: (...a) => editName(...a), showNotice: (...a) => showNotice(...a), openItem: (...a) => openItem(...a), selection, resetPhotoSettings: (...a) => resetPhotoSettings(...a), newAlbum: (...a) => newAlbum(...a), removePhotos: (...a) => removePhotos(...a), deletionWhere: (...a) => deletionWhere(...a), exportAlbum: (...a) => exportAlbum(...a), showProgress: (...a) => showProgress(...a), thumbs, hideProgress: (...a) => hideProgress(...a) });
 
 // ---------------------------------------------------------------- opening
 
@@ -1381,7 +186,7 @@ async function importPhotos(entries, { album = state.album, replace = false } = 
 // A click on a photo in the sidebar list or the film strip: it opens the photo, or (Ctrl/Cmd: one more or one less; Shift: all from the last one picked to this one) picks it, with the same
 // selection the grid has (Delete takes the picked photos out, and ••• on a picked photo acts on all of them where it can).
 function chooseListedPhoto(photo, e) {
-  if (queueUi && queueUi.pick(photo, e)) return;
+  if (state.queueUi && state.queueUi.pick(photo, e)) return;
   const order = (state.listedPhotos || []).map((p) => p.id);
   if (e && e.shiftKey) {
     // (the open photo is where a range starts when nothing was picked)
@@ -1408,8 +213,6 @@ function chooseListedPhoto(photo, e) {
 // released over the same photo instead, whether or not the row was rebuilt in between. (A drag to an album ends without a release on a row of the same photo; the keyboard still
 // uses click.)
 let pressedPhotoId = null;
-let pressHandledUntil = 0;
-let pressHandledId = null;
 const photoRowAt = (target) => (target && target.closest && !target.closest('button, input, select, a') ? target.closest('#library-list li') : null);
 $('library-list').addEventListener('pointerdown', (e) => {
   const row = e.button === 0 ? photoRowAt(e.target) : null;
@@ -1422,8 +225,8 @@ $('library-list').addEventListener('pointerup', (e) => {
   if (!id || !row || row.dataset.photoId !== id) return;
   const photo = (state.listedPhotos || []).find((p) => p.id === id);
   if (!photo) return;
-  pressHandledId = id;
-  pressHandledUntil = performance.now() + 500;
+  state.pressHandledId = id;
+  state.pressHandledUntil = performance.now() + 500;
   chooseListedPhoto(photo, e);
 });
 
@@ -1438,7 +241,7 @@ async function openItem(photo) {
   // The photo on show keeps its last change before the view is reset or the controls are rewritten.
   await flushSave();
   if (openSeq.superseded(my)) return;
-  await calReady;
+  await state.calReady;
   if (openSeq.superseded(my)) return;
   const file = await state.lib.file(photo).catch(() => null);
   if (openSeq.superseded(my)) return;
@@ -1585,7 +388,7 @@ function resetView() {
   state.camera = { u: 0, v: 0 };
   showViewpoint();
   state.focusPoint = { x: 0.5, y: 0.5 };
-  lastClick = null; // (a click on the photo before is not applied again to the depth of this one)
+  state.lastClick = null; // (a click on the photo before is not applied again to the depth of this one)
   showFocusPoint();
   $('spread-overlay').hidden = true;
   setFullRes(false, { restore: false });
@@ -1611,14 +414,14 @@ function closePhoto() {
   flushSave();
   flushProcessed();
   openSeq.next();
-  clearTimeout(saveTimer);
-  saveTimer = 0;
+  clearTimeout(state.saveTimer);
+  state.saveTimer = 0;
   state.editsKey = null;
   resetView();
   renderMasks();
-  if (retouchUi) {
-    retouchUi.setTool(null);
-    retouchUi.renderList();
+  if (state.retouchUi) {
+    state.retouchUi.setTool(null);
+    state.retouchUi.renderList();
   }
   $('histogram').getContext('2d').clearRect(0, 0, 256, 80);
   state.current = null;
@@ -1628,8 +431,8 @@ function closePhoto() {
   $('placeholder').innerHTML = '<p>Drop a Lytro <code>.LFR</code> or <code>.LFP</code> file, or a Light L16 <code>.LRI</code> file, here.</p>';
   $('info').replaceChildren();
   $('speed').hidden = true;
-  if (queueUi) setTimeout(() => queueUi.render(), 0);
-  if (looks) setTimeout(() => looks.render(), 0);
+  if (state.queueUi) setTimeout(() => state.queueUi.render(), 0);
+  if (state.looks) setTimeout(() => state.looks.render(), 0);
   $('frame-label').textContent = '';
   setMode(state.mode);
 }
@@ -1645,7 +448,7 @@ async function openWith(args, transfer, my = openSeq.next()) {
     hideProgress();
     state.info = info;
     // The photo is open but its first picture is not drawn yet (the depth may still have to be measured): say so.
-    if (processing && processing.my === my && !processing.drawn) {
+    if (state.processing && state.processing.my === my && !state.processing.drawn) {
       showProgress(FIRST_PICTURE, null);
       // With no picture on screen, the spinner stays in the empty area until it is drawn.
       if (canvas.classList.contains('hidden')) {
@@ -1676,7 +479,7 @@ async function openWith(args, transfer, my = openSeq.next()) {
         processingStep(my, 'prepared');
       });
     } else processingStep(my, 'prepared');
-    emitEvent('photoOpened', { name: state.current ? state.current.name : null, raw: !!info.hasRaw });
+    state.emitEvent('photoOpened', { name: state.current ? state.current.name : null, raw: !!info.hasRaw });
   } catch (err) {
     if (!openSeq.superseded(my)) {
       endProcessing(my);
@@ -1688,8 +491,8 @@ async function openWith(args, transfer, my = openSeq.next()) {
 // Stops the saves still waiting for a photo that is going away (deleted): nothing may write its folder again.
 function cancelSaves(photo) {
   if (state.current && state.current.photo === photo) {
-    clearTimeout(saveTimer);
-    saveTimer = 0;
+    clearTimeout(state.saveTimer);
+    state.saveTimer = 0;
     state.editsKey = null;
   }
   if (pendingProcessed && pendingProcessed.photo === photo) {
@@ -1736,8 +539,8 @@ function draw(img, gen = openSeq.current()) {
   if (!drag.on && !state.depthShown && !state.skipEnlarge && state.mode === 'camera') showAtPhotoSize(shownScale(w, h));
   scheduleHistogram();
   if (state.wantThumb && state.mode === 'camera') saveThumbnail();
-  emitEvent('rendered', { width: w, height: h });
-  if (retouchUi) retouchUi.drawOverlay();
+  state.emitEvent('rendered', { width: w, height: h });
+  if (state.retouchUi) state.retouchUi.drawOverlay();
 }
 
 // A stereo pair next to each other (left eye first, or right eye first for
@@ -1766,308 +569,11 @@ function drawPair(img) {
   scheduleHistogram();
 }
 
-// ---------------------------------------------------------------- histogram
+// histogram: ui/histogram.js
+const { scheduleHistogram, fNumber, opticalInEffect, apertureFor, showFNumber, focusField, BOKEH_SHAPE, bokehParams, viewReach, showViewpoint, showFocusPoint, spreadView, updateSpreadOverlay } = initHistogram({ engine, drawPeaking: (...a) => drawPeaking(...a), refreshDepthRuler: (...a) => refreshDepthRuler(...a), $: (...a) => $(...a), canvas, state, ctx, hasDepth: (...a) => hasDepth(...a), openSeq, progressFor: (...a) => progressFor(...a), hideProgress: (...a) => hideProgress(...a), geometrySettings: (...a) => geometrySettings(...a), drawGeometry: (...a) => drawGeometry(...a), showError: (...a) => showError(...a) });
 
-let histogramQueued = false;
-
-// At most once per frame: the picture can change on every pointer move. The histogram and focus peaking read the picture shown back, which (a picture from the graphics card)
-// waits until the card has finished all the worker's work: while the worker is busy they wait for it to finish, so the page is not held up.
-function scheduleHistogram() {
-  if (histogramQueued) return;
-  histogramQueued = true;
-  const run = () => {
-    if ([...engine.pending.values()].some((p) => p.type !== 'depthHistogram')) {
-      setTimeout(() => requestAnimationFrame(run), 150);
-      return;
-    }
-    histogramQueued = false;
-    drawHistogram();
-    drawPeaking();
-    refreshDepthRuler();
-  };
-  requestAnimationFrame(run);
-}
-
-// RGB histogram of what the picture currently shows.
-let histogramCanvas = null;
-function drawHistogram() {
-  const hc = $('histogram');
-  const hctx = hc.getContext('2d');
-  hctx.clearRect(0, 0, hc.width, hc.height);
-  const w = canvas.width;
-  const h = canvas.height;
-  if (!state.info || !w || !h || canvas.classList.contains('hidden')) return;
-  // About 250k pixels at most: a large picture is first drawn small (nearest pixels, so the values stay real ones) and only that is read back.
-  let data;
-  let step = 4;
-  if (w * h <= 300000) {
-    data = ctx.getImageData(0, 0, w, h).data;
-  } else {
-    const k = Math.sqrt(250000 / (w * h));
-    const sw = Math.max(1, Math.round(w * k));
-    const sh = Math.max(1, Math.round(h * k));
-    histogramCanvas ||= document.createElement('canvas');
-    if (histogramCanvas.width !== sw || histogramCanvas.height !== sh) {
-      histogramCanvas.width = sw;
-      histogramCanvas.height = sh;
-    }
-    const sctx = histogramCanvas.getContext('2d', { willReadFrequently: true });
-    sctx.imageSmoothingEnabled = false;
-    sctx.drawImage(canvas, 0, 0, w, h, 0, 0, sw, sh);
-    data = sctx.getImageData(0, 0, sw, sh).data;
-  }
-  const bins = [new Uint32Array(256), new Uint32Array(256), new Uint32Array(256)];
-  for (let i = 0; i < data.length; i += step) {
-    bins[0][data[i]]++;
-    bins[1][data[i + 1]]++;
-    bins[2][data[i + 2]]++;
-  }
-  // Scale to the tallest bin, ignoring the clipped ends, with a square root
-  // so shadows and highlights stay readable.
-  let max = 1;
-  for (const b of bins) for (let i = 1; i < 255; i++) max = Math.max(max, b[i]);
-  const H = hc.height;
-  const colors = ['rgba(255, 90, 90, 0.75)', 'rgba(90, 220, 110, 0.75)', 'rgba(100, 150, 255, 0.75)'];
-  hctx.globalCompositeOperation = 'lighter';
-  bins.forEach((b, c) => {
-    hctx.fillStyle = colors[c];
-    hctx.beginPath();
-    hctx.moveTo(0, H);
-    for (let i = 0; i < 256; i++) hctx.lineTo(i, H - Math.min(1, Math.sqrt(b[i] / max)) * (H - 2));
-    hctx.lineTo(255, H);
-    hctx.closePath();
-    hctx.fill();
-  });
-  hctx.globalCompositeOperation = 'source-over';
-}
-
-// Aperture stops offered by the f-stop slider, smallest aperture first.
-
-
-// (the slider's position among the stops: between two, an animation's in-between f-number, core/fstops.js)
-function fNumber() {
-  return fNumberAt($('fstop').value);
-}
-
-// The camera recorded the light field through its own aperture (f/2 on the
-// ILLUM). Stopping down uses a smaller part of it (synthetic aperture as a
-// fraction of the recorded one); opening up past it adds blur from the depth
-// map, scaled so the blur grows like a real lens's would.
-// Optical bokeh averages the camera's own views, which only refocuses: with the Depth slider moved, or Focus Spread or Tilt on, the blur has to come from the depth
-// map, and Natural is used (a note under Shape says so).
-function opticalInEffect() {
-  if ($('bokeh').value !== 'optical') return false;
-  const field = focusField();
-  return +$('dof-depth').value === 0 && !(field.spread > 0 || field.smooth > 0 || field.blur > 0 || field.tilt.some((t) => t));
-}
-
-function apertureFor(n) {
-  const native = (state.info && state.info.cam && state.info.cam.capture && state.info.cam.capture.fNumber) || 2;
-  const ratio = native / n;
-  const radius = state.info ? state.info.radius : 4.5;
-  // Normally the blur is drawn from the depth map over the sharp single view
-  // (or the multi-view denoised merge), like Lytro's own renders: whatever
-  // is in focus keeps full sharpness. "Optical" instead refocuses by
-  // averaging the views, which is softer but follows the real optics.
-  if (!opticalInEffect()) return { aperture: 0, dof: ratio < 0.15 ? 0 : (radius * ratio) / 14 };
-  // About one view's worth of the aperture: render that single view (fast).
-  if (ratio < 0.15) return { aperture: 0, dof: 0 };
-  if (ratio <= 1) return { aperture: ratio, dof: 0 };
-  return { aperture: 1, dof: (radius * (ratio - 1)) / 14 };
-}
-
-// (the step back on a slider used by hand)
-watchExactSliders();
-
-function showFNumber() {
-  const n = fNumber();
-  // (a stop as it is named; an animation's f-number between the stops as it is, to two decimals)
-  $('fstop-label').textContent = `f/${F_STOPS.includes(n) ? n : +n.toFixed(2)}`;
-}
-
-// Focus spread and tilt. Depth values run from -1.6 to 1.6, so full spread
-// keeps that whole range sharp around the focus depth, and full tilt changes
-// the focus depth by 1.6 from one edge of the picture to the other. The
-// tilted focus plane turns around the focus point (normalized x, y).
-// The focus field (spread and tilt) for the worker, from the controls, or
-// with any of them replaced by `v` (an animation frame's values).
-function focusField(v = {}) {
-  // Tilt off: a flat plane of focus, the settings kept for later.
-  const tilt = $('tilt-on').checked ? 1.6 * (v.tilt ?? +$('tilt').value) / 100 : 0;
-  const angle = ((v.tiltRotation ?? +$('tilt-rotation').value) * Math.PI) / 180;
-  return {
-    spread: 1.6 * (v.spread ?? +$('spread').value) / 100,
-    // Width of the soft edge of the sharp range, in the same units.
-    smooth: 0.8 * (v.spreadSmooth ?? +$('spread-smooth').value) / 100,
-    // Feathering of the spread in the picture: the blur radius map is smoothed over this many units of the depth of field strength (pixels = blur x
-    // the image's pixels per unit; full Blur is the camera's own f/2 blur three focus units away).
-    blur: (3 * (state.info ? state.info.radius : 4.5) / 14) * (v.spreadBlur ?? +$('spread-blur').value) / 100,
-    tilt: [tilt * Math.cos(angle), tilt * Math.sin(angle)],
-    point: [v.pointX ?? state.focusPoint.x, v.pointY ?? state.focusPoint.y],
-  };
-}
-
-// Bokeh options for the worker: shape and highlights, and the focus field.
-const BOKEH_SHAPE = ['bokeh-blades', 'bokeh-oval', 'bokeh-rotation', 'bokeh-onion', 'bokeh-points', 'bokeh-inner', 'bokeh-width', 'bokeh-irregular', 'bokeh-ring-blur', 'bokeh-warp', 'bokeh-onion-on', 'bokeh-size', 'bokeh-spots', 'bokeh-cat', 'bokeh-swirl', 'bokeh-edge', 'bokeh-edge-fb', 'bokeh-bubble', 'bokeh-hole', 'bokeh-fringe', 'bokeh-hot', 'bokeh-grain', 'bokeh-diffraction', 'bokeh-streak', 'bokeh-streak-len', 'bokeh-streak-threshold', 'bokeh-outer', 'bokeh-star', 'bokeh-spikes', 'bokeh-ghosts', 'bokeh-fog', 'bokeh-dirt'];
-function bokehParams(v = {}) {
-  const shape = $('bokeh').value === 'natural' ? 'smooth' : $('bokeh').value;
-  return {
-    shape,
-    highlights: v.highlights ?? +$('highlights').value,
-    // (keyframed: a frame's own values; blades in whole numbers)
-    blades: Math.round(v.bokehBlades ?? +$('bokeh-blades').value),
-    oval: shape === 'circle' ? (v.bokehOval ?? +$('bokeh-oval').value) / 100 : 0,
-    rotation: v.bokehRotation ?? +$('bokeh-rotation').value,
-    // (with Onion rings off, no ring is made or drawn)
-    onion: shape === 'smooth' || shape === 'optical' || !$('bokeh-onion-on').checked ? 0 : (v.bokehOnion ?? +$('bokeh-onion').value) / 100,
-    // the size of the balls, as a multiple of the lens's blur (applied where the blur is drawn)
-    size: (v.bokehSize ?? +$('bokeh-size').value) / 100,
-    // (a custom shape's image: white where light passes, see core/dof.js)
-    image: shape === 'custom' ? $('bokeh-image').value : '',
-    // Star and Heart (core/dof.js drawnShape)
-    // (keyframed: a frame's own values; points in whole numbers)
-    points: Math.round(v.bokehPoints ?? +$('bokeh-points').value),
-    inner: (v.bokehInner ?? +$('bokeh-inner').value) / 100,
-    width: (v.bokehWidth ?? +$('bokeh-width').value) / 100,
-    outer: (v.bokehOuter ?? +$('bokeh-outer').value) / 100,
-    // the onion skin's irregularity and ring blur, and dust spots (core/dof.js onionMap)
-    irregular: (v.bokehIrregular ?? +$('bokeh-irregular').value) / 100,
-    ringBlur: (v.bokehRingBlur ?? +$('bokeh-ring-blur').value) / 100,
-    warp: (v.bokehWarp ?? +$('bokeh-warp').value) / 100,
-    spots: shape === 'smooth' || shape === 'optical' ? 0 : (v.bokehSpots ?? +$('bokeh-spots').value) / 100,
-    // The ball's character and the cat's-eye (core/dof.js): all off for Natural and Optical
-    catEye: shape === 'smooth' || shape === 'optical' ? 0 : (v.bokehCat ?? +$('bokeh-cat').value) / 100,
-    swirl: shape === 'smooth' || shape === 'optical' ? 0 : (v.bokehSwirl ?? +$('bokeh-swirl').value) / 100,
-    edge: shape === 'smooth' || shape === 'optical' ? 0 : (v.bokehEdge ?? +$('bokeh-edge').value) / 100,
-    edgeFB: shape === 'smooth' || shape === 'optical' ? 0 : (v.bokehEdgeFB ?? +$('bokeh-edge-fb').value) / 100,
-    bubble: shape === 'smooth' || shape === 'optical' ? 0 : (v.bokehBubble ?? +$('bokeh-bubble').value) / 100,
-    hole: shape === 'smooth' || shape === 'optical' ? 0 : (v.bokehHole ?? +$('bokeh-hole').value) / 100,
-    fringe: shape === 'smooth' || shape === 'optical' ? 0 : (v.bokehFringe ?? +$('bokeh-fringe').value) / 100,
-    hot: shape === 'smooth' || shape === 'optical' ? 0 : (v.bokehHot ?? +$('bokeh-hot').value) / 100,
-    grain: shape === 'smooth' || shape === 'optical' ? 0 : (v.bokehGrain ?? +$('bokeh-grain').value) / 100,
-    diffraction: shape === 'smooth' || shape === 'optical' ? 0 : (v.bokehDiffraction ?? +$('bokeh-diffraction').value) / 100,
-    // Lens effects round bright points (core/bokehfx.js): independent of the ball's shape
-    fxStreak: (v.bokehStreak ?? +$('bokeh-streak').value) / 100,
-    fxStreakLen: (v.bokehStreakLen ?? +$('bokeh-streak-len').value) / 100,
-    fxStreakThreshold: (v.bokehStreakThreshold ?? +$('bokeh-streak-threshold').value) / 100,
-    fxStar: (v.bokehStar ?? +$('bokeh-star').value) / 100,
-    fxSpikes: Math.round((v.bokehSpikes ?? +$('bokeh-spikes').value)),
-    fxGhosts: (v.bokehGhosts ?? +$('bokeh-ghosts').value) / 100,
-    fxFog: (v.bokehFog ?? +$('bokeh-fog').value) / 100,
-    fxDirt: (v.bokehDirt ?? +$('bokeh-dirt').value) / 100,
-    ...focusField(v),
-  };
-}
-
-// Perspective > Reach: how far the viewpoint can move, as a multiple of the lens's opening (1 = what the camera recorded).
-function viewReach() {
-  return Math.max(1, (+$('view-reach').value || 100) / 100);
-}
-
-function showViewpoint() {
-  const r = (state.info && state.info.radius) || 1;
-  const { u, v } = state.camera;
-  const centered = Math.abs(u) < 1e-3 && Math.abs(v) < 1e-3;
-  $('viewpoint').textContent = centered ? 'Center' : `${Math.round((100 * u) / r)}%, ${Math.round((100 * v) / r)}%`;
-  // (Reset shows only while the viewpoint is moved)
-  $('view-center').hidden = centered;
-}
-
-function showFocusPoint() {
-  const { x, y } = state.focusPoint;
-  $('focus-point').textContent = x === 0.5 && y === 0.5 ? 'Center' : `${Math.round(x * 100)}%, ${Math.round(y * 100)}%`;
-}
-
-// Show spread: tints what lies outside the sharp depth range, blue where
-// nearer and orange where farther. Drawn on its own canvas over the picture
-// (the histogram reads the picture). Requests are coalesced like the view.
-const spreadView = { busy: false, pending: false };
-async function updateSpreadOverlay() {
-  const overlay = $('spread-overlay');
-  // Show tilt: the same tint, measured from the tilted plane of focus alone
-  // (no sharp range around it), fading in over a short distance from it.
-  const tiltView = $('tilt-show').checked && $('tilt-on').checked;
-  const on = ($('spread-show').checked || tiltView) && hasDepth() && state.mode === 'camera' && !state.depthShown;
-  overlay.hidden = !on;
-  if (!on) return;
-  if (spreadView.busy) {
-    spreadView.pending = true;
-    return;
-  }
-  spreadView.busy = true;
-  const gen = openSeq.current();
-  try {
-    const field = tiltView ? { ...focusField(), spread: 0, smooth: 0.3 } : focusField();
-    const msg = await engine.request('spreadMask', { alpha: +$('focus').value, ...field }, { onProgress: progressFor(gen) });
-    if (openSeq.superseded(gen)) return;
-    hideProgress();
-    if (msg && msg.pixels) {
-      const mask = toImageData(msg);
-      const g = state.geom;
-      if (g) {
-        // Through the same crop and rotation as the picture.
-        overlay.width = canvas.width;
-        overlay.height = canvas.height;
-        const k = geometry(mask.width, mask.height, geometrySettings());
-        const o = overlay.getContext('2d');
-        drawGeometry(o, mask, k, canvas.width / k.width, false);
-      } else {
-        overlay.width = msg.width;
-        overlay.height = msg.height;
-        overlay.getContext('2d').putImageData(mask, 0, 0);
-      }
-    }
-  } catch (err) {
-    if (!openSeq.superseded(gen)) showError(err, 'Could not show the spread');
-  } finally {
-    spreadView.busy = false;
-    if (spreadView.pending) {
-      spreadView.pending = false;
-      updateSpreadOverlay();
-    }
-  }
-}
-
-// ---------------------------------------------------------------- focus peaking
-
-// Focus peaking: marks the sharp edges of the picture in green. Looks at the
-// picture as shown (read small, about a million pixels at most): an edge is
-// marked where the brightness changes quickly from one pixel to the next,
-// which blurred edges do not. Drawn on its own canvas over the picture.
-let peakingScratch = null;
-function drawPeaking() {
-  const overlay = $('peaking-overlay');
-  const on = $('focus-peaking').checked && state.info && state.mode === 'camera' && !state.depthShown && !canvas.classList.contains('hidden') && !(state.lastImage && state.lastImage.pair);
-  overlay.hidden = !on;
-  if (!on) return;
-  const w = canvas.width;
-  const h = canvas.height;
-  if (!w || !h) return;
-  const k = Math.min(1, Math.sqrt(PEAKING_MAX_PIXELS / (w * h)));
-  const sw = Math.max(2, Math.round(w * k));
-  const sh = Math.max(2, Math.round(h * k));
-  peakingScratch ||= document.createElement('canvas');
-  if (peakingScratch.width !== sw || peakingScratch.height !== sh) {
-    peakingScratch.width = sw;
-    peakingScratch.height = sh;
-  }
-  const sctx = peakingScratch.getContext('2d', { willReadFrequently: true });
-  sctx.drawImage(canvas, 0, 0, w, h, 0, 0, sw, sh);
-  const data = sctx.getImageData(0, 0, sw, sh).data;
-  // Level 0..100 to a threshold from 0.30 (few edges) down to 0.03 (nearly every edge).
-  const threshold = 0.3 - 0.0027 * +$('peaking-level').value;
-  const out = peakingPixels(data, sw, sh, threshold);
-  if (overlay.width !== sw) overlay.width = sw;
-  if (overlay.height !== sh) overlay.height = sh;
-  overlay.getContext('2d').putImageData(new ImageData(out, sw, sh), 0, 0);
-  for (const key of ['width', 'height', 'left', 'top']) overlay.style[key] = canvas.style[key];
-}
-
-$('focus-peaking').onchange = drawPeaking;
-$('peaking-level').oninput = () => {
-  showSliderValue($('peaking-level'));
-  drawPeaking();
-};
+// focus peaking: ui/peaking.js
+const { drawPeaking } = initPeaking({ $: (...a) => $(...a), state, canvas, showSliderValue: (...a) => showSliderValue(...a) });
 
 // ---------------------------------------------------------------- depth ruler
 
@@ -2328,13 +834,11 @@ for (const type of ['pointerup', 'pointercancel']) {
 // latest settings are kept for the next.
 // The engine's noise reduction takes long at the larger picture sizes: a camera view is shown without it first, and the finished picture (with it) is asked for
 // once the changes stop (the worker says so with nrDeferred). `final`: that request.
-let nrFinalTimer = 0;
-let recoveryRunning = false;
 // The slow Detail recovery pass runs on its own, not while the quick view is marked busy, so a newer quick preview is made at once and never waits for it. Any new render
 // stops it (its picture is for settings that have changed).
 let recoveryToken = 0;
 async function runRecovery(gen, token) {
-  recoveryRunning = true;
+  state.recoveryRunning = true;
   try {
     const { promise } = engine.job('superRes', 'superres', { ...cameraParams({ live: true }), scale: +$('detail').value, passes: +$('still-passes').value, label: 'Processing' }, { onProgress: progressFor(gen) });
     const msg = await promise;
@@ -2347,17 +851,17 @@ async function runRecovery(gen, token) {
   } catch (err) {
     if (!openSeq.superseded(gen) && token === recoveryToken) showError(err, 'Could not render the picture');
   } finally {
-    recoveryRunning = false;
+    state.recoveryRunning = false;
   }
 }
 
 async function renderCamera({ final = false } = {}) {
-  clearTimeout(nrFinalTimer);
+  clearTimeout(state.nrFinalTimer);
   cancelSharp();
   recoveryToken++;
-  if (recoveryRunning) engine.cancel('superres').catch(() => {});
+  if (state.recoveryRunning) engine.cancel('superres').catch(() => {});
   // Changes keep coming: wait for them to stop before auto rendering.
-  if (autoRenderTimer) scheduleAutoRender();
+  if (state.autoRenderTimer) scheduleAutoRender();
   if (!canRender()) return;
   // The slow final pass waits until the slider or playhead has been still (the quick view is made now; the pass is scheduled again below).
   if (final && !seekSettled()) final = false;
@@ -2406,7 +910,7 @@ async function renderCamera({ final = false } = {}) {
         if (draft) drag.drafted = true;
       }
       if (msg && msg.gpuMs != null) showGpuTime(msg.gpuMs);
-      if (msg && !final && (msg.nrDeferred || recovery)) nrFinalTimer = setTimeout(function again() { if (!seekSettled()) nrFinalTimer = setTimeout(again, seekWait()); else if (showsCamera()) renderCamera({ final: true }); }, 350);
+      if (msg && !final && (msg.nrDeferred || recovery)) state.nrFinalTimer = setTimeout(function again() { if (!seekSettled()) state.nrFinalTimer = setTimeout(again, seekWait()); else if (showsCamera()) renderCamera({ final: true }); }, 350);
     }
   } catch (err) {
     if (!openSeq.superseded(gen)) showError(err, 'Could not render the picture');
@@ -2507,396 +1011,8 @@ function refresh() {
   else renderCamera();
 }
 
-// ---------------------------------------------------------------- animation
-
-function pathPoint(kind, t) {
-  const a = 2 * Math.PI * t;
-  switch (kind) {
-    case 'horizontal': return [Math.sin(a), 0];
-    case 'vertical': return [0, Math.sin(a)];
-    case 'figure8': return [Math.sin(a), 0.7 * Math.sin(2 * a)];
-    case 'diagonal': return [Math.sin(a) * Math.SQRT1_2, Math.sin(a) * Math.SQRT1_2];
-    default: return [Math.cos(a), Math.sin(a)];
-  }
-}
-
-function animationRequest() {
-  const p = cameraParams();
-  const keyed = $('anim').value === 'keyframes' ? keyframeFrames() : null;
-  if (keyed) {
-    return { type: 'frames', kind: 'frames', loop: 'loop', values: [], framing: keyed.framing, args: { path: keyed.path, alpha: p.alpha, aperture: p.aperture, dof: p.dof, bokeh: p.bokeh } };
-  }
-  if ($('anim').value === 'keyframes') {
-    // Fewer than two keyframes: the current view only.
-    return { type: 'frames', kind: 'frames', loop: 'loop', values: [], framing: [liveFraming()], args: { path: [{ u: p.u, v: p.v }], alpha: p.alpha, aperture: p.aperture, dof: p.dof, bokeh: p.bokeh } };
-  }
-  if ($('anim').value === 'focus') {
-    const n = +$('steps').value;
-    // Near and Far may be keyframed: step i is at i / frame rate.
-    const alphas = Array.from({ length: n }, (_, i) => {
-      const t = i / state.fps;
-      const near = valueAt(state.anim, 'near', t) ?? +$('near').value;
-      const far = valueAt(state.anim, 'far', t) ?? +$('far').value;
-      return near + ((far - near) * i) / (n - 1);
-    });
-    // A small aperture would show little change: sweep at least wide open.
-    const aperture = Math.max(p.aperture, 1);
-    return { type: 'refocusFrames', kind: 'refocus', loop: 'pingpong', values: alphas, args: { alphas, u: p.u, v: p.v, aperture, dof: p.dof, bokeh: p.bokeh } };
-  }
-  const n = +$('frames').value;
-  const path = Array.from({ length: n }, (_, i) => {
-    // Amount may be keyframed: frame i is at i / frame rate.
-    const r = state.info.radius * viewReach() * (valueAt(state.anim, 'amount', i / state.fps) ?? +$('amount').value);
-    const [x, y] = pathPoint($('path').value, i / n);
-    return { u: x * r, v: y * r };
-  });
-  return { type: 'frames', kind: 'frames', loop: 'loop', values: [], args: { path, alpha: p.alpha, aperture: p.aperture, dof: p.dof, bokeh: p.bokeh } };
-}
-
-function resetAnimation() {
-  engine.cancel('frames');
-  engine.cancel('refocus');
-  state.frames = [];
-  state.frameValues = [];
-  state.animKey = null;
-  state.animDone = null;
-  state.index = 0;
-  state.direction = 1;
-  state.showingFrames = false;
-  setPlaying(false);
-  $('scrub').max = 0;
-  $('scrub').value = 0;
-}
-
-// Renders the animation frames unless they match the current settings.
-// Each frame's pivot, pan and zoom for an animation request (see ensureAnimation).
-function framePivotsOf(req) {
-  const pivots = withPivotZoom(req.type === 'frames'
-    ? req.args.path.map((f) => pivotFor(f.u, f.v, f.alpha ?? req.args.alpha, f.aperture ?? req.args.aperture, f.pivot ?? null))
-    : req.args.alphas.map((alpha) => pivotFor(req.args.u, req.args.v, alpha, req.args.aperture)));
-  return req.framing ? pivots.map((p, i) => combineMotion(p, req.framing[i])) : pivots;
-}
-
-// The animation without rendering it: every frame's render settings (for a 'frames' job) and its pivot, pan and zoom. For work that needs only some of the frames, such as a
-// lenticular print.
-function animationPlan() {
-  const req = animationRequest();
-  const a = req.args;
-  const list = req.type === 'frames'
-    ? a.path.map((f) => ({ u: f.u, v: f.v, alpha: f.alpha ?? a.alpha, aperture: f.aperture ?? a.aperture, dof: f.dof ?? a.dof, bokeh: f.bokeh ?? a.bokeh, masks: f.masks || null, color: f.color || null }))
-    : a.alphas.map((alpha) => ({ u: a.u, v: a.v, alpha, aperture: a.aperture, dof: a.dof, bokeh: a.bokeh }));
-  return { list, pivots: framePivotsOf(req) };
-}
-
-// Animation > Preview > Resolution: the frames are kept at a half, third or quarter of their size.
-const previewDivisor = () => Math.max(1, +$('pv-res').value || 1);
-async function previewFrame(msg, div) {
-  const src = msg.bitmap || toImageData(msg);
-  if (div === 1) return msg.bitmap || createImageBitmap(src);
-  const w = Math.max(1, Math.round(src.width / div));
-  const h = Math.max(1, Math.round(src.height / div));
-  const small = await createImageBitmap(src, { resizeWidth: w, resizeHeight: h, resizeQuality: 'high' });
-  if (msg.bitmap && msg.bitmap.close) msg.bitmap.close();
-  return small;
-}
-
-function ensureAnimation() {
-  const req = animationRequest();
-  const div = previewDivisor();
-  const key = JSON.stringify([req.type, req.args, div]);
-  if (key === state.animKey) return state.animDone;
-  engine.cancel(req.kind === 'frames' ? 'refocus' : 'frames');
-  state.animKey = key;
-  state.frames = new Array(req.type === 'frames' ? req.args.path.length : req.args.alphas.length);
-  state.framePivots = framePivotsOf(req);
-  // Zoomed frames are drawn into a canvas this much larger, so the zoom is
-  // resampled once (straight to the screen) instead of blown up twice.
-  state.frameScale = Math.min(3, Math.max(1, ...state.framePivots.map((p) => (p && p.zoom) || 1)));
-  state.frameValues = req.values;
-  state.loop = req.loop;
-  // The playhead stays where it was (it was only ever reset to the start here, so any re-render sent it back to the beginning).
-  state.index = Math.min(state.frames.length - 1, Math.max(0, Math.round((state.keyTime || 0) * state.fps)));
-  state.direction = 1;
-  $('scrub').max = Math.max(0, state.frames.length - 1);
-  const { promise } = engine.job(req.type, req.kind, req.args, {
-    onProgress: showProgress,
-    onFrame: async (msg) => {
-      hideProgress();
-      if (state.animKey !== key) return;
-      state.frames[msg.index] = await previewFrame(msg, div);
-      if (state.showingFrames && msg.index === state.index) {
-        showFrame(msg.index);
-      } else if (state.showingFrames && !state.frames[state.index]) {
-        // The frame at the playhead is still to come: show this one meanwhile, without moving the playhead to it.
-        if (!state.fullRes && !state.depthShown) draw(state.frames[msg.index]);
-        updateFrameLabel();
-      } else {
-        updateFrameLabel();
-      }
-    },
-  });
-  state.animDone = promise.then(() => hideProgress(), (err) => showError(err));
-  return state.animDone;
-}
-
-// Whether any frame of the animation is not rendered yet (the array has empty slots, which some() and every() skip).
-function framesMissing() {
-  for (let i = 0; i < state.frames.length; i++) if (!state.frames[i]) return true;
-  return false;
-}
-
-// The follow-up processing after a change (the sharp preview, the full sensor render, noise reduction and Detail recovery) waits until the time slider or playhead has been
-// still for a moment, so it does not start while it is still being moved.
-const SEEK_SETTLE = 1500;
-const seekSettled = () => performance.now() - (state.lastSeek || 0) >= SEEK_SETTLE;
-const seekWait = () => Math.max(50, SEEK_SETTLE - (performance.now() - (state.lastSeek || 0)));
-
-// The time slider moved: whatever was still being processed for the picture that was on show stops (the preview's frames keep what is rendered so far, and its Render
-// preview button starts the rest again).
-function stopProcessing() {
-  state.lastSeek = performance.now();
-  clearTimeout(nrFinalTimer);
-  cancelSharp();
-  if (recoveryRunning) engine.cancel('superres').catch(() => {});
-  // The full resolution render (or its picture on show) gives way to the quick view again: frames are not drawn while it is up. This stops its render at once.
-  if (state.fullRes) setFullRes(false, { restore: false });
-  if (state.animKey && framesMissing()) {
-    engine.cancel('frames');
-    engine.cancel('refocus');
-    state.animKey = null;
-    hideProgress();
-    updatePreviewStatus();
-  }
-}
-
-// One frame of the animation by itself (the slider moved to a frame that is not rendered). While one is being made, moves that follow wait and only the newest position is made
-// next, so a drag keeps showing frames as they finish instead of cancelling each one before it is done.
-let singleBusy = false;
-let singlePending = null;
-function renderSingleFrame(i) {
-  if (singleBusy) {
-    singlePending = i;
-    return;
-  }
-  if (!state.info || !canRender()) return;
-  const f = animationPlan().list[i];
-  if (!f) return;
-  singleBusy = true;
-  const div = previewDivisor();
-  const { promise } = previewMirror.quick().job('frames', 'frames', { path: [f], alpha: f.alpha, aperture: f.aperture, dof: f.dof, bokeh: f.bokeh }, {
-    quick: true,
-    onFrame: async (msg) => {
-      if (state.frames[i] || state.fullRes || state.depthShown) return;
-      draw(await previewFrame(msg, div));
-    },
-  });
-  promise.catch(() => {}).finally(() => {
-    singleBusy = false;
-    const next = singlePending;
-    singlePending = null;
-    if (next !== null && !state.frames[next]) renderSingleFrame(next);
-  });
-}
-
-// A camera or animation setting changed: the frames are stale.
-function invalidateAnimation() {
-  // The playhead stays on the frame that was showing (while frames play, only
-  // their index moves, not the playhead's time).
-  if (state.showingFrames && state.frames.length > 1) state.keyTime = (state.drawFrame ?? state.index) / state.fps;
-  if (state.animKey) {
-    engine.cancel('frames');
-    engine.cancel('refocus');
-  }
-  state.animKey = null;
-  state.frames = [];
-  state.frameValues = [];
-  updateFrameLabel();
-}
-
-// The play bar's readout: current frame of all frames, and the time of the
-// length (shown whenever the animation is on).
-function updateFrameLabel() {
-  updatePreviewStatus();
-  const n = state.frames.length;
-  const animOn = $('anim-on').checked && state.mode === 'camera' && state.info;
-  if (!animOn && (!n || !state.showingFrames)) {
-    if (!state.fullRes) $('frame-label').textContent = '';
-    return;
-  }
-  const keyframes = $('anim').value === 'keyframes';
-  const expected = keyframes ? frameCount(state.anim, state.fps) : Math.max(1, +$($('anim').value === 'focus' ? 'steps' : 'frames').value);
-  // Keyframes without an animation yet render one frame: count the length.
-  const total = keyframes ? expected : n || expected;
-  // The play bar's slider spans the whole animation, rendered or not, so it
-  // can be dragged at once.
-  $('scrub').max = String(Math.max(0, expected - 1));
-  const index = n > 1 && state.showingFrames ? state.index : Math.round((state.keyTime || 0) * state.fps);
-  const i = Math.min(total - 1, Math.max(0, index));
-  const ready = state.frames.filter(Boolean).length;
-  const val = state.showingFrames ? state.frameValues[state.index] : undefined;
-  $('frame-label').textContent = `Frame ${i + 1} / ${total} · ${(i / state.fps).toFixed(2)} / ${((total - 1) / state.fps).toFixed(2)} s` +
-    (n && ready < n ? ` (rendering ${ready})` : '') +
-    (val !== undefined ? ` · focus ${val.toFixed(2)}` : '');
-  if (typeof updatePlayhead === 'function') updatePlayhead();
-}
-
-function showFrame(i) {
-  const f = state.frames[i];
-  state.drawFrame = i;
-  // The time of the frame on show is the playhead's, so it stays there when the frames are dropped or the camera view comes back.
-  state.keyTime = i / state.fps;
-  if (f && !state.fullRes && !state.depthShown) draw(f);
-  $('scrub').value = i;
-  updateFrameLabel();
-}
-
-function advance() {
-  const n = state.frames.length;
-  if (n < 2) return;
-  let next = state.index + state.direction;
-  if (!state.repeat && (next >= n || (state.loop === 'pingpong' && next < 0))) {
-    // Played once (a focus sweep: there and back): stop at the end.
-    if (state.loop === 'pingpong' && next >= n) {
-      state.direction = -state.direction;
-      next = state.index + state.direction;
-    } else {
-      setPlaying(false);
-      return;
-    }
-  } else if (state.loop === 'pingpong') {
-    if (next >= n || next < 0) {
-      state.direction = -state.direction;
-      next = state.index + state.direction;
-    }
-  } else {
-    next = (next + n) % n;
-  }
-  // Wait for frames that are still rendering.
-  if (state.frames[next]) state.index = next;
-}
-
-function tick(t) {
-  if (state.playing && state.frames.length > 1 && t - state.lastTick >= 1000 / state.fps) {
-    state.lastTick = t;
-    advance();
-    showFrame(state.index);
-  }
-  requestAnimationFrame(tick);
-}
-requestAnimationFrame(tick);
-
-// The preview's frames are all rendered for the animation as it is now (Render preview, or a play that rendered them).
-function previewRendered() {
-  if (!state.animKey || !state.frames.length || !state.frames.every(Boolean)) return false;
-  const req = animationRequest();
-  return state.animKey === JSON.stringify([req.type, req.args, previewDivisor()]);
-}
-
-// Play without a rendered preview: the playhead moves at the frame rate and each moment is shown the way the slider shows it (the live view for keyframes,
-// a quick frame for a viewpoint or focus sweep), only the newest one being made, so playback skips frames instead of waiting for them.
-const live = { on: false, t0: 0, start: 0, shown: -1, loop: null, n: 1 };
-
-function startLivePlay() {
-  updateFrameLabel(); // (the slider's length is the animation's)
-  // The number of frames, from the animation's plan (the slider's length can change while it plays).
-  const n = Math.max(1, animationPlan().list.length || +$('scrub').max + 1);
-  live.n = n;
-  live.on = true;
-  live.t0 = performance.now();
-  live.start = (state.keyTime || 0) >= (n - 1) / state.fps ? 0 : state.keyTime || 0;
-  live.shown = -1;
-  live.loop = animationRequest().loop;
-  setFullRes(false, { restore: false });
-  setDepthShown(false, { restore: false });
-  showPlayIcon(true);
-  requestAnimationFrame(liveTick);
-}
-
-function stopLivePlay() {
-  if (!live.on) return;
-  live.on = false;
-  if (!state.playing) showPlayIcon(false);
-}
-
-function liveTick(now) {
-  if (!live.on) return;
-  const n = live.n;
-  const len = n / state.fps;
-  let t = live.start + (now - live.t0) / 1000;
-  if (live.loop === 'pingpong') {
-    // there and back
-    if (!state.repeat && t >= 2 * len) {
-      stopLivePlay();
-      return;
-    }
-    t %= 2 * len;
-    if (t >= len) t = 2 * len - t;
-  } else if (t >= len) {
-    if (!state.repeat) {
-      stopLivePlay();
-      return;
-    }
-    t %= len;
-  }
-  const i = Math.min(n - 1, Math.max(0, Math.floor(t * state.fps)));
-  if (i !== live.shown) {
-    live.shown = i;
-    showLiveFrame(i);
-  }
-  requestAnimationFrame(liveTick);
-}
-
-function showLiveFrame(i) {
-  $('scrub').value = i;
-  if (state.frames[i] && state.animKey) {
-    state.showingFrames = true;
-    state.index = i;
-    showFrame(i);
-    return;
-  }
-  state.keyTime = i / state.fps;
-  if ($('anim').value === 'keyframes') {
-    // (the live view: not the frames, without stopping the play)
-    state.showingFrames = false;
-    previewAt(state.keyTime);
-  } else {
-    renderSingleFrame(i);
-  }
-  updateFrameLabel();
-}
-
-function setPlaying(p) {
-  if (p && !$('anim-on').checked) return;
-  if (!p) stopLivePlay();
-  if (p && !previewRendered()) {
-    state.playing = false;
-    startLivePlay();
-    return;
-  }
-  state.playing = p;
-  showPlayIcon(p);
-  if (p) {
-    // Played to the end without repeating: start over.
-    if (!state.repeat && state.loop !== 'pingpong' && state.frames.length > 1 && state.index >= state.frames.length - 1) {
-      state.index = 0;
-      state.keyTime = 0;
-    }
-    if (!state.repeat && state.loop === 'pingpong' && state.direction < 0 && state.index <= 0) state.direction = 1;
-    setFullRes(false, { restore: false });
-    setDepthShown(false, { restore: false });
-    state.showingFrames = true;
-    ensureAnimation();
-    showFrame(state.index);
-  }
-}
-
-// Shows the live camera view again after playing or scrubbing.
-function backToCamera() {
-  if (!state.showingFrames) return;
-  setPlaying(false);
-  state.showingFrames = false;
-  updateFrameLabel();
-}
+// animation: ui/animation.js
+const { animationRequest, resetAnimation, animationPlan, ensureAnimation, framesMissing, seekSettled, seekWait, stopProcessing, renderSingleFrame, invalidateAnimation, updateFrameLabel, showFrame, live, stopLivePlay, setPlaying, backToCamera } = initAnimation({ cameraParams: (...a) => cameraParams(...a), $: (...a) => $(...a), keyframeFrames: (...a) => keyframeFrames(...a), liveFraming: (...a) => liveFraming(...a), state, viewReach: (...a) => viewReach(...a), engine, withPivotZoom: (...a) => withPivotZoom(...a), pivotFor: (...a) => pivotFor(...a), combineMotion: (...a) => combineMotion(...a), showProgress: (...a) => showProgress(...a), hideProgress: (...a) => hideProgress(...a), draw: (...a) => draw(...a), showError: (...a) => showError(...a), cancelSharp: (...a) => cancelSharp(...a), setFullRes: (...a) => setFullRes(...a), updatePreviewStatus: (...a) => updatePreviewStatus(...a), canRender: (...a) => canRender(...a), previewMirror, updatePlayhead: (...a) => updatePlayhead(...a), setDepthShown: (...a) => setDepthShown(...a), showPlayIcon: (...a) => showPlayIcon(...a), previewAt: (...a) => previewAt(...a) });
 
 // ---------------------------------------------------------------- full resolution, depth
 
@@ -3067,14 +1183,13 @@ function setFullResMode(on) {
 // itself once changes stop (not while a slider or the picture is dragged,
 // during playback, or while frames or the depth map are shown).
 const AUTO_RENDER_DELAY = 800;
-let autoRenderTimer = 0;
 function scheduleAutoRender(delay = AUTO_RENDER_DELAY) {
-  clearTimeout(autoRenderTimer);
-  autoRenderTimer = 0;
+  clearTimeout(state.autoRenderTimer);
+  state.autoRenderTimer = 0;
   // (a Light L16 photo is rendered when Render is pressed: the render takes minutes)
   if (!$('auto-render').checked || !state.fullResMode || state.fullRes || isL16()) return;
-  autoRenderTimer = setTimeout(() => {
-    autoRenderTimer = 0;
+  state.autoRenderTimer = setTimeout(() => {
+    state.autoRenderTimer = 0;
     if (drag.on) return scheduleAutoRender();
     if (!seekSettled()) return scheduleAutoRender(seekWait());
     if (state.playing || state.showingFrames || state.depthShown || $('auto-render').disabled) return;
@@ -3279,495 +1394,14 @@ function setDepthShown(on, { restore = true } = {}) {
   }
 }
 
-// ---------------------------------------------------------------- lenslets
+// modes: ui/modes.js
+const { showSidebarEnabled, setMode } = initModes({ state, $: (...a) => $(...a), updateRenderButton: (...a) => updateRenderButton(...a), updateSpreadOverlay: (...a) => updateSpreadOverlay(...a), hasDepth: (...a) => hasDepth(...a), isL16: (...a) => isL16(...a), setFullResMode: (...a) => setFullResMode(...a), showDepthMethods: (...a) => showDepthMethods(...a), BOKEH_SHAPE, PREVIEW_IDS, canDrag: (...a) => canDrag(...a), setFullRes: (...a) => setFullRes(...a), setDepthShown: (...a) => setDepthShown(...a), layoutCanvas: (...a) => layoutCanvas(...a), setPlaying: (...a) => setPlaying(...a), renderGridInfo: (...a) => renderGridInfo(...a), renderTimeline: (...a) => renderTimeline(...a), refresh: (...a) => refresh(...a), updateKeyButtons: (...a) => updateKeyButtons(...a) });
 
-// Lenslets mode: the raw sensor, zoomed and moved like a map (scroll to
-// zoom, drag to move); lensView is declared with the other view state.
-const LENS_MAX_ZOOM = 32;
-let lensBusy = false;
-let lensAgain = false;
+// info: ui/info.js
+const { fmt, showResolutionSizes, showPhotoSizes, renderInfo } = initInfo({ $: (...a) => $(...a), state, scheduleSpeed: (...a) => scheduleSpeed(...a), updateKeyButtons: (...a) => updateKeyButtons(...a), gpuTimeText: (...a) => gpuTimeText(...a), renderGridInfo: (...a) => renderGridInfo(...a) });
 
-function lensMinZoom() {
-  const cam = state.info.cam;
-  return Math.min(viewer.clientWidth / cam.width, viewer.clientHeight / cam.height);
-}
-
-function lensClamp() {
-  const cam = state.info.cam;
-  if (lensView.x == null) {
-    lensView.x = cam.width / 2;
-    lensView.y = cam.height / 2;
-  }
-  lensView.z = Math.min(LENS_MAX_ZOOM, Math.max(lensMinZoom(), lensView.z));
-  // Keep the sensor in view; centered along a side that fits entirely.
-  const hw = viewer.clientWidth / (2 * lensView.z);
-  const hh = viewer.clientHeight / (2 * lensView.z);
-  lensView.x = hw * 2 >= cam.width ? cam.width / 2 : Math.min(cam.width - hw, Math.max(hw, lensView.x));
-  lensView.y = hh * 2 >= cam.height ? cam.height / 2 : Math.min(cam.height - hh, Math.max(hh, lensView.y));
-}
-
-// Zooms by `factor` keeping the sensor point under (mx, my) in place.
-function lensZoomBy(factor, mx = viewer.clientWidth / 2, my = viewer.clientHeight / 2) {
-  if (!state.info || !state.info.cam) return;
-  lensClamp();
-  const sx = lensView.x + (mx - viewer.clientWidth / 2) / lensView.z;
-  const sy = lensView.y + (my - viewer.clientHeight / 2) / lensView.z;
-  lensView.z *= factor;
-  lensClamp();
-  lensView.x = sx - (mx - viewer.clientWidth / 2) / lensView.z;
-  lensView.y = sy - (my - viewer.clientHeight / 2) / lensView.z;
-  renderLenslets();
-}
-
-function lensDrag(event) {
-  canvas.setPointerCapture(event.pointerId);
-  canvas.classList.add('panning');
-  const start = { x: event.clientX, y: event.clientY, sx: lensView.x, sy: lensView.y };
-  canvas.onpointermove = (e) => {
-    lensView.x = start.sx - (e.clientX - start.x) / lensView.z;
-    lensView.y = start.sy - (e.clientY - start.y) / lensView.z;
-    renderLenslets();
-  };
-  canvas.onpointerup = () => {
-    canvas.onpointermove = null;
-    canvas.classList.remove('panning');
-  };
-}
-
-async function renderLenslets() {
-  if (!state.info || !state.info.cam || state.mode !== 'lenslets') return;
-  if (lensBusy) {
-    lensAgain = true;
-    return;
-  }
-  lensBusy = true;
-  try {
-    lensClamp();
-    const ow = Math.max(1, Math.round(viewer.clientWidth));
-    const oh = Math.max(1, Math.round(viewer.clientHeight));
-    const { z } = lensView;
-    const w = ow / z;
-    const h = oh / z;
-    const x0 = lensView.x - w / 2;
-    const y0 = lensView.y - h / 2;
-    const scale = +$('still-scale').value;
-    const p = cameraParams();
-    const msg = await engine.request('rawCrop', { x0, y0, w, h, ow, oh, scale, alpha: p.alpha, allInFocus: !(p.aperture > 0) });
-    if (state.mode !== 'lenslets' || !msg) return;
-    canvas.width = ow;
-    canvas.height = oh;
-    view.k = 1;
-    view.cx = view.cy = 0.5;
-    layoutCanvas();
-    $('zoom-label').textContent = `${Math.round(z * 100)}%`;
-    $('zoom-out').disabled = z <= lensMinZoom() + 1e-9;
-    $('zoom-in').disabled = z >= LENS_MAX_ZOOM - 1e-9;
-    ctx.putImageData(new ImageData(new Uint8ClampedArray(msg.pixels), ow, oh), 0, 0);
-    ctx.lineWidth = 1.5;
-    const circles = $('lens-circles').checked && msg.rUse * z >= 6;
-    for (let i = 0; i < msg.centers.length; i += 2) {
-      const cx = msg.centers[i] * z;
-      const cy = msg.centers[i + 1] * z;
-      if (circles) {
-        ctx.strokeStyle = 'rgba(77, 182, 255, 0.75)';
-        ctx.beginPath();
-        ctx.arc(cx, cy, msg.rUse * z, 0, 2 * Math.PI);
-        ctx.stroke();
-      }
-      ctx.strokeStyle = 'rgba(242, 179, 61, 0.9)';
-      ctx.beginPath();
-      ctx.arc(cx, cy, Math.min(2.5, msg.pitch * z * 0.15), 0, 2 * Math.PI);
-      ctx.stroke();
-    }
-    canvas.classList.remove('hidden');
-    canvas.classList.add('pannable');
-    scheduleHistogram();
-    $('frame-label').textContent = `sensor ${Math.max(0, Math.round(x0))}–${Math.round(x0 + w)}, ${Math.max(0, Math.round(y0))}–${Math.round(y0 + h)}`;
-    showLensSampling(msg, scale);
-  } catch (err) {
-    showError(err);
-  } finally {
-    lensBusy = false;
-    if (lensAgain) {
-      lensAgain = false;
-      renderLenslets();
-    }
-  }
-}
-
-// Sidebar: the coverage map and the matching part of the rendered picture.
-function showLensSampling(msg, scale) {
-  const cov = $('lens-coverage');
-  const patch = $('lens-patch');
-  const cctx = cov.getContext('2d');
-  const pctx = patch.getContext('2d');
-  for (const id of ['lens-patch', 'lens-patch-title']) $(id).hidden = false;
-  // Coverage: the splat weight each output pixel gets, against the mean.
-  const { cw, ch } = msg;
-  const data = new Float32Array(msg.coverage);
-  let sum = 0;
-  for (const v of data) sum += v;
-  const mean = sum / data.length || 1;
-  const img = new ImageData(cw, ch);
-  const STOPS = [[18, 12, 28], [150, 40, 60], [230, 120, 40], [240, 210, 90], [250, 250, 225]];
-  for (let i = 0; i < data.length; i++) {
-    const t = Math.min(1, data[i] / mean / 2);
-    const f = t * (STOPS.length - 1);
-    const k = Math.min(STOPS.length - 2, Math.floor(f));
-    const a = f - k;
-    for (let c = 0; c < 3; c++) img.data[4 * i + c] = STOPS[k][c] * (1 - a) + STOPS[k + 1][c] * a;
-    img.data[4 * i + 3] = 255;
-  }
-  // Both views keep one size, the viewer's shape across the sidebar; the
-  // window is fitted inside it.
-  const VW = 560;
-  const VH = Math.round((VW * viewer.clientHeight) / Math.max(1, viewer.clientWidth));
-  for (const c of [cov, patch]) {
-    if (c.width !== VW || c.height !== VH) {
-      c.width = VW;
-      c.height = VH;
-    }
-  }
-  const place = (c2d, src, sx, sy, sw, sh) => {
-    const k = Math.min(VW / sw, VH / sh);
-    c2d.fillStyle = '#000';
-    c2d.fillRect(0, 0, VW, VH);
-    c2d.imageSmoothingEnabled = false;
-    c2d.drawImage(src, sx, sy, sw, sh, (VW - sw * k) / 2, (VH - sh * k) / 2, sw * k, sh * k);
-  };
-  const tmp = Object.assign(document.createElement('canvas'), { width: cw, height: ch });
-  tmp.getContext('2d').putImageData(img, 0, 0);
-  place(cctx, tmp, 0, 0, cw, ch);
-
-  // The same part of the last full sensor render, or else of the picture.
-  const still = state.lensStill;
-  const src = still ? still.img : state.lensPicture;
-  if (!src) {
-    for (const id of ['lens-patch', 'lens-patch-title']) $(id).hidden = true;
-    return;
-  }
-  const k = src.width / msg.baseW;
-  const [bx0, by0, bx1, by1] = msg.box;
-  const sw = (bx1 - bx0) * k;
-  const sh = (by1 - by0) * k;
-  let drawable = src;
-  if (src instanceof ImageData) {
-    drawable = Object.assign(document.createElement('canvas'), { width: src.width, height: src.height });
-    drawable.getContext('2d').putImageData(src, 0, 0);
-  }
-  place(pctx, drawable, bx0 * k, by0 * k, sw, sh);
-  $('lens-patch-title').textContent = still ? `Last Full sensor render (${still.scale}×)` : 'Camera view';
-}
-
-// ---------------------------------------------------------------- modes
-
-// Without a photo nothing in the right sidebar can be used: every section's
-// settings (and the Render buttons) are disabled; the sections still open.
-function showSidebarEnabled() {
-  const off = !state.info;
-  for (const el of document.querySelectorAll('.controls > .panel > :not(summary), .controls > .render-actions')) el.inert = off;
-  $('controls').classList.toggle('no-photo', off);
-}
-
-function setMode(mode) {
-  showSidebarEnabled();
-  // The Lenslets view compares the sensor with the picture shown before.
-  if (mode === 'lenslets' && state.mode === 'camera' && state.lastImage && !state.lastImage.pair) state.lensPicture = state.lastImage;
-  state.mode = mode;
-  updateRenderButton();
-  updateSpreadOverlay();
-  for (const b of document.querySelectorAll('#modes button')) b.classList.toggle('active', b.dataset.mode === mode);
-  for (const p of document.querySelectorAll('[data-panel]')) p.hidden = p.dataset.panel !== mode;
-  const raw = !!(state.info && state.info.hasRaw);
-  for (const b of document.querySelectorAll('#modes button')) b.disabled = !state.info || (!raw && b.dataset.mode !== 'camera');
-  const camera = mode === 'camera';
-  // Focus stacks bring their own blur; the depth effects need a depth map.
-  const depthTools = hasDepth() && camera;
-  const stack = !!(state.info && state.info.processed && state.info.processed.kind === 'focus');
-  $('fullres-on').disabled = !raw || !camera;
-  // The Full sensor choice is only for raw photos (it means nothing for the others); a Light L16 photo always renders in full.
-  $('fullres-on').closest('label').hidden = !raw;
-  if (isL16() && camera) {
-    if (!state.fullResMode) setFullResMode(true);
-  } else if (!raw || !camera) setFullResMode(false);
-  for (const id of ['depth-btn', 'depth-grey', 'depth-contrast', 'depth-contrast-persp', 'spread-show', 'depth-smooth', 'depth-hq', 'depth-style', 'depth-blend', 'depth-model-blend', 'depth-objects', 'depth-objects-soft', 'depth-model-smooth', 'depth-model-curve', 'lytro-depth']) $(id).disabled = !depthTools;
-  showDepthMethods();
-  // Grayscale only changes the depth map's picture: it can be used while the map is shown.
-  $('depth-grey').disabled = !depthTools || !state.depthShown;
-  // Photos imported with a depth map edited in Lytro Desktop can use it.
-  $('lytro-depth-row').hidden = !(state.info && state.info.userDepth);
-  for (const id of ['fstop', 'bokeh', 'dof-depth', 'highlights', 'spread', 'spread-smooth', 'spread-blur', 'tilt-on', 'tilt-preset', 'tilt', 'tilt-rotation', 'tilt-show', ...BOKEH_SHAPE]) $(id).disabled = !depthTools || stack;
-  if (!$('tilt-on').checked) for (const id of ['tilt', 'tilt-rotation', 'tilt-show']) $(id).disabled = true;
-  $('mv-on').disabled = !raw;
-  // Multi-view noise reduction merges a raw photo's views: the others have none, so it is not shown for them; Remove hot pixels works on every photo (the sensor of a raw photo,
-  // the cameras of a Light L16 photo, the pictures of a processed one)
-  $('mv-on').closest('label').hidden = !!state.info && !raw;
-  $('mv-blend').closest('label').hidden = !!state.info && !raw;
-  $('nr-hot').disabled = !state.info;
-  // Pictures Lytro Desktop finished already have its look.
-  $('base-look').disabled = !raw;
-  $('detail').disabled = !raw;
-  for (const id of ['stop-btn', 'key-prev', 'key-next', 'play-btn', 'loop-btn', 'webm-btn', 'scrub', ...PREVIEW_IDS]) $(id).disabled = !state.info || !camera || !$('anim-on').checked;
-  $('png-btn').disabled = !state.info;
-  $('quick-export-btn').disabled = !state.info;
-  // (3D needs two viewpoints: every photo that can change its viewpoint, raw, Light L16 and processed ones with depth)
-  $('stereo-btn').disabled = !canDrag() || !camera;
-  $('lent-btn').disabled = !state.info || !camera;
-  $('lent-preview-btn').disabled = !state.info || !camera;
-  $('vr-btn').disabled = !canDrag() || !camera;
-  $('stereo-on').disabled = !canDrag() || !camera;
-  if (!state.info) return;
-  setFullRes(false, { restore: false });
-  // The depth map stays on through camera-mode changes (a new photo or leaving the camera view turns it off elsewhere).
-  if (mode !== 'camera') setDepthShown(false, { restore: false });
-  layoutCanvas();
-  if (camera) {
-    state.showingFrames = false;
-  } else {
-    setPlaying(false);
-    state.showingFrames = false;
-    renderGridInfo();
-  }
-  $('frame-label').textContent = '';
-  renderTimeline();
-  refresh();
-  updateKeyButtons();
-}
-
-// ---------------------------------------------------------------- info
-
-function fmt(v, digits = 2) {
-  return typeof v === 'number' ? v.toFixed(digits) : v;
-}
-
-// Resolution and Scale options show the picture size they give for this
-// photo.
-const RESOLUTION_NAMES = { 1: '1× (fast)', 1.5: '1.5×', 2: '2×' };
-const L16_SCALE_NAMES = { 1: '1× camera size', 1.5: '1.5×', 2: '2×', 2.5: '2.5×', 3: '3×', 4: '4×' };
-const SCALE_NAMES = { 2: '2× lens grid', 3: '3× lens grid', 4: '4× lens grid' };
-function showResolutionSizes() {
-  const label = (select, names, sizes) => {
-    for (const o of select.options) {
-      const size = sizes && sizes[o.value];
-      o.textContent = `${names[o.value]}${size ? ` — ${size[0]}×${size[1]} px` : ''}`;
-    }
-  };
-  label($('detail'), RESOLUTION_NAMES, state.info && state.info.sizes);
-  label($('still-scale'), SCALE_NAMES, state.info && state.info.stillSizes);
-  // A Light L16 photo's sizes: the camera's size (4160 x 3120) times each
-  const native = state.info && state.info.processed && state.info.processed.native;
-  for (const o of $('l16-resolution').options) {
-    const k = +o.value;
-    o.textContent = `${L16_SCALE_NAMES[o.value]}${native ? ` — ${Math.round(native[0] * k)}×${Math.round(native[1] * k)} px` : ''}`;
-  }
-  showPhotoSizes();
-}
-
-// Photo > Size options show the saved photo's size: the picture as shown
-// (through crop and rotation; with Full sensor on but not yet rendered, the
-// size its still will have) times each option.
-const PHOTO_SIZE_NAMES = { 1: 'Native', 1.5: '1.5×', 2: '2×', 3: '3×', 4: '4×' };
-function showPhotoSizes() {
-  let base = state.info && state.photoBase ? [...state.photoBase] : null;
-  if (base && state.fullResMode && !state.fullRes && state.info.stillSizes && state.info.sizes) {
-    const still = state.info.stillSizes[$('still-scale').value];
-    const view = state.info.sizes[$('detail').value];
-    if (still && view) base = base.map((v) => v * (still[0] / view[0]));
-  }
-  for (const o of $('photo-size').options) {
-    const k = +o.value;
-    o.textContent = `${PHOTO_SIZE_NAMES[o.value] || `${k}×`}${base ? ` — ${Math.round(base[0] * k)}×${Math.round(base[1] * k)} px` : ''}`;
-  }
-}
-
-function renderInfo() {
-  showResolutionSizes();
-  scheduleSpeed();
-  if (queueUi) queueUi.render();
-  if (looks) looks.render();
-  updateKeyButtons();
-  const info = state.info;
-  const rows = [];
-  if (state.current) rows.push(['File', state.current.name]);
-  if (info.hasRaw) {
-    const c = info.cam.capture || {};
-    rows.push(['Camera', `${info.cam.make || ''} ${info.cam.model}`.trim()]);
-    if (c.time) rows.push(['Taken', new Date(c.time).toLocaleString()]);
-    if (c.exposure) rows.push(['Shutter', c.exposure >= 1 ? `${fmt(c.exposure, 1)} s` : `1/${Math.round(1 / c.exposure)} s`]);
-    if (c.fNumber) rows.push(['Aperture', `f/${fmt(c.fNumber, 1)}`]);
-    if (c.focalLength) rows.push(['Focal length', `${fmt(c.focalLength * 1000, 1)} mm`]);
-    if (c.iso) rows.push(['ISO', Math.round(c.iso)]);
-    rows.push(['Sensor', `${info.cam.width}×${info.cam.height}, ${info.cam.bits} bit`]);
-    rows.push(['Views', `${info.width}×${info.height}`]);
-    rows.push(['Lens pitch', `${fmt(info.grid.pitch, 3)} px`]);
-    if (info.hotPixels) rows.push(['Hot pixels fixed', info.hotPixels.toLocaleString()]);
-    if (info.renderer) rows.push(['Rendering', info.renderer]);
-    if (state.gpuMs != null) rows.push(['GPU time', gpuTimeText()]);
-  } else if (info.processed) {
-    const p = info.processed;
-    const kinds = { warp: 'All-in-focus image', single: 'Single image', focus: 'Focus stack', perspective: 'Perspective views' };
-    if (info.cam) rows.push(['Camera', `${info.cam.make || ''} ${info.cam.model || ''}`.trim()]);
-    const c = (info.cam && info.cam.capture) || {};
-    if (c.time) rows.push(['Taken', new Date(c.time).toLocaleString()]);
-    // (a Light L16 photo: the exposure of its reference camera, and the 35 mm equivalent focal length)
-    if (p.source === 'l16') {
-      if (c.exposure) rows.push(['Shutter', c.exposure >= 1 ? `${fmt(c.exposure, 1)} s` : `1/${Math.round(1 / c.exposure)} s`]);
-      if (c.focalLength) rows.push(['Focal length', `${fmt(c.focalLength * 1000, 0)} mm (35 mm equivalent)`]);
-      if (c.iso) rows.push(['ISO', c.iso]);
-    }
-    rows.push(['Content', `${kinds[p.kind] || p.kind}${p.count > 1 ? ` (${p.count})` : ''}${p.hasDepth ? ' with depth map' : ''}`]);
-    rows.push(['Size', `${info.width}×${info.height}`]);
-  }
-  $('info').replaceChildren(...rows.flatMap(([k, v]) => {
-    const dt = document.createElement('dt');
-    dt.textContent = k;
-    const dd = document.createElement('dd');
-    dd.textContent = v;
-    return [dt, dd];
-  }));
-  renderGridInfo();
-}
-
-// ---------------------------------------------------------------- speed report
-
-// The Info panel's Speed block: how long each stage took on this computer (timed in the worker, engine.onTiming) and what limits it.
-const timings = new Timings();
-let speedFacts = null;
-let speedQueued = false;
-engine.onTiming = (msg) => {
-  timings.record(msg.stage, msg.ms, msg.where);
-  scheduleSpeed();
-};
-
-// At most about once a second, and only while the Info panel is open.
-function scheduleSpeed() {
-  if (speedQueued || !$('info').closest('details').open) return;
-  speedQueued = true;
-  setTimeout(() => {
-    speedQueued = false;
-    renderSpeed();
-  }, 800);
-}
-
-async function renderSpeed() {
-  const box = $('speed');
-  box.hidden = !state.info;
-  if (!state.info) return;
-  try {
-    speedFacts = await engine.request('speedFacts', {});
-  } catch {
-    // The report is only a guide: what it knew last time stays.
-  }
-  const facts = speedFacts || { renderer: 'CPU' };
-  const rows = timings.rows();
-  const dl = $('speed-stages');
-  const cells = rows.length ? rows.map((r) => [r.name, `${formatDuration(r.last)}${r.count > 1 ? ` (best ${formatDuration(r.best)})` : ''}`]) : [['No timings yet', 'they appear as you work']];
-  if (state.gpuMs != null) cells.push(['Graphics, per view', formatDuration(state.gpuMs)]);
-  dl.replaceChildren(...cells.flatMap(([k, v]) => {
-    const dt = document.createElement('dt');
-    dt.textContent = k;
-    const dd = document.createElement('dd');
-    dd.textContent = v;
-    return [dt, dd];
-  }));
-  $('speed-limits').replaceChildren(...speedLimits(facts, rows).map((l) => {
-    const li = document.createElement('li');
-    li.className = l.level;
-    li.textContent = l.text;
-    return li;
-  }));
-}
-
-$('info').closest('details').addEventListener('toggle', () => {
-  if ($('info').closest('details').open) renderSpeed();
-});
-
-function speedReportText() {
-  return reportText({
-    version: VERSION,
-    platform: typeof navigator !== 'undefined' ? navigator.userAgent : '',
-    facts: speedFacts || { renderer: 'CPU' },
-    rows: timings.rows(),
-    gpuMs: state.gpuMs,
-    photo: state.current ? state.current.name : '',
-    benchmark: benchmarkText(benchResult, formatDuration),
-  });
-}
-
-// The benchmark (core/benchmark.js): the open photo timed again in two workers of its own, on the graphics card and on the processor.
-let benchResult = null;
-let benchRunning = false;
-function showBenchmark(note = '') {
-  const dl = $('speed-bench');
-  const rows = benchResult ? benchResult.rows : [];
-  const cells = [['Benchmark', note || 'graphics card / processor'], ...rows.map((r) => [r.name, `${formatDuration(r.card ?? NaN)} / ${formatDuration(r.processor ?? NaN)}${speedup(r) ? `, ${speedup(r)}` : ''}`])];
-  for (const [mode, e] of Object.entries((benchResult && benchResult.errors) || {})) if (e) cells.push([mode === 'card' ? 'Graphics card run' : 'Processor run', `stopped: ${e}`]);
-  dl.replaceChildren(...cells.flatMap(([k, v]) => {
-    const dt = document.createElement('dt');
-    dt.textContent = k;
-    const dd = document.createElement('dd');
-    dd.textContent = v;
-    return [dt, dd];
-  }));
-  dl.hidden = false;
-}
-$('speed-bench-run').onclick = async () => {
-  const photo = previewMirror.photoCopy();
-  if (benchRunning || !photo || !state.info) return;
-  benchRunning = true;
-  const button = $('speed-bench-run');
-  button.disabled = true;
-  button.textContent = 'Running benchmark…';
-  benchResult = null;
-  showBenchmark('starting');
-  try {
-    benchResult = await runBenchmark((cpu) => new Engine({ cpu }), photo, cameraParams({ live: true }), (step) => showBenchmark(step));
-    showBenchmark();
-  } catch (err) {
-    showBenchmark(`stopped: ${String((err && err.message) || err).slice(0, 120)}`);
-  } finally {
-    benchRunning = false;
-    button.disabled = false;
-    button.textContent = 'Run benchmark';
-  }
-};
-
-$('speed-copy').onclick = async () => {
-  const text = speedReportText();
-  try {
-    await navigator.clipboard.writeText(text);
-    showNotice('Speed report copied', 'Paste it into a message.');
-  } catch {
-    showNotice('Speed report', text);
-  }
-};
-
-// GPU time of a recent camera view (measured where the browser allows it).
-function gpuTimeText() {
-  return `${state.gpuMs < 10 ? fmt(state.gpuMs, 1) : Math.round(state.gpuMs)} ms per view`;
-}
-
-function showGpuTime(ms) {
-  const first = state.gpuMs == null;
-  state.gpuMs = ms;
-  if (first) {
-    if (state.info) renderInfo();
-    return;
-  }
-  const dd = [...$('info').querySelectorAll('dt')].find((dt) => dt.textContent === 'GPU time');
-  if (dd) dd.nextElementSibling.textContent = gpuTimeText();
-}
-
-function renderGridInfo() {
-  const info = state.info;
-  if (!info || !info.grid) return;
-  const g = info.grid;
-  $('grid-info').textContent = `Pitch ${fmt(g.pitch, 3)} px, row step ${fmt(g.rowStep, 3)} px, rotation ${fmt(g.rotation * 1000, 3)} mrad, ` +
-    `center (${fmt(g.ox, 2)}, ${fmt(g.oy, 2)}). Alignment score ${fmt(info.gridQuality, 3)}.`;
-}
-
-// The Camera and Lenslets buttons take the Render Queue view back to the photo (opening a photo from the library does not).
-for (const b of document.querySelectorAll('#modes button')) b.addEventListener('click', () => queueUi && queueUi.setView(false), true);
+// speed report: ui/speedreport.js
+const { timings, scheduleSpeed, speedReportText, gpuTimeText, showGpuTime, renderGridInfo } = initSpeedReport({ engine, $: (...a) => $(...a), state, previewMirror, cameraParams: (...a) => cameraParams(...a), showNotice: (...a) => showNotice(...a), fmt: (...a) => fmt(...a), renderInfo: (...a) => renderInfo(...a) });
 
 // ---------------------------------------------------------------- zoom
 
@@ -3851,299 +1485,11 @@ function watchLevel() {
   }, 250);
 }
 
-// ---------------------------------------------------------------- zoomed in on a Light L16 photo
+// lenslets: ui/lenslets.js
+const { lensMinZoom, lensZoomBy, lensDrag, renderLenslets } = initLenslets({ state, viewer, lensView, canvas, $: (...a) => $(...a), cameraParams: (...a) => cameraParams(...a), engine, view, layoutCanvas: (...a) => layoutCanvas(...a), ctx, scheduleHistogram: (...a) => scheduleHistogram(...a), showError: (...a) => showError(...a) });
 
-// Past the quick picture's own pixels, the part of the picture on the screen is made again at the zoom's resolution (the half size merge with the longer lens cameras' detail added through
-// the depth: the worker's l16Detail), and laid over the picture. Any change (zoom, pan, viewpoint, focus) takes it away until things settle. (not in automated runs, which take the full size)
-const detailLayer = $('detail-layer');
-let detailTimer = 0;
-let detailToken = 0;
-let detailRunning = false;
-const DETAIL_DELAY = 700;
-const DETAIL_MAX_SCALE = 6;
-function detailWanted() {
-  return !!(state.info && state.info.processed && state.info.processed.hires && state.info.processed.levelWidths && (!navigator.webdriver || window.__forceDetail)
-    && showsCamera() && state.lastImage && !state.lastImage.pair && canvas.width > 0 && !(state.showingFrames && state.frameScale && state.frameScale !== 1));
-}
-function hideDetail() {
-  detailToken++;
-  detailLayer.hidden = true;
-  if (detailRunning) {
-    detailRunning = false;
-    engine.cancel('detail').catch(() => {});
-    hideProgress();
-  }
-}
-function scheduleDetail() {
-  hideDetail();
-  clearTimeout(detailTimer);
-  detailTimer = 0;
-  if (!detailWanted()) return;
-  detailTimer = setTimeout(runDetail, DETAIL_DELAY);
-}
-async function runDetail() {
-  detailTimer = 0;
-  if (!detailWanted()) return;
-  if (drag.on || state.view.busy || state.view.pending) {
-    detailTimer = setTimeout(runDetail, DETAIL_DELAY);
-    return;
-  }
-  // The canvas shows the picture through its geometry (orientation, straighten, crop): G maps the picture's pixels (srcW x srcH) to the canvas's.
-  const g = state.geom;
-  const G = g ? g.matrix : [1, 0, 0, 1, 0, 0];
-  const inv = g ? g.inverse : G;
-  const srcW = g ? g.srcW : canvas.width;
-  const srcH = g ? g.srcH : canvas.height;
-  const mag = Math.sqrt(Math.abs(G[0] * G[3] - G[1] * G[2]));
-  const full = Math.max(...state.info.processed.levelWidths);
-  const k = full / srcW;
-  const scale = fitScale() * view.k;
-  // (screen pixels per pixel of the largest level)
-  let zs = (scale * mag * (window.devicePixelRatio || 1)) / k;
-  if (zs <= 1.05) return;
-  const left = parseFloat(canvas.style.left) || 0;
-  const top = parseFloat(canvas.style.top) || 0;
-  const vw = viewer.clientWidth;
-  const vh = viewer.clientHeight;
-  // The part of the canvas on the screen (canvas pixels) ...
-  const x0 = Math.max(0, -left / scale);
-  const y0 = Math.max(0, -top / scale);
-  const x1 = Math.min(canvas.width, (vw - left) / scale);
-  const y1 = Math.min(canvas.height, (vh - top) / scale);
-  if (!(x1 > x0 && y1 > y0)) return;
-  // ... and the part of the picture under it (the picture's pixels, a box round the turned corners).
-  const corners = [[x0, y0], [x1, y0], [x0, y1], [x1, y1]].map(([x, y]) => applyMatrix(inv, x, y));
-  const sx0 = Math.max(0, Math.floor(Math.min(...corners.map((c) => c[0]))));
-  const sy0 = Math.max(0, Math.floor(Math.min(...corners.map((c) => c[1]))));
-  const sx1 = Math.min(srcW, Math.ceil(Math.max(...corners.map((c) => c[0]))));
-  const sy1 = Math.min(srcH, Math.ceil(Math.max(...corners.map((c) => c[1]))));
-  if (!(sx1 > sx0 && sy1 > sy0)) return;
-  // (in the largest level's pixels; made at the screen's full resolution, however large the screen: the layer is made in tiles)
-  const gw = (sx1 - sx0) * k;
-  const gh = (sy1 - sy0) * k;
-  zs = Math.min(DETAIL_MAX_SCALE, zs);
-  const token = ++detailToken;
-  detailRunning = true;
-  const gen = openSeq.current();
-  // (the message shows at once: the first time on a photo the cameras are lined up first, which takes a while)
-  showProgress('Adding detail', 0);
-  try {
-    // The layer covers the part of the canvas on the screen, at the screen's resolution (r layer pixels per canvas pixel); the sharper picture is made in the picture's own
-    // frame (dw x dh) and drawn onto the layer through the geometry, each piece as soon as it is made, so it fills in instead of appearing only at the end.
-    const r = (scale * (window.devicePixelRatio || 1));
-    detailLayer.width = Math.max(1, Math.round((x1 - x0) * r));
-    detailLayer.height = Math.max(1, Math.round((y1 - y0) * r));
-    const lctx = detailLayer.getContext('2d');
-    lctx.setTransform(1, 0, 0, 1, 0, 0);
-    lctx.clearRect(0, 0, detailLayer.width, detailLayer.height);
-    detailLayer.style.left = `${left + x0 * scale}px`;
-    detailLayer.style.top = `${top + y0 * scale}px`;
-    detailLayer.style.width = `${(x1 - x0) * scale}px`;
-    detailLayer.style.height = `${(y1 - y0) * scale}px`;
-    detailLayer.hidden = false;
-    const dw = Math.max(1, Math.round(gw * zs));
-    const dh = Math.max(1, Math.round(gh * zs));
-    const made = document.createElement('canvas');
-    made.width = dw;
-    made.height = dh;
-    const mctx = made.getContext('2d');
-    // made pixel -> picture pixel: sx0 + x * (sx1 - sx0) / dw; then G to the canvas, then to the layer.
-    const ax = (sx1 - sx0) / dw;
-    const ay = (sy1 - sy0) / dh;
-    const T = [r * G[0] * ax, r * G[1] * ax, r * G[2] * ay, r * G[3] * ay, r * (G[0] * sx0 + G[2] * sy0 + G[4] - x0), r * (G[1] * sx0 + G[3] * sy0 + G[5] - y0)];
-    let pending = 0;
-    const paint = () => {
-      pending = 0;
-      if (token !== detailToken) return;
-      lctx.setTransform(1, 0, 0, 1, 0, 0);
-      lctx.clearRect(0, 0, detailLayer.width, detailLayer.height);
-      lctx.setTransform(...T);
-      lctx.imageSmoothingEnabled = true;
-      lctx.imageSmoothingQuality = 'high';
-      lctx.drawImage(made, 0, 0);
-      lctx.setTransform(1, 0, 0, 1, 0, 0);
-    };
-    const { promise } = engine.job('l16Detail', 'detail', { ...cameraParams({ live: true }), gx0: sx0 * k, gy0: sy0 * k, gw, gh, zs }, {
-      onProgress: (stage, p) => {
-        if (token === detailToken && !openSeq.superseded(gen)) showProgress(stage === 'Rendering' ? 'Adding detail' : stage, p);
-      },
-      onFrame: (f) => {
-        if (token !== detailToken || !f || !f.tile || !f.pixels) return;
-        mctx.putImageData(new ImageData(new Uint8ClampedArray(f.pixels), f.width, f.height), f.x, f.y);
-        if (!pending) pending = requestAnimationFrame(paint);
-      },
-    });
-    const msg = await promise;
-    if (token !== detailToken || !msg || !(msg.pixels || msg.bitmap)) return;
-    const img = toImageData(msg);
-    if (img.width === dw && img.height === dh) {
-      if (img instanceof ImageData) mctx.putImageData(img, 0, 0);
-      else mctx.drawImage(img, 0, 0);
-    }
-    if (pending) cancelAnimationFrame(pending);
-    paint();
-  } catch (err) {
-    console.warn('Zoomed-in detail failed', err);
-  } finally {
-    if (token === detailToken) {
-      detailRunning = false;
-      hideProgress();
-    }
-  }
-}
-
-// A Light L16 photo with the viewpoint moved, once things settle: what the nearer things uncover is filled from the other cameras' own pictures (the worker's l16Holes), laid over the
-// stretched background the live view shows there. Any change takes it away.
-const holesLayer = $('holes-layer');
-let holesTimer = 0;
-let holesToken = 0;
-let holesRunning = false;
-function holesWanted() {
-  return !!(state.info && state.info.processed && state.info.processed.hires && (!navigator.webdriver || window.__forceDetail) && showsCamera() && !state.geom
-    && state.lastImage && !state.lastImage.pair && (state.camera.u || state.camera.v));
-}
-function hideHoles() {
-  holesToken++;
-  holesLayer.hidden = true;
-  if (holesRunning) {
-    holesRunning = false;
-    engine.cancel('holes').catch(() => {});
-  }
-}
-function scheduleHoles() {
-  hideHoles();
-  clearTimeout(holesTimer);
-  holesTimer = 0;
-  if (!holesWanted()) return;
-  holesTimer = setTimeout(runHoles, DETAIL_DELAY);
-}
-function placeHoles() {
-  for (const k of ['width', 'height', 'left', 'top']) holesLayer.style[k] = canvas.style[k];
-}
-async function runHoles() {
-  holesTimer = 0;
-  if (!holesWanted()) return;
-  if (drag.on || state.view.busy || state.view.pending) {
-    holesTimer = setTimeout(runHoles, DETAIL_DELAY);
-    return;
-  }
-  const token = ++holesToken;
-  holesRunning = true;
-  try {
-    const { promise } = engine.job('l16Holes', 'holes', { ...cameraParams({ live: true }) });
-    const msg = await promise;
-    if (token !== holesToken || !msg || !(msg.pixels || msg.bitmap)) return;
-    const img = toImageData(msg);
-    holesLayer.width = img.width;
-    holesLayer.height = img.height;
-    holesLayer.getContext('2d').putImageData(img, 0, 0);
-    placeHoles();
-    holesLayer.hidden = false;
-  } catch (err) {
-    console.warn('Filling from the other cameras failed', err);
-  } finally {
-    if (token === holesToken) holesRunning = false;
-  }
-}
-
-function layoutCanvas() {
-  const fit = fitScale();
-  view.k = Math.min(MAX_SCALE / fit, Math.max(1, view.k));
-  const scale = fit * view.k;
-  const w = canvas.width * scale;
-  const h = canvas.height * scale;
-  clampView(w, h);
-  canvas.style.width = `${w}px`;
-  canvas.style.height = `${h}px`;
-  canvas.style.left = `${viewer.clientWidth / 2 - view.cx * w}px`;
-  canvas.style.top = `${viewer.clientHeight / 2 - view.cy * h}px`;
-  // Show real pixels when inspecting detail.
-  canvas.style.imageRendering = scale >= 2 ? 'pixelated' : 'auto';
-  const overlay = $('spread-overlay');
-  for (const k of ['width', 'height', 'left', 'top']) overlay.style[k] = canvas.style[k];
-  for (const k of ['width', 'height', 'left', 'top']) $('peaking-overlay').style[k] = canvas.style[k];
-  if (retouchUi) retouchUi.drawOverlay();
-  canvas.classList.toggle('pannable', view.k > 1 && state.mode !== 'camera');
-  // (a Light L16 photo's zoom is in its real pixels: its quick picture is half the camera's size, so 100% is two screen pixels to one canvas pixel)
-  $('zoom-label').textContent = view.k === 1 ? 'Fit' : `${Math.round((scale / nativeFactor()) * 100)}%`;
-  positionCropBox();
-  $('zoom-out').disabled = view.k <= 1;
-  $('zoom-in').disabled = scale >= MAX_SCALE - 1e-6;
-  watchLevel();
-  scheduleDetail();
-  scheduleHoles();
-}
-
-// Zooms by `factor`, keeping the image point under (mx, my) (viewer
-// coordinates) in place; defaults to the middle of the viewer.
-function zoomBy(factor, mx = viewer.clientWidth / 2, my = viewer.clientHeight / 2) {
-  const fit = fitScale();
-  const before = fit * view.k;
-  const w = canvas.width * before;
-  const h = canvas.height * before;
-  const left = viewer.clientWidth / 2 - view.cx * w;
-  const top = viewer.clientHeight / 2 - view.cy * h;
-  const px = (mx - left) / w;
-  const py = (my - top) / h;
-  view.k = Math.min(MAX_SCALE / fit, Math.max(1, view.k * factor));
-  const after = fit * view.k;
-  view.cx = px - (mx - viewer.clientWidth / 2) / (canvas.width * after);
-  view.cy = py - (my - viewer.clientHeight / 2) / (canvas.height * after);
-  layoutCanvas();
-}
-
-function zoomFit() {
-  view.k = 1;
-  layoutCanvas();
-}
-
-function zoomActual() {
-  view.k = nativeFactor() / fitScale();
-  layoutCanvas();
-}
-
-viewer.addEventListener('wheel', (event) => {
-  if (!state.info) return;
-  event.preventDefault();
-  const rect = viewer.getBoundingClientRect();
-  if (state.mode === 'lenslets') {
-    lensZoomBy(Math.exp(-event.deltaY * (event.deltaMode === 1 ? 0.05 : 0.0015)), event.clientX - rect.left, event.clientY - rect.top);
-    return;
-  }
-  zoomBy(Math.exp(-event.deltaY * (event.deltaMode === 1 ? 0.05 : 0.0015)), event.clientX - rect.left, event.clientY - rect.top);
-}, { passive: false });
-
-// Drag to pan when zoomed in (Shift+drag in camera mode, where a plain drag
-// changes the viewpoint; a middle button drag anywhere). A drag suppresses the click that follows it.
-let suppressClick = false;
-function startPan(event) {
-  const scale = fitScale() * view.k;
-  const start = { x: event.clientX, y: event.clientY, cx: view.cx, cy: view.cy };
-  let moved = false;
-  canvas.setPointerCapture(event.pointerId);
-  canvas.classList.add('panning');
-  canvas.onpointermove = (e) => {
-    const dx = e.clientX - start.x;
-    const dy = e.clientY - start.y;
-    if (Math.hypot(dx, dy) > 3) moved = true;
-    view.cx = start.cx - dx / (canvas.width * scale);
-    view.cy = start.cy - dy / (canvas.height * scale);
-    layoutCanvas();
-  };
-  canvas.onpointerup = () => {
-    canvas.onpointermove = null;
-    canvas.classList.remove('panning');
-    // A middle button drag is followed by no click to suppress.
-    suppressClick = moved && event.button === 0;
-  };
-}
-
-new ResizeObserver(() => (state.mode === 'lenslets' ? renderLenslets() : layoutCanvas())).observe(viewer);
-const lenslets = () => state.mode === 'lenslets' && state.info && state.info.cam;
-$('zoom-in').onclick = () => (lenslets() ? lensZoomBy(1.5) : zoomBy(1.5));
-$('zoom-out').onclick = () => (lenslets() ? lensZoomBy(1 / 1.5) : zoomBy(1 / 1.5));
-$('zoom-label').onclick = () => (lenslets() ? lensZoomBy(lensMinZoom() / lensView.z) : zoomFit());
-$('zoom-1').onclick = () => (lenslets() ? lensZoomBy(1 / lensView.z) : zoomActual());
+// zoomed in on a Light L16 photo: ui/l16zoom.js
+const { scheduleDetail, scheduleHoles, layoutCanvas, startPan } = initL16Zoom({ $: (...a) => $(...a), state, showsCamera: (...a) => showsCamera(...a), canvas, engine, hideProgress: (...a) => hideProgress(...a), drag, fitScale: (...a) => fitScale(...a), view, viewer, openSeq, showProgress: (...a) => showProgress(...a), cameraParams: (...a) => cameraParams(...a), MAX_SCALE, clampView: (...a) => clampView(...a), nativeFactor: (...a) => nativeFactor(...a), positionCropBox: (...a) => positionCropBox(...a), watchLevel: (...a) => watchLevel(...a), lensZoomBy: (...a) => lensZoomBy(...a), renderLenslets: (...a) => renderLenslets(...a), lensMinZoom: (...a) => lensMinZoom(...a), lensView });
 
 // ---------------------------------------------------------------- pointer
 
@@ -4215,7 +1561,6 @@ async function focusAt(event) {
 }
 
 // The click's own measurement, then (once the full depth map exists, see engine.onDepthReady) again on it if nothing has moved the focus since.
-let lastClick = null;
 async function applyFocusAt(x, y, opening) {
   // Blur drawn from the depth map (the default): the focus value is the depth map's value at the click. Optical refocusing: measured from the views.
   const depth = apertureFor(Math.min(fNumber(), 2.8)).aperture === 0;
@@ -4225,10 +1570,10 @@ async function applyFocusAt(x, y, opening) {
   if (openSeq.superseded(gen)) return;
   if (opening) hideProgress();
   if (!res || typeof res.alpha !== 'number') return;
-  if (!opening && !(lastClick && lastClick.x === x && lastClick.y === y && $('focus').value === lastClick.value)) return;
+  if (!opening && !(state.lastClick && state.lastClick.x === x && state.lastClick.y === y && $('focus').value === state.lastClick.value)) return;
   $('focus').value = res.alpha.toFixed(2);
   showSliderValue($('focus'));
-  lastClick = { x, y, value: $('focus').value, again: depth && !res.final };
+  state.lastClick = { x, y, value: $('focus').value, again: depth && !res.final };
   cameraChanged({ final: true });
 }
 
@@ -4236,9 +1581,9 @@ engine.onDepthReady = (msg) => {
   if (msg && staleSeq(msg.openSeq)) return;
   ruler.ready++;
   refreshDepthRuler();
-  if (lastClick && (lastClick.again || (msg && msg.reapply))) {
-    lastClick.again = false;
-    applyFocusAt(lastClick.x, lastClick.y, false).catch((err) => console.warn('Could not refocus on the full depth map', err));
+  if (state.lastClick && (state.lastClick.again || (msg && msg.reapply))) {
+    state.lastClick.again = false;
+    applyFocusAt(state.lastClick.x, state.lastClick.y, false).catch((err) => console.warn('Could not refocus on the full depth map', err));
   }
 };
 
@@ -4252,7 +1597,7 @@ const clickSlop = (type) => CLICK_MAX_MOVE[type] || CLICK_MAX_MOVE.mouse;
 let pressed = null;
 canvas.addEventListener('pointerdown', (event) => {
   if (event.button !== 0) return;
-  suppressClick = false;
+  state.suppressClick = false;
   pressed = { x: event.clientX, y: event.clientY, t: performance.now(), moved: false, slop: clickSlop(event.pointerType) };
 }, true);
 window.addEventListener('pointermove', (event) => {
@@ -4270,8 +1615,8 @@ canvas.addEventListener('click', (event) => {
     pickWhiteBalance(event);
     return;
   }
-  if (suppressClick) {
-    suppressClick = false;
+  if (state.suppressClick) {
+    state.suppressClick = false;
     return;
   }
   if (press && (press.moved || performance.now() - press.t > CLICK_MAX_MS)) return;
@@ -4336,7 +1681,7 @@ canvas.addEventListener('pointerdown', (event) => {
   };
   canvas.onpointerup = () => {
     canvas.onpointermove = null;
-    suppressClick = moved;
+    state.suppressClick = moved;
     if (moved) {
       autoKey();
       invalidateAnimation();
@@ -4390,17 +1735,16 @@ const showDepthBlend = (loaded = false) => {
 // Each depth model keeps its own settings (Model blend, Model smoothing, Model curve): the sliders show the chosen method's, and every model's are kept together in the
 // hidden `depth-model-params` (saved with the photo).
 const DEPTH_MODEL_SLIDERS = { blend: 'depth-model-blend', smooth: 'depth-model-smooth', curve: 'depth-model-curve' };
-let depthModelShown = null; // the method whose settings the sliders hold
 function rememberDepthModel() {
   const all = readParams('depth-model-params');
-  all[depthModelShown ?? $('depth-style').value] = Object.fromEntries(Object.entries(DEPTH_MODEL_SLIDERS).map(([k, id]) => [k, +$(id).value]));
+  all[state.depthModelShown ?? $('depth-style').value] = Object.fromEntries(Object.entries(DEPTH_MODEL_SLIDERS).map(([k, id]) => [k, +$(id).value]));
   $('depth-model-params').value = JSON.stringify(all);
 }
 // `loaded`: the settings were just read from a photo's saved edits, so the sliders already hold the chosen method's values.
 function showDepthModelControls(loaded = false) {
   const method = $('depth-style').value;
   const model = !!methodDepthModel(method);
-  if (model && depthModelShown !== method) {
+  if (model && state.depthModelShown !== method) {
     const saved = readParams('depth-model-params')[method];
     if (!loaded || saved) {
       for (const [k, id] of Object.entries(DEPTH_MODEL_SLIDERS)) {
@@ -4409,7 +1753,7 @@ function showDepthModelControls(loaded = false) {
       }
     }
   }
-  depthModelShown = model ? method : null;
+  state.depthModelShown = model ? method : null;
   for (const id of ['depth-model-blend-row', 'depth-model-smooth-row', 'depth-model-curve-row']) $(id).hidden = !model;
 }
 for (const id of Object.values(DEPTH_MODEL_SLIDERS)) {
@@ -4426,7 +1770,7 @@ for (const id of Object.values(DEPTH_MODEL_SLIDERS)) {
   };
 }
 $('depth-style').onchange = () => {
-  if (depthModelShown) rememberDepthModel(); // the old model's settings, still in the sliders
+  if (state.depthModelShown) rememberDepthModel(); // the old model's settings, still in the sliders
   if (canRender()) noteBusy(`Switching to ${$('depth-style').selectedOptions[0]?.textContent || 'the depth method'}…`);
   showDepthBlend();
   applySettingsSoon();
@@ -4673,580 +2017,8 @@ $('tilt-preset').onchange = () => {
   $('tilt-on').onchange();
 };
 
-// ---------------------------------------------------------------- settings
-
-// Settings window (gear at the right of the top bar).
-async function showLibraryLocation() {
-  await libReady;
-  const kind = state.lib.store.kind;
-  $('library-path').classList.toggle('mono', kind === 'folder');
-  $('library-choose').hidden = kind !== 'folder';
-  if (kind === 'folder') {
-    $('library-path').textContent = await native.libraryDir();
-  } else if (kind === 'browser') {
-    $('library-path').textContent = 'This browser’s storage';
-  } else {
-    $('library-path').textContent = 'Not available';
-  }
-}
-
-// A Lytro Desktop library (or any folder of photos), into a new album.
-async function importFolder() {
-  // Libraries are imported by the desktop app; the browser version points
-  // there.
-  if (!native) {
-    showDesktopOnly();
-    return;
-  }
-  const picked = await pickFolder('Import a Lytro Desktop library or a folder of photos').catch((err) => {
-    showError(err);
-    return null;
-  });
-  if (!picked) return;
-  const entries = groupPhotos(picked.files);
-  if ($('settings-dialog').open) $('settings-dialog').close();
-  if (!entries.length) {
-    showNotice(`No Lytro photos found in ${picked.name}.`);
-    startNoticeTimer();
-    return;
-  }
-  await libReady;
-  const albumName = picked.name.replace(/\.lytrolibrary$/i, '');
-  const album = state.lib.albums.find((a) => a.name === albumName) || (await state.lib.createAlbum(albumName));
-  // Photos imported before with the same names are replaced by these.
-  const added = await importPhotos(entries, { album: album.id, replace: true });
-  state.album = album.id;
-  state.cameraView = false;
-  showGrid(true);
-  const withEdits = entries.filter((e) => e.sidecar).length;
-  showNotice(`Added ${added.length} photo${added.length === 1 ? '' : 's'} from ${picked.name} to the album “${album.name}”.`,
-    withEdits ? `${withEdits === 1 ? 'One carries' : `${withEdits} carry`} Lytro Desktop edits, applied when ${withEdits === 1 ? 'it is' : 'each is'} first opened.` : '');
-  startNoticeTimer();
-}
-
-$('import-folder').onclick = importFolder;
-
-// The browser version points to the desktop app for imports that need it.
-const LIBRARY_ONLY = { title: $('desktop-only-title').textContent, text: $('desktop-only-text').textContent };
-function showDesktopOnly(title = LIBRARY_ONLY.title, text = LIBRARY_ONLY.text) {
-  $('desktop-only-title').textContent = title;
-  $('desktop-only-text').textContent = text;
-  $('desktop-only-hint').hidden = title !== LIBRARY_ONLY.title;
-  $('desktop-only-dialog').showModal();
-}
-
-// ---- camera calibration
-
-const lensSource = () => {
-  try {
-    return localStorage.getItem('illuminator.lensSource') === 'measured' ? 'measured' : 'calibration';
-  } catch {
-    return 'calibration';
-  }
-};
-
-// Kept calibration goes to the render worker, keyed by camera serial number.
-async function sendCalibrations() {
-  await libReady;
-  const kept = await listCalibrations(state.lib.store).catch(() => []);
-  const list = [];
-  for (const k of kept) list.push(await loadCalibration(state.lib.store, k.serial).catch(() => null));
-  await engine.request('setCalibrations', { list: list.filter(Boolean), useWhites: lensSource() === 'calibration' });
-  return kept;
-}
-
-async function showCalibrations() {
-  const kept = await sendCalibrations();
-  const ul = $('cal-list');
-  ul.replaceChildren();
-  for (const k of kept) {
-    const li = document.createElement('li');
-    const name = document.createElement('span');
-    name.textContent = `Camera ${k.serial}${k.hotPixels ? ' · hot pixel list' : ''}${k.whites && k.whites.length ? ` · ${k.whites.length} white images` : ''}`;
-    const del = document.createElement('button');
-    del.type = 'button';
-    del.className = 'link';
-    del.textContent = 'Remove';
-    del.onclick = async () => {
-      await removeCalibration(state.lib.store, k.serial);
-      $('cal-note').textContent = `Removed the calibration for camera ${k.serial}.`;
-      showCalibrations();
-    };
-    li.append(name, del);
-    ul.append(li);
-  }
-  if (!kept.length) $('cal-note').textContent ||= 'No camera calibration added yet.';
-}
-
-async function addCalibration(source) {
-  if (!source) return;
-  await libReady;
-  $('cal-note').textContent = 'Reading calibration data…';
-  try {
-    const info = await importCalibration(source, state.lib.store, {
-      onProgress: (p, name) => { $('cal-note').textContent = `Reading ${name}…`; },
-      // The white images are measured in the render worker.
-      measure: (bytes, meta) => engine.request('measureWhite', { bytes: bytes.buffer, meta }, { transfer: [bytes.buffer] }),
-    });
-    $('cal-note').textContent = `Added camera ${info.serial}: ${info.saved} files kept` +
-      (info.hotPixels ? `, its hot pixel list` : '') +
-      (info.whites.length ? ` and ${info.whites.length} white images` : '') +
-      '. Photos from this camera use it the next time they are opened.';
-    await showCalibrations();
-  } catch (err) {
-    $('cal-note').textContent = err.message || String(err);
-  }
-}
-
-const CALIBRATION_ONLY = ['Add camera calibration', 'Adding camera calibration data needs the Illuminator desktop app, for Windows, macOS and Linux. Backups are over a gigabyte, so the desktop app reads them on your computer and keeps the calibration in your library.'];
-$('cal-lens-source').value = lensSource();
-$('cal-lens-source').onchange = () => {
-  try {
-    localStorage.setItem('illuminator.lensSource', $('cal-lens-source').value);
-  } catch {
-    // Not remembered.
-  }
-  sendCalibrations();
-};
-$('cal-add').onclick = async () => (!native ? showDesktopOnly(...CALIBRATION_ONLY) : addCalibration(await openCalibrationFile().catch(() => null)));
-$('cal-folder').onclick = async () => {
-  if (!native) return showDesktopOnly(...CALIBRATION_ONLY);
-  const picked = await pickFolder('Choose the camera’s calibration folder', { calibration: true }).catch(() => null);
-  if (picked && picked.files.length) addCalibration(picked.files.map((f) => ({ path: f.path, file: f.file })));
-};
-
-// Settings > Upscaling models: a checkbox per optional model (core/upscalemodels.js). Ticking downloads it, unticking deletes it; a downloaded model appears in Render Settings >
-// Upscaling > Method. They need a graphics card with WebGPU.
-let modelBusy = false;
-const updatingModels = new Set();
-// Depth models (Settings > Depth models): a downloaded model is a choice under Camera > Depth > Depth method.
-let depthModelBusy = false;
-async function refreshDepthModels() {
-  const select = $('depth-style');
-  const before = select.value;
-  const list = $('depth-models-list');
-  if (!list.children.length) {
-    for (const m of DEPTH_MODELS) {
-      const row = document.createElement('label');
-      row.className = 'check model-row';
-      const box = Object.assign(document.createElement('input'), { type: 'checkbox' });
-      box.dataset.model = m.id;
-      const text = document.createElement('span');
-      text.textContent = `${m.name}, ${m.note} (${Math.round(m.size / 1e6)} MB)`;
-      const status = Object.assign(document.createElement('span'), { className: 'hint model-state' });
-      row.append(box, text, status);
-      list.append(row);
-      box.onchange = async () => {
-        if (depthModelBusy) {
-          box.checked = !box.checked;
-          return;
-        }
-        depthModelBusy = true;
-        box.disabled = true;
-        try {
-          if (box.checked) {
-            status.textContent = 'Downloading… 0%';
-            await downloadDepthModel(m, (p) => { status.textContent = `Downloading… ${Math.round(p * 100)}%`; });
-          } else {
-            await removeDepthModel(m);
-            // The worker keeps the model's session (tens of megabytes) until told to let it go.
-            await engine.request('releaseDepthModel', { model: m.id }).catch(() => {});
-          }
-          status.textContent = '';
-        } catch (err) {
-          box.checked = false;
-          status.textContent = err && err.message ? err.message : String(err);
-        }
-        depthModelBusy = false;
-        await refreshDepthModels();
-      };
-    }
-  }
-  for (const m of DEPTH_MODELS) {
-    const have = (await depthModelState(m)) === 'ready';
-    const box = list.querySelector(`input[data-model="${m.id}"]`);
-    box.checked = have;
-    const value = depthModelMethod(m.id);
-    const option = [...select.options].find((o) => o.value === value);
-    if (have && !option) select.append(new Option(m.name, value));
-    else if (!have && option) option.remove();
-  }
-  // a model that was the method and is gone: back to Automatic
-  if (before && ![...select.options].some((o) => o.value === before)) {
-    select.value = 'auto';
-    select.dispatchEvent(new Event('change', { bubbles: true }));
-  } else if (before) {
-    select.value = before;
-  }
-  showDepthBlend();
-  // (a photo that carries its depth: From the file)
-  showDepthMethods();
-}
-refreshDepthModels().catch(() => {});
-
-// Settings > Fill model (core/fillmodel.js): ticking downloads MI-GAN, unticking deletes it; while it is downloaded, Camera > Perspective > Fill with AI can be turned on.
-let fillModelBusy = false;
-async function refreshFillModel() {
-  const list = $('fill-model-list');
-  if (!list.children.length) {
-    const row = document.createElement('label');
-    row.className = 'check model-row';
-    const box = Object.assign(document.createElement('input'), { type: 'checkbox' });
-    box.dataset.model = FILL_MODEL.id;
-    const text = document.createElement('span');
-    text.textContent = `${FILL_MODEL.name}, ${FILL_MODEL.note} (${Math.round(FILL_MODEL.size / 1e6)} MB)`;
-    const status = Object.assign(document.createElement('span'), { className: 'hint model-state' });
-    row.append(box, text, status);
-    list.append(row);
-    box.onchange = async () => {
-      if (fillModelBusy) {
-        box.checked = !box.checked;
-        return;
-      }
-      fillModelBusy = true;
-      box.disabled = true;
-      try {
-        if (box.checked) {
-          status.textContent = 'Downloading… 0%';
-          await downloadFillModel((p) => { status.textContent = `Downloading… ${Math.round(p * 100)}%`; });
-        } else {
-          await removeFillModel();
-        }
-        status.textContent = '';
-      } catch (err) {
-        box.checked = false;
-        status.textContent = err && err.message ? err.message : String(err);
-      }
-      fillModelBusy = false;
-      await refreshFillModel();
-    };
-  }
-  const have = (await fillModelState()) === 'ready';
-  const box = list.querySelector(`input[data-model="${FILL_MODEL.id}"]`);
-  box.checked = have;
-  box.disabled = false;
-  $('view-fill').disabled = !have;
-  // (a preference kept in this browser, not a photo's edit)
-  let wanted = false;
-  try {
-    wanted = localStorage.getItem('illuminator.viewFill') === '1';
-  } catch {}
-  $('view-fill').checked = have && wanted;
-}
-$('view-fill').addEventListener('change', () => {
-  try {
-    localStorage.setItem('illuminator.viewFill', $('view-fill').checked ? '1' : '0');
-  } catch {}
-});
-refreshFillModel().catch(() => {});
-
-// First run after an install: a window listing the optional models that can be downloaded, and where to find them in Settings later. Shown once (not in automated runs).
-// Each ticked model is downloaded the way its Settings list does it, and that list is refreshed, so the model appears where it is used.
-async function showModelsIntro() {
-  try {
-    if (localStorage.getItem('illuminator.modelsIntro') === '1' || navigator.webdriver) return;
-  } catch {
-    return;
-  }
-  const dialog = $('models-intro-dialog');
-  const list = $('models-intro-list');
-  const gpuOk = await aiUpscaleAvailable();
-  const groups = [
-    { title: 'Depth models', where: 'Camera > Depth > Depth method', items: DEPTH_MODELS.map((m) => ({ m, have: () => depthModelState(m), get: (p) => downloadDepthModel(m, p) })), refresh: refreshDepthModels },
-    { title: 'Upscaling models', where: 'Render Settings > Upscaling > Method', gpu: true, items: UPSCALE_MODELS.map((m) => ({ m, have: () => modelState(m), get: (p) => downloadModel(m, p) })), refresh: refreshUpscaleModels },
-    { title: 'Sharpening models', where: 'Render Settings > Upscaling > Sharpening model', gpu: true, items: SHARPEN_MODELS.map((m) => ({ m, have: () => modelState(m), get: (p) => downloadModel(m, p) })), refresh: refreshSharpenModels },
-    { title: 'Fill model', where: 'Camera > Perspective > Fill with AI', items: [{ m: FILL_MODEL, have: () => fillModelState(), get: (p) => downloadFillModel(p) }], refresh: refreshFillModel },
-  ];
-  const rows = [];
-  for (const g of groups) {
-    const head = document.createElement('h3');
-    head.textContent = g.title;
-    const where = Object.assign(document.createElement('p'), { className: 'hint', textContent: `Used in ${g.where}.` });
-    list.append(head, where);
-    for (const it of g.items) {
-      const row = document.createElement('label');
-      row.className = 'check model-row';
-      const box = Object.assign(document.createElement('input'), { type: 'checkbox' });
-      const text = document.createElement('span');
-      text.textContent = `${it.m.name}, ${it.m.note} (${Math.round(it.m.size / 1e6)} MB)`;
-      const status = Object.assign(document.createElement('span'), { className: 'hint model-state' });
-      row.append(box, text, status);
-      list.append(row);
-      const have = (await it.have()) === 'ready';
-      if (have) {
-        box.checked = true;
-        box.disabled = true;
-        status.textContent = 'Downloaded';
-      } else if (g.gpu && !gpuOk) {
-        box.disabled = true;
-        status.textContent = 'Needs a GPU';
-      }
-      rows.push({ g, it, box, status, have });
-    }
-  }
-  // Nothing left to offer (every model is already here): no window.
-  if (!rows.some((r) => !r.box.disabled)) {
-    list.textContent = '';
-    return;
-  }
-  try {
-    localStorage.setItem('illuminator.modelsIntro', '1');
-  } catch {
-    // It may be shown again next time.
-  }
-  $('models-intro-go').onclick = async () => {
-    const go = $('models-intro-go');
-    go.disabled = true;
-    const wanted = rows.filter((r) => r.box.checked && !r.box.disabled);
-    let failed = 0;
-    for (const r of wanted) {
-      r.box.disabled = true;
-      try {
-        await r.it.get((p) => { r.status.textContent = `Downloading… ${Math.round(p * 100)}%`; });
-        r.status.textContent = 'Downloaded';
-      } catch (err) {
-        failed++;
-        r.box.checked = false;
-        r.status.textContent = err && err.message ? err.message : String(err);
-      }
-    }
-    for (const g of new Set(wanted.map((r) => r.g))) await g.refresh().catch(() => {});
-    $('models-intro-status').textContent = failed ? 'Some models could not be downloaded; try again in Settings.' : wanted.length ? 'Done. Find them any time in Settings.' : '';
-    go.disabled = false;
-    if (wanted.length && !failed) dialog.close();
-  };
-  dialog.showModal();
-}
-// (after the first screen is up, so it does not hold the start)
-setTimeout(() => { showModelsIntro().catch(() => {}); }, 1500);
-
-async function refreshUpscaleModels() {
-  const select = $('upscale-method');
-  const before = select.value;
-  const gpuOk = await aiUpscaleAvailable();
-  const list = $('models-list');
-  if (!list.children.length) {
-    for (const m of UPSCALE_MODELS) {
-      const row = document.createElement('label');
-      row.className = 'check model-row';
-      const box = Object.assign(document.createElement('input'), { type: 'checkbox' });
-      box.dataset.model = m.id;
-      const text = document.createElement('span');
-      text.textContent = `${m.name}, ${m.note} (${Math.round(m.size / 1e6)} MB)`;
-      const status = Object.assign(document.createElement('span'), { className: 'hint model-state' });
-      row.append(box, text, status);
-      list.append(row);
-      box.onchange = async () => {
-        if (modelBusy) {
-          box.checked = !box.checked;
-          return;
-        }
-        modelBusy = true;
-        box.disabled = true;
-        try {
-          if (box.checked) {
-            status.textContent = 'Downloading… 0%';
-            await downloadModel(m, (p) => { status.textContent = `Downloading… ${Math.round(p * 100)}%`; });
-          } else {
-            await removeModel(m);
-          }
-          status.textContent = '';
-        } catch (err) {
-          box.checked = false;
-          status.textContent = err && err.message ? err.message : String(err);
-        }
-        modelBusy = false;
-        await refreshUpscaleModels();
-      };
-    }
-  }
-  for (const m of UPSCALE_MODELS) {
-    const state = await modelState(m);
-    const have = state === 'ready';
-    const box = list.querySelector(`input[data-model="${m.id}"]`);
-    // a model replaced in the repository since it was downloaded: the new one is fetched again by itself (it was chosen once already)
-    if (state === 'stale' && !modelBusy && !updatingModels.has(m.id)) {
-      updatingModels.add(m.id);
-      const status = box.parentElement.querySelector('.model-state');
-      status.textContent = 'Updating…';
-      downloadModel(m, (p) => { status.textContent = `Updating… ${Math.round(p * 100)}%`; })
-        .then(() => { status.textContent = ''; }, (err) => { status.textContent = err && err.message ? err.message : String(err); })
-        .finally(() => { updatingModels.delete(m.id); refreshUpscaleModels().catch(() => {}); });
-    }
-    box.checked = have || state === 'stale';
-    box.disabled = !gpuOk && !have;
-    box.title = gpuOk ? '' : 'Needs a GPU';
-    const value = modelMethod(m.id);
-    const option = [...select.options].find((o) => o.value === value);
-    if (have && !option) select.append(new Option(m.name, value));
-    else if (!have && option) option.remove();
-  }
-  // a model that was the method and is gone: back to Lanczos
-  if (before && ![...select.options].some((o) => o.value === before)) {
-    select.value = 'lanczos';
-    select.dispatchEvent(new Event('change', { bubbles: true }));
-  } else if (before) {
-    select.value = before;
-  }
-  showUpscaleControls();
-}
-refreshUpscaleModels().catch(() => {});
-
-// Settings > Sharpening models: the same download list for models that keep the picture's size (core/upscalemodels.js, scale 1). A downloaded one is a choice under Render
-// Settings > Upscaling > Sharpening model, applied to saved photos and the picture made at its size before any enlargement.
-async function refreshSharpenModels() {
-  const select = $('sharpen-model');
-  const before = select.value;
-  const gpuOk = await aiUpscaleAvailable();
-  const list = $('sharpen-models-list');
-  if (!list.children.length) {
-    for (const m of SHARPEN_MODELS) {
-      const row = document.createElement('label');
-      row.className = 'check model-row';
-      const box = Object.assign(document.createElement('input'), { type: 'checkbox' });
-      box.dataset.model = m.id;
-      const text = document.createElement('span');
-      text.textContent = `${m.name}, ${m.note} (${Math.round(m.size / 1e6)} MB)`;
-      const status = Object.assign(document.createElement('span'), { className: 'hint model-state' });
-      row.append(box, text, status);
-      list.append(row);
-      box.onchange = async () => {
-        if (modelBusy) {
-          box.checked = !box.checked;
-          return;
-        }
-        modelBusy = true;
-        box.disabled = true;
-        try {
-          if (box.checked) {
-            status.textContent = 'Downloading… 0%';
-            await downloadModel(m, (p) => { status.textContent = `Downloading… ${Math.round(p * 100)}%`; });
-          } else {
-            await removeModel(m);
-          }
-          status.textContent = '';
-        } catch (err) {
-          box.checked = false;
-          status.textContent = err && err.message ? err.message : String(err);
-        }
-        modelBusy = false;
-        await refreshSharpenModels();
-      };
-    }
-  }
-  for (const m of SHARPEN_MODELS) {
-    const have = (await modelState(m)) === 'ready';
-    const box = list.querySelector(`input[data-model="${m.id}"]`);
-    box.checked = have;
-    box.disabled = !gpuOk && !have;
-    box.title = gpuOk ? '' : 'Needs a GPU';
-    const value = sharpenMethod(m.id);
-    const option = [...select.options].find((o) => o.value === value);
-    if (have && !option) select.append(new Option(m.name, value));
-    else if (!have && option) option.remove();
-  }
-  if (before && ![...select.options].some((o) => o.value === before)) select.value = '';
-  else select.value = before;
-  const any = select.options.length > 1;
-  $('sharpen-model-row').hidden = !any;
-  $('sharpen-model-amount-row').hidden = !any || !select.value;
-}
-refreshSharpenModels().catch(() => {});
-$('sharpen-model').addEventListener('change', () => {
-  $('sharpen-model-amount-row').hidden = !$('sharpen-model').value;
-  scheduleSave();
-});
-
-// Settings > Memory (the desktop app): the most RAM and video memory the app may plan to use, from 1 GB up to what the computer has less what the system keeps (4 GB of RAM, 512 MB of video memory). At the top
-// of the range (the start) there is no limit of the app's own. The limits size the heavy steps (a full sensor render, a 16-bit export, an upscaling model; core/memorybudget.js)
-// and, when the app starts, cap its JavaScript heap and the video memory Chromium plans for (electron/main.cjs).
-const GIB = 1024 ** 3;
-async function setupMemorySettings() {
-  if (!native || !native.systemMemory) return;
-  const sys = await native.systemMemory();
-  const top = (bytes, reserve) => Math.max(1, Math.floor(((bytes - reserve) / GIB) * 2) / 2);
-  const rows = [
-    { key: 'ramGb', input: $('mem-ram'), out: $('mem-ram-out'), max: top(sys.ramBytes, sys.ramReserveBytes), title: `This computer has ${(sys.ramBytes / GIB).toFixed(1)} GB of RAM; 4 GB are left for the system. Applies when the app starts.` },
-    { key: 'vramGb', input: $('mem-vram'), out: $('mem-vram-out'), max: top(sys.vramBytes, sys.vramReserveBytes), title: `Video memory found: ${(sys.vramBytes / GIB).toFixed(1)} GB (${sys.vramSource}); 512 MB are left for the system. Applies when the app starts.` },
-  ];
-  const apply = (save) => {
-    const gb = Object.fromEntries(rows.map((r) => [r.key, +r.input.value]));
-    setMemoryLimits({ ramBytes: gb.ramGb * GIB, vramBytes: gb.vramGb * GIB });
-    engine.request('memoryLimits', { ramBytes: gb.ramGb * GIB, vramBytes: gb.vramGb * GIB }).catch(() => {});
-    // at the top of a range: no limit kept, so more memory in the computer later raises it by itself
-    if (save) native.setMemoryLimits(Object.fromEntries(rows.map((r) => [r.key, gb[r.key] >= r.max ? null : gb[r.key]]))).catch(() => {});
-  };
-  for (const r of rows) {
-    const saved = sys.limits && sys.limits[r.key];
-    r.input.max = r.max;
-    r.input.min = Math.min(1, r.max);
-    r.input.value = saved ? Math.min(saved, r.max) : r.max;
-    r.input.disabled = r.max <= 1;
-    r.input.title = r.title;
-    r.out.textContent = `${r.input.value} GB`;
-    r.input.oninput = () => {
-      r.out.textContent = `${r.input.value} GB`;
-      apply(false);
-    };
-    r.input.onchange = () => apply(true);
-  }
-  $('memory-setting').hidden = false;
-  apply(false);
-}
-setupMemorySettings().catch((err) => console.warn('Could not read the computer\'s memory', err));
-
-// Settings > Check for updates on startup (the desktop app; Help > Check for Updates works whatever it says).
-$('updates-setting').hidden = !native;
-$('check-updates').checked = updateCheckOn();
-$('check-updates').onchange = () => {
-  try {
-    localStorage.setItem('illuminator.checkUpdates', $('check-updates').checked ? '1' : '0');
-  } catch {
-    // Not remembered.
-  }
-};
-
-$('settings-btn').onclick = async () => {
-  await showLibraryLocation();
-  $('cal-note').textContent = '';
-  showCalibrations();
-  $('settings-btn').setAttribute('aria-expanded', 'true');
-  $('settings-dialog').showModal();
-};
-$('settings-dialog').addEventListener('close', () => $('settings-btn').setAttribute('aria-expanded', 'false'));
-
-// The About window shows the top bar's logo.
-$('about-title').prepend(document.querySelector('.toolbar h1 .logo').cloneNode(true));
-
-// Full screen: the whole app fills the screen (the desktop app's window too).
-function showFullscreen() {
-  const on = !!document.fullscreenElement;
-  const b = $('fullscreen-btn');
-  b.setAttribute('aria-pressed', String(on));
-  b.title = on ? 'Exit full screen' : 'Full screen';
-  b.setAttribute('aria-label', b.title);
-  b.querySelector('.fs-enter').hidden = on;
-  b.querySelector('.fs-exit').hidden = !on;
-}
-$('fullscreen-btn').hidden = !document.fullscreenEnabled;
-$('fullscreen-btn').onclick = () => {
-  const done = document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen();
-  Promise.resolve(done).catch(() => {});
-};
-document.addEventListener('fullscreenchange', showFullscreen);
-
-$('about-btn').onclick = () => {
-  $('about-version').textContent = VERSION;
-  $('about-btn').setAttribute('aria-expanded', 'true');
-  $('about-dialog').showModal();
-};
-$('about-dialog').addEventListener('close', () => $('about-btn').setAttribute('aria-expanded', 'false'));
-
-$('library-choose').onclick = async () => {
-  if (!native) return;
-  await useLibrary(() => native.chooseLibraryDir()).catch((err) => showError(err));
-  await showLibraryLocation();
-};
+// settings: ui/settings.js
+const { importFolder, sendCalibrations } = initSettings({ state, $: (...a) => $(...a), showError: (...a) => showError(...a), showNotice: (...a) => showNotice(...a), startNoticeTimer: (...a) => startNoticeTimer(...a), importPhotos: (...a) => importPhotos(...a), showGrid: (...a) => showGrid(...a), engine, showDepthBlend: (...a) => showDepthBlend(...a), showDepthMethods: (...a) => showDepthMethods(...a), showUpscaleControls: (...a) => showUpscaleControls(...a), scheduleSave: (...a) => scheduleSave(...a), useLibrary: (...a) => useLibrary(...a) });
 
 // ---------------------------------------------------------------- crop, straighten, orientation
 
@@ -5629,9 +2401,9 @@ document.addEventListener('keydown', (e) => {
 const { showColorMatrix } = initColorMatrix({ $, state, applySettings: (...a) => applySettings(...a), applySettingsSoon: (...a) => applySettingsSoon(...a) });
 
 // local adjustments: ui/localadjust.js
-const { getMasks, setMasks, maskLabel, TRASH_ICON, renderMasks, localSettings, setDepthRange, pickDepthRange, selectedDepthMask } = initLocalAdjustments({ $, applySettingsSoon: (...a) => applySettingsSoon(...a), scheduleSave: (...a) => scheduleSave(...a), state, clearSelection: (...a) => clearSelection(...a), saveAnimation: (...a) => saveAnimation(...a), renderTimeline: (...a) => renderTimeline(...a), showMenu: (...a) => showMenu(...a), confirmInMenu: (...a) => confirmInMenu(...a), editName: (...a) => editName(...a), canRender: (...a) => canRender(...a), showSliderValue: (...a) => showSliderValue(...a), updateKeyButtons: (...a) => updateKeyButtons(...a), autoKey: (...a) => autoKey(...a), canvas, engine, sourceFraction: (...a) => sourceFraction(...a), stillDepth: () => (apertureFor(fNumber()).aperture > 0 ? +$('focus').value || 0 : 0), showError: (...a) => showError(...a), retouchTool: (t) => retouchUi && retouchUi.setTool(t) });
+const { getMasks, setMasks, maskLabel, TRASH_ICON, renderMasks, localSettings, setDepthRange, pickDepthRange, selectedDepthMask } = initLocalAdjustments({ $, applySettingsSoon: (...a) => applySettingsSoon(...a), scheduleSave: (...a) => scheduleSave(...a), state, clearSelection: (...a) => clearSelection(...a), saveAnimation: (...a) => saveAnimation(...a), renderTimeline: (...a) => renderTimeline(...a), showMenu: (...a) => showMenu(...a), confirmInMenu: (...a) => confirmInMenu(...a), editName: (...a) => editName(...a), canRender: (...a) => canRender(...a), showSliderValue: (...a) => showSliderValue(...a), updateKeyButtons: (...a) => updateKeyButtons(...a), autoKey: (...a) => autoKey(...a), canvas, engine, sourceFraction: (...a) => sourceFraction(...a), stillDepth: () => (apertureFor(fNumber()).aperture > 0 ? +$('focus').value || 0 : 0), showError: (...a) => showError(...a), retouchTool: (t) => state.retouchUi && state.retouchUi.setTool(t) });
 // Retouch (spot removal): the spots over the picture, and the tool that places them.
-retouchUi = initRetouch({ $, state, canvas, engine, applySettingsSoon: (...a) => applySettingsSoon(...a), scheduleSave: (...a) => scheduleSave(...a), viewPoint: (...a) => viewPoint(...a), sourceFraction: (...a) => sourceFraction(...a), canRender: (...a) => canRender(...a), showError: (...a) => showError(...a), applyMatrix, stillDepth: () => (!state.retouchTool && apertureFor(fNumber()).aperture > 0 ? +$('focus').value || 0 : 0), refocus: () => { if (state.fullRes) setFullRes(false, { restore: false }); if (!state.depthShown && canRender()) renderCamera(); } });
+state.retouchUi = initRetouch({ $, state, canvas, engine, applySettingsSoon: (...a) => applySettingsSoon(...a), scheduleSave: (...a) => scheduleSave(...a), viewPoint: (...a) => viewPoint(...a), sourceFraction: (...a) => sourceFraction(...a), canRender: (...a) => canRender(...a), showError: (...a) => showError(...a), applyMatrix, stillDepth: () => (!state.retouchTool && apertureFor(fNumber()).aperture > 0 ? +$('focus').value || 0 : 0), refocus: () => { if (state.fullRes) setFullRes(false, { restore: false }); if (!state.depthShown && canRender()) renderCamera(); } });
 const colorGrading = initColorGrading({ $, applySettingsSoon: (...a) => applySettingsSoon(...a), showSliderValue: (...a) => showSliderValue(...a) });
 // Dragging in the histogram moves Blacks, Shadows, Exposure, Highlights or Whites (ui/histedit.js).
 initHistogramEditing({ $, showSliderValue: (...a) => showSliderValue(...a), canEdit: () => !!state.info && state.mode === 'camera' });
@@ -5696,7 +2468,7 @@ async function exportAlbum(id) {
 // An exported album: its photos join the library and the album is made
 // again (or joined, if one has its name).
 async function importAlbumArchive(file) {
-  await libReady;
+  await state.libReady;
   try {
     const { album, photos } = await state.lib.importAlbum(file, {
       onProgress: (e, i, n) => {
@@ -5730,7 +2502,6 @@ if (EXTRA) $('file-input').accept = `${PHOTO_ACCEPT},.xmp,.XMP,.zip`;
 $('open-btn').onclick = async () => openPicked(await openFiles());
 $('library-import').onclick = () => importFolder();
 // Commands from the desktop app's menu bar.
-let checkForUpdateNow = () => {};
 // Photos opened from outside the page (double-clicked in the file manager, or sent to a second instance).
 if (native && native.onOpenPaths) native.onOpenPaths((files) => openPicked(files.map((f) => new NativeFile(f))));
 // + Connect over Wi-Fi (the sidebar, under the library; desktop app, first generation cameras).
@@ -5743,14 +2514,14 @@ if (native && native.onMenu) {
   native.onMenu((id) => {
     if (id === 'undo' || id === 'redo') {
       // The key itself may already have been handled in the page.
-      if (performance.now() - lastHistoryKey < 300) return;
+      if (performance.now() - state.lastHistoryKey < 300) return;
       if (typing(document.activeElement)) document.execCommand(id);
       else if (id === 'undo') undo();
       else redo();
     } else if (id === 'open') $('open-btn').click();
     else if (id === 'import-library') importFolder();
     else if (id === 'about') $('about-btn').click();
-    else if (id === 'check-update') checkForUpdateNow();
+    else if (id === 'check-update') state.checkForUpdateNow();
   });
 }
 $('camera-btn').onclick = importFromCamera;
@@ -5862,18 +2633,18 @@ $('pv-scrub').oninput = () => {
 };
 // Render preview: all the frames first, then it plays; pressed again while rendering, it cancels.
 $('pv-render').onclick = async () => {
-  if (previewing) {
+  if (state.previewing) {
     invalidateAnimation();
     return;
   }
   if (!state.info || !$('anim-on').checked) return;
   setPlaying(false);
-  previewing = true;
+  state.previewing = true;
   updatePreviewStatus();
   const done = ensureAnimation();
   const key = state.animKey;
   await done;
-  previewing = false;
+  state.previewing = false;
   // Cancelled or changed meanwhile: the frames are gone.
   if (state.animKey === key && state.frames.length && !framesMissing()) setPlaying(true);
   updatePreviewStatus();
@@ -5881,7 +2652,7 @@ $('pv-render').onclick = async () => {
 function updatePreviewStatus() {
   const n = state.frames.length;
   const ready = state.frames.filter(Boolean).length;
-  $('pv-render').textContent = previewing ? 'Cancel' : n && ready === n ? 'Render again' : 'Render preview';
+  $('pv-render').textContent = state.previewing ? 'Cancel' : n && ready === n ? 'Render again' : 'Render preview';
   $('pv-status').textContent = !n ? '' : ready === n ? `Ready · ${n} frames · ${(n / state.fps).toFixed(2)} s` : state.animKey ? `Rendering ${ready} / ${n}` : `Stopped at ${ready} / ${n}`;
   $('pv-status').hidden = !$('pv-status').textContent;
   $('pv-scrub').max = $('scrub').max;
@@ -5934,7 +2705,7 @@ $('scrub').oninput = () => {
 $('png-btn').onclick = savePng;
 
 // The scripting interface (window.illuminator, ui/api.js): scripts, plugins and the command line drive the app through it.
-({ emit: emitEvent } = initScriptingApi({
+({ emit: state.emitEvent } = initScriptingApi({
   state,
   $,
   engine,
@@ -6005,13 +2776,13 @@ $('png-btn').onclick = savePng;
     }, reject);
   }),
   speedReport: async () => {
-    speedFacts = await engine.request('speedFacts', {}).catch(() => speedFacts);
+    state.speedFacts = await engine.request('speedFacts', {}).catch(() => state.speedFacts);
     return speedReportText();
   },
 }));
 
 // The render queue (ui/queue.js): not inside the hidden copy that does its renders.
-if (!QUEUE_RUNNER) queueUi = initQueue({ $, state, native, currentEdits: () => currentEdits(), showNotice: (...a) => showNotice(...a), showError: (...a) => showError(...a), thumbFor: (photo) => thumbFor(photo), openPhoto: (photo) => openItem(photo), renderLibrary: () => renderLibrary(), depthInputs: (photo) => depthInputs(photo) });
+if (!QUEUE_RUNNER) state.queueUi = initQueue({ $, state, native, currentEdits: () => currentEdits(), showNotice: (...a) => showNotice(...a), showError: (...a) => showError(...a), thumbFor: (photo) => thumbFor(photo), openPhoto: (photo) => openItem(photo), renderLibrary: () => renderLibrary(), depthInputs: (photo) => depthInputs(photo) });
 
 $('webm-btn').onclick = exportVideo;
 
@@ -6270,7 +3041,6 @@ function resetTemperature(info, { keep = false } = {}) {
 // shortly after each change. Photos without saved edits start from the
 // defaults.
 const DEFAULT_EDITS = readEdits(document);
-let saveTimer = 0;
 
 function photoKey(info) {
   if (info && info.photoId) return info.photoId;
@@ -6282,7 +3052,7 @@ function photoKey(info) {
 // mark, so it opens as a new photo does, without Lytro Desktop's edits; an
 // open photo starts over at once.
 async function resetPhotoSettings(photo) {
-  clearTimeout(saveTimer);
+  clearTimeout(state.saveTimer);
   await state.lib.saveEdits(photo, { format: EDITS_FORMAT, version: EDITS_VERSION, reset: true, photo: { id: photo.id, name: photo.name } });
   if (state.current && state.current.photo === photo && state.info) {
     if (state.playing) setPlaying(false);
@@ -6293,7 +3063,7 @@ async function resetPhotoSettings(photo) {
 
 async function restoreEdits(info) {
   const gen = openSeq.current();
-  clearTimeout(saveTimer);
+  clearTimeout(state.saveTimer);
   state.editsKey = photoKey(info);
   const photo = state.current && state.current.photo;
   // Library photos keep their edits in their folder; earlier versions kept
@@ -6341,17 +3111,17 @@ async function applyEdits(info, saved) {
     state.upscaleShown = null;
     showUpscaleControls(true);
     showObjectSoft();
-    depthModelShown = null;
+    state.depthModelShown = null;
     showDepthBlend(true);
     // (a photo that carries its depth uses it whatever its saved edits say)
     if (info === state.info) showDepthMethods();
     state.maskSel = getMasks().length ? 0 : -1;
     $('mask-show').checked = false;
     renderMasks();
-    if (retouchUi) {
-      retouchUi.setTool(null);
-      state.retouchSel = retouchUi.getSpots().length ? 0 : -1;
-      retouchUi.renderList();
+    if (state.retouchUi) {
+      state.retouchUi.setTool(null);
+      state.retouchSel = state.retouchUi.getSpots().length ? 0 : -1;
+      state.retouchUi.renderList();
     }
     resetTemperature(info, { keep: !!saved });
     state.camera = { ...view };
@@ -6466,11 +3236,11 @@ $('notice-close').onclick = hideNotice;
 
 function scheduleSave() {
   if (state.restoring || !state.editsKey || !canRender() || state.scripted) return;
-  clearTimeout(saveTimer);
+  clearTimeout(state.saveTimer);
   const key = state.editsKey;
   const photo = state.current && state.current.photo;
-  saveTimer = setTimeout(() => {
-    saveTimer = 0;
+  state.saveTimer = setTimeout(() => {
+    state.saveTimer = 0;
     // The controls and the viewpoint must still be this photo's (another one may be opening, with the view reset).
     if (key !== state.editsKey || !state.info || (state.current && state.current.photo) !== photo) return;
     const edits = readEdits(document, {
@@ -6517,9 +3287,9 @@ function recordHistory(edits) {
 // A change still waiting to be saved counts as a step.
 // Returns the save, so a caller can wait for it.
 function flushSave() {
-  if (!saveTimer) return Promise.resolve();
-  clearTimeout(saveTimer);
-  saveTimer = 0;
+  if (!state.saveTimer) return Promise.resolve();
+  clearTimeout(state.saveTimer);
+  state.saveTimer = 0;
   const key = state.editsKey;
   const photo = state.current && state.current.photo;
   // (the view of a photo being opened was reset: those controls are not this photo's)
@@ -6555,10 +3325,9 @@ const undo = () => stepHistory(true);
 const redo = () => stepHistory(false);
 // Text fields keep their own undo.
 const typing = (el) => el && (el.isContentEditable || el.tagName === 'TEXTAREA' || (el.tagName === 'INPUT' && /^(text|search|number|email|url|password)$/.test(el.type)));
-marks = initMarks({ $, state, renderLibrary: () => renderLibrary(), typing });
-looks = initLooks({ $, state, defaultEdits: () => DEFAULT_EDITS, showMenu: (...a) => showMenu(...a), editName: (...a) => editName(...a), confirmInMenu: (...a) => confirmInMenu(...a), currentEdits: () => currentEdits(), flushSave: () => flushSave(), applyEdits: (...a) => applyEdits(...a), scheduleSave: () => scheduleSave(), showNotice: (...a) => showNotice(...a), showError: (...a) => showError(...a), download: (...a) => download(...a) });
+state.marks = initMarks({ $, state, renderLibrary: () => renderLibrary(), typing });
+state.looks = initLooks({ $, state, defaultEdits: () => DEFAULT_EDITS, showMenu: (...a) => showMenu(...a), editName: (...a) => editName(...a), confirmInMenu: (...a) => confirmInMenu(...a), currentEdits: () => currentEdits(), flushSave: () => flushSave(), applyEdits: (...a) => applyEdits(...a), scheduleSave: () => scheduleSave(), showNotice: (...a) => showNotice(...a), showError: (...a) => showError(...a), download: (...a) => download(...a) });
 renderLibrary();
-let lastHistoryKey = 0;
 document.addEventListener('keydown', (e) => {
   if (!(e.ctrlKey || e.metaKey) || e.altKey || typing(document.activeElement) || document.querySelector('dialog[open]')) return;
   const k = e.key.toLowerCase();
@@ -6566,7 +3335,7 @@ document.addEventListener('keydown', (e) => {
   const isRedo = k === 'y' || (k === 'z' && e.shiftKey);
   if (!isUndo && !isRedo) return;
   e.preventDefault();
-  lastHistoryKey = performance.now();
+  state.lastHistoryKey = performance.now();
   if (isUndo) undo();
   else redo();
 });
@@ -6577,16 +3346,15 @@ for (const type of ['input', 'change']) $('controls').addEventListener(type, sch
 // Color sliders update the picture while dragging (one request at a time),
 // show their value and reset to their default on double-click.
 let applying = null;
-let applyAgain = false;
 function applySettingsSoon() {
   if (applying) {
-    applyAgain = true;
+    state.applyAgain = true;
     return;
   }
   applying = applySettings().catch((err) => showError(err, 'Could not apply the settings')).finally(() => {
     applying = null;
-    if (applyAgain) {
-      applyAgain = false;
+    if (state.applyAgain) {
+      state.applyAgain = false;
       applySettingsSoon();
     }
   });
@@ -6749,8 +3517,8 @@ document.addEventListener('drop', (e) => {
 
 canvas.classList.add('hidden');
 setMode('camera');
-libReady = openLibrary();
-calReady = libReady.then(() => sendCalibrations()).catch(() => {});
+state.libReady = openLibrary();
+state.calReady = state.libReady.then(() => sendCalibrations()).catch(() => {});
 $('version').textContent = VERSION;
 
 // Desktop app: the camera's photos show in the Camera section as soon as
@@ -6952,4 +3720,4 @@ const { sendLut } = initLut({ $, engine, showProgress: (...a) => showProgress(..
 
 // updates: ui/updates.js
 const { checkNow } = initUpdates({ showNotice: (...a) => showNotice(...a), $ });
-checkForUpdateNow = checkNow;
+state.checkForUpdateNow = checkNow;

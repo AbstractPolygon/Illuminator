@@ -57,10 +57,11 @@ test('the engine hands the open request to the worker with its openSeq, and mess
   assert.equal(made[0].posted[0].openSeq, 7);
 });
 
-// The page's openSeq counter is core/openseq.js (behavior tests in test/openseq.test.mjs); this keeps main.js wired to it and sending the number with the open request.
+// The page's openSeq counter is core/openseq.js (behavior tests in test/openseq.test.mjs); this keeps the page wired to it (ui/progress.js) and main.js sending the number with the open request.
 test('the page treats an older openSeq as stale and accepts equal, newer and missing ones', () => {
   const src = readFileSync(new URL('../app/js/main.js', import.meta.url), 'utf8');
-  assert.match(src, /^const staleSeq = \(n\) => openSeq\.isStale\(n\);$/m);
+  const progress = readFileSync(new URL('../app/js/ui/progress.js', import.meta.url), 'utf8');
+  assert.match(progress, /^ *const staleSeq = \(n\) => openSeq\.isStale\(n\);$/m);
   const seq = createOpenSequencer();
   for (let i = 0; i < 5; i++) seq.next();
   assert.equal(seq.isStale(4), true);
