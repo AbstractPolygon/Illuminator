@@ -9,7 +9,7 @@
 //   fxGhosts               faint, colored copies of the bright parts across the frame's center, as in-lens reflections (0..1)
 //   fxFog                  a soft glow round the bright parts, which lifts the shadows near them (0..1)
 //   fxDirt                 the glow caught by dirt on the glass: a fixed pattern of smudges (0..1)
-import { boxBlur } from './dof.js';
+import { boxBlur, parkMiller } from './helpers.js';
 
 export const FX_KEYS = ['fxStreak', 'fxStreakLen', 'fxStreakThreshold', 'fxStar', 'fxSpikes', 'fxGhosts', 'fxFog', 'fxDirt'];
 // (the starburst's gain is for 6 spikes; its light stays the same with more or fewer)
@@ -58,8 +58,7 @@ let dirt = null;
 export function dirtMap() {
   if (dirt) return dirt;
   const N = DIRT_SIZE;
-  let seed = 987654;
-  const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  const rnd = parkMiller(987654);
   const map = new Float32Array(N * N);
   // smudges: sums of soft random blobs, kept where they pass a threshold
   for (let i = 0; i < 90; i++) {
@@ -156,7 +155,7 @@ export function streakGlow(pts, hw, hh, a) {
 // A copy of the bright parts averaged over a box (a mip level `lod` of the graphics card's: 2^lod pixels wide).
 function atLod(hl, hw, hh, lod) {
   const r = Math.max(0, Math.round((2 ** lod - 1) / 2));
-  return r < 1 ? hl : boxBlur(hl, hw, hh, r);
+  return r < 1 ? hl : boxBlur(hl, hw, hh, r, { channels: 3 });
 }
 
 // The effects on linear RGB (w x h); a new array, or `rgb` itself when no effect is on.
@@ -180,7 +179,7 @@ export function fxLight(rgb, w, h, fx, clip = 1) {
   const starImg = fx.star > 0 ? atLod(pointsOf(hl, hw, hh), hw, hh, Math.log2(G.starStep)) : null;
   const ghostImg = fx.ghosts > 0 ? atLod(hl, hw, hh, G.ghostLod) : null;
   let fogImg = null;
-  if (fx.fog > 0) fogImg = boxBlur(atLod(hl, hw, hh, G.fogLod), hw, hh, Math.max(1, Math.round(0.02 * hw)));
+  if (fx.fog > 0) fogImg = boxBlur(atLod(hl, hw, hh, G.fogLod), hw, hh, Math.max(1, Math.round(0.02 * hw)), { channels: 3 });
   const dirtImg = fx.dirt > 0 ? atLod(hl, hw, hh, G.dirtLod) : null;
   const dm = fx.dirt > 0 ? dirtMap() : null;
   // The starburst's taps, the same for every pixel: their offsets (rounded once: for a whole pixel x, round(x + d) is x + round(d)) and weights.

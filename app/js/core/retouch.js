@@ -15,6 +15,8 @@
 // Heal differs from clone by matching the color: the patch is shifted by the (median) difference between a ring around the blemish and a ring around the source,
 // so a patch from a lighter or darker place blends in.
 
+import { smoothstepSafe as smooth } from './helpers.js';
+
 export const MAX_SPOTS = 32;
 // The most round dabs (a spot is one, a stroke many) one picture uses.
 export const MAX_DABS = 96;
@@ -113,11 +115,6 @@ export function packSpots(resolved) {
   });
   return { count: list.length, a, b };
 }
-
-const smooth = (a, b, x) => {
-  const t = Math.min(1, Math.max(0, (x - a) / (b - a || 1e-6)));
-  return t * t * (3 - 2 * t);
-};
 
 // The ring the heal compares colors on, in units of the spot's radius, and its taps.
 export const RING_RADIUS = 1.25;

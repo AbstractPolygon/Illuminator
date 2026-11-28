@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { intrinsics, mirrorAngle, mirrorPose, makeDistortion } from '../app/js/core/l16geometry.js';
-import { relativePose, boxBlur } from '../app/js/core/l16depth.js';
+import { relativePose } from '../app/js/core/l16depth.js';
+import { boxBlur } from '../app/js/core/helpers.js';
 
 const kmat = (f, cx, cy) => ({ x00: f, x01: 0, x02: cx, x10: 0, x11: f, x12: cy, x20: 0, x21: 0, x22: 1 });
 

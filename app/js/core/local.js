@@ -23,6 +23,8 @@
 // mask was made at. A radial mask with `followView` set moves a little
 // with the viewpoint, like the edge of a lens seen from off center.
 
+import { boxBlur, smoothstepSafe as smooth } from './helpers.js';
+
 export const MAX_MASKS = 16;
 export const MASK_KINDS = ['radial', 'linear', 'depth', 'brush'];
 export const MAX_BRUSH_MASKS = 4; // one channel each of the GPU's brush texture
@@ -218,11 +220,6 @@ export function activeMasks(masks) {
   return (masks || []).filter((m) => m.on && Object.values(m.fx).some((v) => v));
 }
 
-const smooth = (a, b, x) => {
-  const t = Math.min(1, Math.max(0, (x - a) / (b - a || 1e-6)));
-  return t * t * (3 - 2 * t);
-};
-
 // Mask weight 0..1 at (nx, ny); `aspect` is width / height; `depth` the
 // focus value there (or null).
 export function maskWeight(m, nx, ny, aspect, depth) {
@@ -370,37 +367,6 @@ export function hasSpatial(masks) {
   return (masks || []).some((m) => m.fx.blur > 0 || m.fx.pixelate > 0 || m.fx.sketch > 0 || m.fx.denoise > 0);
 }
 
-// Box blur of radius r, twice (close to a Gaussian), of 3-channel rgb.
-function boxBlur(src, w, h, r) {
-  let a = src;
-  for (let pass = 0; pass < 2; pass++) {
-    const tmp = new Float32Array(a.length);
-    for (let y = 0; y < h; y++) {
-      for (let c = 0; c < 3; c++) {
-        let sum = 0;
-        for (let x = -r; x <= r; x++) sum += a[3 * (y * w + Math.min(w - 1, Math.max(0, x))) + c];
-        for (let x = 0; x < w; x++) {
-          tmp[3 * (y * w + x) + c] = sum / (2 * r + 1);
-          sum += a[3 * (y * w + Math.min(w - 1, x + r + 1)) + c] - a[3 * (y * w + Math.max(0, x - r)) + c];
-        }
-      }
-    }
-    const out = new Float32Array(a.length);
-    for (let x = 0; x < w; x++) {
-      for (let c = 0; c < 3; c++) {
-        let sum = 0;
-        for (let y = -r; y <= r; y++) sum += tmp[3 * (Math.min(h - 1, Math.max(0, y)) * w + x) + c];
-        for (let y = 0; y < h; y++) {
-          out[3 * (y * w + x) + c] = sum / (2 * r + 1);
-          sum += tmp[3 * (Math.min(h - 1, y + r + 1) * w + x) + c] - tmp[3 * (Math.max(0, y - r) * w + x) + c];
-        }
-      }
-    }
-    a = out;
-  }
-  return a;
-}
-
 const lum = (p, i) => 0.2126 * p[i] + 0.7152 * p[i + 1] + 0.0722 * p[i + 2];
 
 // The spatial effects of masks on linear RGB (w x h), before tone mapping
@@ -472,7 +438,7 @@ export function applySpatial(rgb, w, h, local) {
       }
     }
     if (blur > 0) {
-      const b = boxBlur(src, w, h, Math.max(1, Math.round(blur * 0.02 * big * 0.5)));
+      const b = boxBlur(src, w, h, Math.max(1, Math.round(blur * 0.02 * big * 0.5)), { channels: 3, passes: 2 });
       for (let i = 0; i < w * h; i++) if (weight[i] > 0) blend(i, b[3 * i], b[3 * i + 1], b[3 * i + 2], weight[i]);
     }
     if (pixelate > 0) {

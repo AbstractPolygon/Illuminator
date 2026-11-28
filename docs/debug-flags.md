@@ -10,33 +10,21 @@ Read with `debugFlags().name`. In the worker, a harness usually prepends a line 
 | Name | Kind | Read at | Comment in the code |
 |---|---|---|---|
 | `aiCpu` | tuning value | app/js/core/aiupscale.js |  |
-| `apFraction` | tuning value | app/js/worker.js |  |
-| `asShotCcm` | tuning value | app/js/worker.js |  |
-| `bank` | tuning value | app/js/worker.js |  |
-| `bankShift` | tuning value | app/js/worker.js |  |
-| `bankSize` | tuning value | app/js/worker.js |  |
 | `blurCheck` | tuning value | app/js/worker.js |  |
 | `cbca` | tuning value | app/js/worker.js |  |
-| `cct` | tuning value | app/js/worker.js |  |
-| `centreR2` | tuning value | app/js/core/lytroedof.js |  |
-| `centreRad` | tuning value | app/js/core/lytroedof.js |  |
 | `cmpDepth` | prints or dumps | app/js/worker.js |  |
 | `d5Grow` | tuning value | app/js/worker.js |  |
 | `d5Round` | tuning value | app/js/worker.js |  |
 | `depthFill` | tuning value | app/js/core/depth.js |  |
 | `depthRegions` | tuning value | app/js/core/depth.js |  |
-| `depthViews` | tuning value | app/js/worker.js |  |
 | `dmLevel` | tuning value | app/js/worker.js |  |
 | `dmSimilar` | tuning value | app/js/worker.js |  |
 | `dumpField` | prints or dumps | app/js/worker.js |  |
-| `engineGrid` | tuning value | app/js/worker.js |  |
-| `engineView` | tuning value | app/js/worker.js |  |
 | `engineViews` | tuning value | app/js/worker.js |  |
 | `guideEps` | tuning value | app/js/core/depth.js |  |
 | `guideR` | tuning value | app/js/core/depth.js |  |
 | `heuristicHot` | tuning value | app/js/core/raw.js |  |
 | `lcost` | tuning value | app/js/worker.js |  |
-| `legacy` | tuning value | app/js/worker.js |  |
 | `logTime` | prints or dumps | app/js/worker.js |  |
 | `logTop` | prints or dumps | app/js/worker.js |  |
 | `noAutoGains` | turns a stage off | app/js/worker.js |  |
@@ -51,7 +39,6 @@ Read with `debugFlags().name`. In the worker, a harness usually prepends a line 
 | `noEngineWb` | turns a stage off | app/js/worker.js |  |
 | `noExact` | turns a stage off | app/js/worker.js |  |
 | `noExactDepth` | turns a stage off | app/js/worker.js |  |
-| `noExtras` | turns a stage off | app/js/worker.js |  |
 | `noFill` | turns a stage off | app/js/worker.js |  |
 | `noGpuBlur` | turns a stage off | app/js/worker.js |  |
 | `noGpuCost` | turns a stage off | app/js/worker.js |  |
@@ -89,7 +76,6 @@ Read with `debugFlags().name`. In the worker, a harness usually prepends a line 
 | `noGpuUncovered` | turns a stage off | app/js/worker.js |  |
 | `noGpuViews` | turns a stage off | app/js/worker.js |  |
 | `noGuide` | turns a stage off | app/js/core/depth.js |  |
-| `noisy` | tuning value | app/js/worker.js |  |
 | `noLutBlack` | turns a stage off | app/js/core/raw.js |  |
 | `noModulation` | turns a stage off | app/js/worker.js |  |
 | `noNotch` | turns a stage off | app/js/worker.js |  |
@@ -98,35 +84,15 @@ Read with `debugFlags().name`. In the worker, a harness usually prepends a line 
 | `noTable` | turns a stage off | app/js/worker.js |  |
 | `noWbCct` | turns a stage off | app/js/worker.js |  |
 | `noWbRel` | turns a stage off | app/js/worker.js |  |
-| `oldEstimator` | tuning value | app/js/worker.js |  |
-| `own5` | tuning value | app/js/worker.js |  |
-| `ownField` | tuning value | app/js/worker.js |  |
-| `ownGain` | tuning value | app/js/worker.js |  |
-| `ownPlace` | tuning value | app/js/worker.js |  |
-| `ownShift` | tuning value | app/js/worker.js |  |
 | `passes` | tuning value | app/js/worker.js |  |
-| `place` | tuning value | app/js/worker.js |  |
 | `printColor` | prints or dumps | app/js/core/enginemod.js, app/js/core/lytroedof.js, app/js/worker.js |  |
 | `printGeo` | prints or dumps | app/js/worker.js |  |
 | `printGrid` | prints or dumps | app/js/worker.js |  |
-| `rasterFinish` | tuning value | app/js/worker.js |  |
 | `rawModulation` | tuning value | app/js/worker.js |  |
 | `reachLimit` | tuning value | app/js/worker.js |  |
 | `regionKeep` | tuning value | app/js/core/depth.js |  |
-| `rwOpts` | tuning value | app/js/worker.js |  |
-| `shiftConst` | tuning value | app/js/worker.js |  |
-| `splat` | tuning value | app/js/worker.js |  |
 | `trws` | tuning value | app/js/worker.js |  |
-| `viewAp` | tuning value | app/js/worker.js |  |
 | `viewCct` | tuning value | app/js/worker.js |  |
-| `viewKernel` | tuning value | app/js/worker.js |  |
-| `viewKernelY` | tuning value | app/js/worker.js |  |
-| `viewOnly` | tuning value | app/js/worker.js |  |
-| `viewRadius` | tuning value | app/js/worker.js |  |
-| `viewRing` | tuning value | app/js/worker.js |  |
-| `viewShiftScale` | tuning value | app/js/worker.js |  |
-| `viewsPlaced` | tuning value | app/js/worker.js |  |
-| `vigTiles` | tuning value | app/js/worker.js |  |
 
 ## Hooks (`globalThis.__<name>`)
 

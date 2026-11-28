@@ -7,13 +7,9 @@ import { lensShiftAt } from './lensshift.js';
 import { lensWarp } from './lens.js';
 import { blendedCcm } from './raw.js';
 import { FILTER_DESCRIPTORS } from './lytrofilters.js';
+import { clamp01, inflate } from './helpers.js';
 
 // ---- the photo's reconstruction filter bank --------------------------------
-
-async function inflate(bytes) {
-  const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate'));
-  return new Uint8Array(await new Response(stream).arrayBuffer());
-}
 
 // A non interlaced 8 bit RGB PNG as { width, height, data } (RGB bytes).
 export async function decodePngRgb(bytes) {
@@ -404,7 +400,6 @@ export function nominalAperture(cam) {
   if (!(fm > 0) || !(fn > 0)) return SPLAT.aperture;
   const ratio = fm / fn;
   const k = cam.bits === 12 ? 4 : 2;
-  const clamp01 = (v) => Math.min(1, Math.max(0, v));
   return Math.min(clamp01(ratio), clamp01(2 - ratio - k / 14));
 }
 
@@ -442,8 +437,8 @@ export function engineColorScale(modulation, cam, dev, g) {
   }
   const centre = [0, 0, 0];
   const nCentre = [0, 0, 0];
-  forEachLensPixel(g, cam, debugFlags().centreRad || 3.2, (i, x, y, u, v) => {
-    if (u * u + v * v > (debugFlags().centreR2 || 9)) return;
+  forEachLensPixel(g, cam, 3.2, (i, x, y, u, v) => {
+    if (u * u + v * v > 9) return;
     const ch = dev.cfa[y & 1][x & 1];
     centre[ch] += Math.max(0, modulation[i] - dev.black[ch] * MOD_BLACK());
     nCentre[ch]++;

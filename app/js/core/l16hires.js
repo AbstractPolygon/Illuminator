@@ -8,6 +8,7 @@
 import { cameraModel } from './l16geometry.js';
 import { relativePose } from './l16depth.js';
 import { demosaic, halfSize } from './l16fusion.js';
+import { bilinear3 as bilinear, boxBlur, l16Luma as luma } from './helpers.js';
 
 // The whole region on the graphics card (gpu/l16region.js l16RegionGpu's function), or null for the processor's (which uses the card for some of its steps where it can).
 let regionOnCard = null;
@@ -75,8 +76,6 @@ const gaussCpu = (src, w, h, sigma) => {
   }
   return out;
 };
-
-const luma = (r, g, b) => 0.3 * r + 0.55 * g + 0.15 * b;
 
 // Local corrections to a telephoto camera's registration (the calibration and the depth are good to about a pixel of the wide picture; the original software refines each telephoto
 // camera against the wide one with dense optical flow). Both pictures are the low frequencies at the output grid (luma, `a` the wide picture's, `b` the camera's); they are reduced by
@@ -478,20 +477,6 @@ function fitAffine(pts) {
   return ax && ay ? { ax, ay } : null;
 }
 
-// The wide picture (`wide`: { width, height, rgb } on the reference grid, as fuse() returns it) as a bilinear sampler at ideal pixel position (x, y).
-function bilinear(img, w, h, sx, sy, o) {
-  const x = sx - 0.5;
-  const y = sy - 0.5;
-  if (x < 0 || y < 0 || x >= w - 1 || y >= h - 1) return false;
-  const x0 = x | 0;
-  const y0 = y | 0;
-  const fx = x - x0;
-  const fy = y - y0;
-  const i = 3 * (y0 * w + x0);
-  for (let c = 0; c < 3; c++) o[c] = (img[i + c] * (1 - fx) + img[i + 3 + c] * fx) * (1 - fy) + (img[i + 3 * w + c] * (1 - fx) + img[i + 3 * w + 3 + c] * fx) * fy;
-  return true;
-}
-
 // Per channel minimum and maximum of a picture (3 per pixel) within `r` pixels (a square window), as two pictures.
 function localBounds(a, W, H, r) {
   return onCard('localBounds', [a, W, H, r], localBoundsCpu);
@@ -567,29 +552,7 @@ function boxBlur1(src, w, h, r) {
   return onCard('boxBlur1', [src, w, h, r], boxBlur1Cpu);
 }
 function boxBlur1Cpu(src, w, h, r) {
-  let a = src;
-  for (let pass = 0; pass < 2; pass++) {
-    const tmp = new Float32Array(w * h);
-    for (let y = 0; y < h; y++) {
-      let acc = 0;
-      for (let x = -r; x <= r; x++) acc += a[y * w + Math.min(w - 1, Math.max(0, x))];
-      for (let x = 0; x < w; x++) {
-        tmp[y * w + x] = acc / (2 * r + 1);
-        acc += a[y * w + Math.min(w - 1, x + r + 1)] - a[y * w + Math.max(0, x - r)];
-      }
-    }
-    const out = new Float32Array(w * h);
-    for (let x = 0; x < w; x++) {
-      let acc = 0;
-      for (let y = -r; y <= r; y++) acc += tmp[Math.min(h - 1, Math.max(0, y)) * w + x];
-      for (let y = 0; y < h; y++) {
-        out[y * w + x] = acc / (2 * r + 1);
-        acc += tmp[Math.min(h - 1, y + r + 1) * w + x] - tmp[Math.max(0, y - r) * w + x];
-      }
-    }
-    a = out;
-  }
-  return a;
+  return boxBlur(src, w, h, r, { passes: 2 });
 }
 
 // Where the wide picture (up) or a camera's picture (samp, before its color gains; `have`: where it has one) is near the sensor's white level (0.85 of it, with the white

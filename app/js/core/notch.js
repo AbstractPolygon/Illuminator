@@ -9,6 +9,8 @@
 // it stands out from the level at nearby frequencies, and subtracted. The
 // picture around the peaks is left alone.
 
+import { boxBlur } from './helpers.js';
+
 export const NOTCH = { on: true, tile: 256, tiles: 40, prominence: 25, maxPeaks: 10, windowPeriods: 6, noiseGain: 1.0, block: 4 };
 
 // In-place radix 2 FFT of n complex values (re, im), n a power of two.
@@ -44,26 +46,6 @@ function fft(re, im, n, inverse = false) {
       }
     }
   }
-}
-
-// Box mean of radius r along rows (horizontal) or columns, borders clamped.
-function boxMean(src, W, H, r, horizontal) {
-  const out = new Float32Array(W * H);
-  const len = horizontal ? W : H;
-  const stride = horizontal ? 1 : W;
-  const lines = horizontal ? H : W;
-  const step = horizontal ? W : 1;
-  const w = 2 * r + 1;
-  for (let l = 0; l < lines; l++) {
-    const base = l * step;
-    let sum = 0;
-    for (let t = -r; t <= r; t++) sum += src[base + Math.min(len - 1, Math.max(0, t)) * stride];
-    for (let t = 0; t < len; t++) {
-      out[base + t * stride] = sum / w;
-      sum += src[base + Math.min(len - 1, t + r + 1) * stride] - src[base + Math.max(0, t - r) * stride];
-    }
-  }
-  return out;
 }
 
 // Peaks of the spectrum of `Y` (W x H): [{ fx, fy, prominence }] in cycles per
@@ -240,7 +222,7 @@ export function removePeriodicPattern(rgb, W, H, options = {}) {
     const f = Math.hypot(fx, fy);
     // High pass: the mean over a window several periods across has none of it.
     const r = Math.max(3, Math.round(1.5 / f));
-    const lowpass = boxMean(boxMean(Y, W, H, r, true), W, H, r, false);
+    const lowpass = boxBlur(Y, W, H, r);
     const hp = new Float32Array(n);
     for (let i = 0; i < n; i++) hp[i] = Y[i] - lowpass[i];
     const sigma = P.windowPeriods / f;

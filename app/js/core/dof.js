@@ -11,6 +11,8 @@
 // are summed row by row from running sums, so a radius-r blur costs about
 // 2r operations per pixel (times the number of ring bands with onion rings).
 
+import { boxBlur, parkMiller, smoothstep } from './helpers.js';
+
 // A custom bokeh shape (shape 'custom'): an image the user loaded, BOKEH_IMAGE_SIZE pixels square, white where light passes and black where it does not
 // (gray lets some through). Kept as text (base64 of one byte a pixel) so it is saved with the photo.
 export const BOKEH_IMAGE_SIZE = 64;
@@ -144,10 +146,6 @@ export const PROFILE_CONST = {
   edgeA: integral((t) => Math.exp(-(((1 - t) / 0.12) ** 2))),
   bubbleA: integral((t) => Math.exp(-(((1 - t) / 0.1) ** 2))),
   hotA: integral((t) => Math.exp(-((t / 0.25) ** 2))),
-};
-const smoothstep = (a, b, x) => {
-  const t = Math.max(0, Math.min(1, (x - a) / (b - a)));
-  return t * t * (3 - 2 * t);
 };
 // `side`: 1 for light from behind the focus, -1 from in front, 0 where that is not known (the processor's blur).
 export function profileGain(k, t, side = 0) {
@@ -304,8 +302,7 @@ export function onionMap({ onion = 0, irregular = 0.5, blur = 0.3, warp = 0, spo
   const key = [onion, irregular, blur, warp, spots, grain, diffraction].map((v) => v.toFixed(3)).join(':');
   if (onionMaps.has(key)) return onionMaps.get(key);
   const N = ONION_SIZE;
-  let seed = 12345;
-  const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  const rnd = parkMiller(12345);
   // Smooth random functions: a few sines with random phases.
   const waves = (count, top) => Array.from({ length: count }, (_, i) => [1 + Math.floor(rnd() * top) + i, rnd() * 2 * Math.PI, 0.5 + rnd()]);
   const angular = waves(5, 6);
@@ -549,42 +546,6 @@ function shapedBlur(src, w, h, r, k, need = null) {
   return out;
 }
 
-// Separable box blur of radius r, RGB.
-export function boxBlur(src, w, h, r) {
-  const tmp = new Float32Array(src.length);
-  const out = new Float32Array(src.length);
-  const n = 2 * r + 1;
-  for (let y = 0; y < h; y++) {
-    for (let c = 0; c < 3; c++) {
-      let acc = 0;
-      for (let k = -r; k <= r; k++) acc += src[(y * w + Math.min(w - 1, Math.max(0, k))) * 3 + c];
-      for (let x = 0; x < w; x++) {
-        tmp[(y * w + x) * 3 + c] = acc / n;
-        const add = Math.min(w - 1, x + r + 1);
-        const sub = Math.max(0, x - r);
-        acc += src[(y * w + add) * 3 + c] - src[(y * w + sub) * 3 + c];
-      }
-    }
-  }
-  // (the columns together, row by row: the sums are the same as one column at a time, and memory is read in order)
-  const row = w * 3;
-  const acc = new Float64Array(row);
-  for (let k = -r; k <= r; k++) {
-    const at = Math.min(h - 1, Math.max(0, k)) * row;
-    for (let i = 0; i < row; i++) acc[i] += tmp[at + i];
-  }
-  for (let y = 0; y < h; y++) {
-    const o = y * row;
-    const add = Math.min(h - 1, y + r + 1) * row;
-    const sub = Math.max(0, y - r) * row;
-    for (let i = 0; i < row; i++) {
-      out[o + i] = acc[i] / n;
-      acc[i] += tmp[add + i] - tmp[sub + i];
-    }
-  }
-  return out;
-}
-
 // A big shaped blur costs about 2 r row lookups a pixel (and that many times the rings of an onion skin): from this radius it is made on a half size copy of the picture
 // with half the radius (a quarter of the pixels, half the rows: about 8 times less work) and spread back bilinearly, the ball's shape still 8 pixels or more across.
 const HALF_SIZE_FROM = 16;
@@ -658,10 +619,10 @@ function blur(src, w, h, r, k, need = null) {
     const out = r >= HALF_SIZE_FROM && w >= 16 && h >= 16 ? shapedBlurHalf(src, w, h, r, k, wanted) : shapedBlur(src, w, h, r, k, wanted);
     // (a soft edge: the disc spread over the edge's width)
     const e = Math.round((k.soft * r) / 2);
-    return e >= 1 ? boxBlur(out, w, h, e) : out;
+    return e >= 1 ? boxBlur(out, w, h, e, { channels: 3 }) : out;
   }
   // Two box passes approximate a Gaussian.
-  return boxBlur(boxBlur(src, w, h, Math.round(r)), w, h, Math.round(r));
+  return boxBlur(src, w, h, Math.round(r), { channels: 3, passes: 2 });
 }
 
 // Clipped highlights hold far more light than the picture can store; give

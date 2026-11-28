@@ -8,26 +8,13 @@
 //   Photos/<folder>/<file>     the photo, its Lytro Desktop edits (sidecar),
 //   Photos/<folder>/...        thumbnail and edits.illuminator.json
 
+import { crc32 } from '../core/helpers.js';
+
 export const ARCHIVE_FORMAT = 'illuminator-album';
 export const ARCHIVE_VERSION = 1;
 export const ARCHIVE_SUFFIX = '.illuminator-album.zip';
 
 const U32 = 0xffffffff;
-
-let crcTable = null;
-function crc32(bytes, crc = 0) {
-  if (!crcTable) {
-    crcTable = new Uint32Array(256);
-    for (let n = 0; n < 256; n++) {
-      let c = n;
-      for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
-      crcTable[n] = c >>> 0;
-    }
-  }
-  let c = ~crc >>> 0;
-  for (let i = 0; i < bytes.length; i++) c = crcTable[(c ^ bytes[i]) & 0xff] ^ (c >>> 8);
-  return ~c >>> 0;
-}
 
 async function blobCrc(blob, onBytes) {
   const CHUNK = 8 << 20;

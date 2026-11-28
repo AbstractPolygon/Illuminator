@@ -46,10 +46,10 @@ function importClosure(roots, skip = () => false) {
 }
 
 const FILES = importClosure([...ROOTS, ...KEY_FILES], (f) => IS_L16(f) || IS_EXTRA(f));
-const EXPECTED = { rev: 9, checksum: '9f6aa0ac8f382cc7' };
+const EXPECTED = { rev: 9, checksum: '131c30b81dd188b6' };
 // The Light L16 code (what its cache holds: the depth between the cameras and the merged picture), with core/l16-cache.js itself.
 const L16_FILES = importClosure([...ROOTS, 'core/l16-cache.js']).filter(IS_L16);
-const L16_EXPECTED = { rev: 7, checksum: '6dfbdd33f447379b' };
+const L16_EXPECTED = { rev: 7, checksum: '9c9d7fe40493b1c4' };
 
 // Comments and white space do not change a result: they are left out of the checksum.
 function checksum(files = FILES) {

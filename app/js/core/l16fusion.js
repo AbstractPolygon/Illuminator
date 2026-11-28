@@ -9,6 +9,7 @@
 import { decodeFrame } from './lri.js';
 import { cameraModel } from './l16geometry.js';
 import { relativePose } from './l16depth.js';
+import { bilinear3 as bilinear, boxBlur, l16Luma as luma } from './helpers.js';
 
 // Linear 0..1 full size RGB of a module's frame: black level removed, demosaiced, white balance gains applied. Float32Array(3 * w * h).
 // `win` ({ x0, y0, w, h }) limits the work to a window of the frame (returned at that size, from the sensor's pixels around it); `rawCache` (a Map kept by the caller) keeps
@@ -591,8 +592,6 @@ function depthGrid(invZ, dw, dh, w, h) {
   return out;
 }
 
-const luma = (r, g, b) => 0.3 * r + 0.55 * g + 0.15 * b;
-
 // A camera's share of the merge, from its picture looked up where each pixel of the reference's is (smp, 3 a pixel; ok: where it has one; refUnd: the reference's).
 // Its colors are brought to the reference's locally (each channel's ratio of the two pictures smoothed over a few pixels, where both have pixels; `g` the whole
 // picture's gains where there are too few): the cameras' shading and vignetting differ over the frame, and one ratio for the whole picture leaves them a little off in
@@ -616,9 +615,9 @@ function mergeShare(refUnd, smp, ok, W, H, S, mono, g) {
       smpM[3 * i + c] = smp[3 * i + c];
     }
   }
-  const mL = boxBlur3(mask, W, H, r);
-  const rL = boxBlur3(refM, W, H, r);
-  const sL = boxBlur3(smpM, W, H, r);
+  const mL = boxBlur(mask, W, H, r, { channels: 3 });
+  const rL = boxBlur(refM, W, H, r, { channels: 3 });
+  const sL = boxBlur(smpM, W, H, r, { channels: 3 });
   for (let i = 0; i < W * H; i++) {
     if (!ok[i]) continue;
     const enough = mL[3 * i] > 0.3;
@@ -657,7 +656,7 @@ function mergeShare(refUnd, smp, ok, W, H, S, mono, g) {
     wPix[i] = Math.exp(-0.5 * d * d);
   }
   // (over a small neighborhood: a weight that changes from pixel to pixel is a grain)
-  const wN = boxBlur1(wPix, W, H, 2);
+  const wN = boxBlur(wPix, W, H, 2);
   const weight = new Float32Array(W * H);
   for (let i = 0; i < W * H; i++) {
     if (!ok[i]) continue;
@@ -772,42 +771,6 @@ function removeColorBlobs(rgb, W, H, R = 3) {
   }
 }
 
-// Box blurs (edges clamped): of 3 values a pixel, and of 1.
-function boxBlur3(src, W, H, r) {
-  const tmp = new Float32Array(src.length);
-  const out = new Float32Array(src.length);
-  const n = 2 * r + 1;
-  for (let y = 0; y < H; y++) {
-    for (let c = 0; c < 3; c++) {
-      let acc = 0;
-      for (let x = -r; x <= r; x++) acc += src[3 * (y * W + Math.min(W - 1, Math.max(0, x))) + c];
-      for (let x = 0; x < W; x++) {
-        tmp[3 * (y * W + x) + c] = acc / n;
-        acc += src[3 * (y * W + Math.min(W - 1, x + r + 1)) + c] - src[3 * (y * W + Math.max(0, x - r)) + c];
-      }
-    }
-  }
-  for (let x = 0; x < W; x++) {
-    for (let c = 0; c < 3; c++) {
-      let acc = 0;
-      for (let y = -r; y <= r; y++) acc += tmp[3 * (Math.min(H - 1, Math.max(0, y)) * W + x) + c];
-      for (let y = 0; y < H; y++) {
-        out[3 * (y * W + x) + c] = acc / n;
-        acc += tmp[3 * (Math.min(H - 1, y + r + 1) * W + x) + c] - tmp[3 * (Math.max(0, y - r) * W + x) + c];
-      }
-    }
-  }
-  return out;
-}
-function boxBlur1(src, W, H, r) {
-  const three = new Float32Array(3 * W * H);
-  for (let i = 0; i < W * H; i++) three[3 * i] = src[i];
-  const b = boxBlur3(three, W, H, r);
-  const out = new Float32Array(W * H);
-  for (let i = 0; i < W * H; i++) out[i] = b[3 * i];
-  return out;
-}
-
 // Merges the cameras. `depth` is core/l16depth.js measureDepth's result for the reference; the cameras merged are the reference and all of depth.modules (the monochrome one adds brightness, its color is the reference's). Returns { width, height, rgb (linear, white balanced), used: how many cameras, merged: per camera id the share of pixels that agreed }.
 // `grid` 1 merges at full size (every sensor pixel demosaiced); 2 at half size (each 2 x 2 sensor cell is one pixel: a quarter of the work and memory, for the quick views).
 // `corrections`: each camera's registration corrected for the capture (core/l16hires.js estimateCorrections), or null.
@@ -827,18 +790,6 @@ export function fuse(bytes, parsed, depth, { black = 42, white = 1023, gains = [
   const weight = new Float32Array(W * H);
   const z = depthGrid(depth.invZ, depth.width, depth.height, W, H);
   const K = refCam.K;
-  const bilinear = (img, w, h, sx, sy, o) => {
-    const x = sx - 0.5;
-    const y = sy - 0.5;
-    if (x < 0 || y < 0 || x >= w - 1 || y >= h - 1) return false;
-    const x0 = x | 0;
-    const y0 = y | 0;
-    const fx = x - x0;
-    const fy = y - y0;
-    const i = 3 * (y0 * w + x0);
-    for (let c = 0; c < 3; c++) o[c] = (img[i + c] * (1 - fx) + img[i + 3 + c] * fx) * (1 - fy) + (img[i + 3 * w + c] * (1 - fx) + img[i + 3 * w + 3 + c] * fx) * fy;
-    return true;
-  };
   // the reference on the undistorted grid
   const refUnd = new Float32Array(3 * W * H);
   const tmp = [0, 0, 0];

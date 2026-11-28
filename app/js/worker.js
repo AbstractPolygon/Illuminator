@@ -307,7 +307,6 @@ function firstGenColor(s, gains, center) {
 }
 
 function asShotKelvin() {
-  if (debugFlags().cct) return debugFlags().cct;
   const c = state.lf && state.lf.cam && state.lf.cam.capture;
   return (c && c.cct) || DEFAULT_KELVIN;
 }
@@ -374,7 +373,7 @@ function computeEngineWb() {
   const { lf } = state;
   const cam = lf && lf.cam;
   const dbg = debugFlags();
-  if (!cam || !state.modulation || state.settings.engineWb === false || dbg.noEngineWb || dbg.legacy || !cam.capture || !cam.capture.responses || !cam.wb || !Number.isFinite(cam.capture.exposure)) return null;
+  if (!cam || !state.modulation || state.settings.engineWb === false || dbg.noEngineWb || !cam.capture || !cam.capture.responses || !cam.wb || !Number.isFinite(cam.capture.exposure)) return null;
   try {
     const W = Math.round(cam.width / lf.grid.pitch);
     const H = Math.round(cam.height / lf.grid.pitch);
@@ -413,7 +412,7 @@ function engineCcm(s) {
   const cam = state.lf.cam;
   if (!cam.ccm) return cam.ccm;
   const kelvin = s && s.wb && s.wb.kelvin ? s.wb.kelvin : state.engineWb && !debugFlags().noWbCct && !(s && s.autoWb) ? state.engineWb.cct : asShotKelvin();
-  return debugFlags().asShotCcm ? cam.ccm : blendedCcm(cam.perCcm, kelvin, cam.ccm);
+  return blendedCcm(cam.perCcm, kelvin, cam.ccm);
 }
 
 function colorState(color) {
@@ -1005,7 +1004,7 @@ function releasePhoto({ all = false } = {}) {
   state.pp = null;
   processedBuilt = null;
   state.sampler = null;
-  for (const k of ['depth', 'depthRaw', 'depthPlain', 'depthParts', 'depthParallax', 'depth5', 'depthEngine', 'depthExact', 'depthOwn', 'depthOwnF', 'modelDepth', 'modelJob', 'objects', 'userDepth', 'depthJob',
+  for (const k of ['depth', 'depthRaw', 'depthPlain', 'depthParts', 'depthParallax', 'depth5', 'depthExact', 'depthOwnF', 'modelDepth', 'modelJob', 'objects', 'userDepth', 'depthJob',
     'rawOriginal', 'rawFixed', 'rawWhite', 'rayWarp', 'rayWarpEdof', 'geoTable', 'geoTableExact', 'reconSource', 'rayField', 'refocusViews', 'kept', 'vignetting', 'center', 'exactOffsets',
     'lensOffsets', 'lensShiftFor', 'lensOut', 'lensCacheIn', 'depthCacheIn', 'depthCacheOut', 'openOut', 'usmDepth', 'usmMap', 'engineScale', 'engineWb', 'scratch', 'ppGpuFailed', 'ppDepthOnGpu']) state[k] = null;
   if (state.ppSrcTex && state.gpu) state.gpu.gl.deleteTexture(state.ppSrcTex.tex);
@@ -1218,7 +1217,7 @@ async function open({ id, bytes, synthetic, userDepth = null, depthCache = null,
     state.engineWb = null;
     state.usmDepth = null;
     state.usmMap = null;
-    if (!debugFlags().legacy && state.lf.readModulation) {
+    if (state.lf.readModulation) {
       try {
         const kept = usableOpenCache(state.depthCacheIn && state.depthCacheIn.open);
         state.openOut = kept;
@@ -2142,14 +2141,12 @@ async function superRes({ id, job, alpha = 0, scale, u = 0, v = 0, aperture = 0,
 // Lytro Desktop's all in focus picture (core/lytroedof.js): the rays
 // splatted with a depth each, holes filled, and the depth aware filter bank of
 // the photo applied.
-// debug: nudge the lens lattice used for the rays (gridOx / gridOy in px, gridPitch as a factor, gridRot in rad)
 // The engine's rays sit about (-0.25, -0.4) sensor px from the metadata lattice (fit on tnt renders at a wrong constant depth, whose lattice moire is very sensitive to the
 // lens centres: b4-1 (-0.2, -0.4), b4-3 (-0.3, -0.4), b4-2 better by the same shift).
 const ENGINE_LATTICE = [-0.25, -0.4];
 function probeGrid(g, dbg) {
   if (dbg.printGrid) console.error('GRID', JSON.stringify(g));
-  const lat = dbg.legacy ? [0, 0] : ENGINE_LATTICE;
-  return { ...g, ox: g.ox + (dbg.gridOx ?? lat[0]), oy: g.oy + (dbg.gridOy ?? lat[1]), pitch: g.pitch * (dbg.gridPitch || 1), rowStep: g.rowStep * (dbg.gridPitch || 1), rotation: g.rotation + (dbg.gridRot || 0) };
+  return { ...g, ox: g.ox + ENGINE_LATTICE[0], oy: g.oy + ENGINE_LATTICE[1] };
 }
 // The engine's window is the full nominal hexagon (0.9025 on b4-1); with the engine's lattice offset, narrowing ours to 0.665 of it still scores best on all three photos (aperture 0.6 on b4-1: fitted 2.51 against
 // 2.57 at 0.5 and 2.70 at 0.9025; b4-3 2.20 / 2.20 / 2.24; b4-2 3.27 / 3.36 / 3.43), so some error that grows toward the window's edge remains in our rays.
@@ -2164,10 +2161,6 @@ function engineLatticeIdx(lf) {
   const g = engineGrid(lf.metadata, lf.cam.width, lf.cam.height);
   return { ...g, ox: g.ox - 0.5, oy: g.oy - 0.5 };
 }
-const ENGINE_DEPTH_SHIFT = -1;
-// A depth measured here sits this far (lambda) from the engine's rays: the ray table's own estimate of Lytro's lambda offset less the 1 lambda most photos carry (b4-2: 3.5 of the 5 that gave
-// the sharpest picture; b4-1e and b4-3 about 0).
-const OWN_DEPTH_SHIFT = 'table';
 // Where Lytro's depth map sits in our picture, for the engine's own picture (userdepth.js DEPTH_MAP_PLACE, texels of the depth map about its center). The engine's depth
 // map spans its picture, which is 1.6 % tighter than ours, so away from the center our nominal placement was off by up to 4 lenses (fit on the engine's binary depth oracle:
 // fence wire edge region 18.6 -> 6.4 on the binary oracle; on b4-1e the three edge blocks 8.4 7.7 7.6 -> 6.3 7.6 5.7, whole picture 3.25 -> 3.18; the fit is coordinate descent on those blocks, halo and whole; b4-2 and b4-3 do not move).
@@ -2190,8 +2183,7 @@ async function lytroEdof({ id, job, scale = 3, color = null, masks = null, quiet
   const progress = (stage, p) => post({ id, type: 'progress', stage, progress: p });
   if (!state.vignetting) {
     progress('Measuring lens vignetting', 0);
-    const vt = debugFlags().vigTiles;
-    state.vignetting = vt ? estimateVignetting(lf.raw, lf.cam, dev, lf.grid, { tilesX: vt[0], tilesY: vt[1], lensStride: 1, selfRef: true }) : estimateVignetting(lf.raw, lf.cam, dev, lf.grid);
+    state.vignetting = estimateVignetting(lf.raw, lf.cam, dev, lf.grid);
   }
   if (!(await ensureDepth(id)) || samplerJob.stale()) return { cancelled: true };
   const { W, H } = superResParams(sampler, { scale });
@@ -2248,7 +2240,7 @@ async function lytroEdof({ id, job, scale = 3, color = null, masks = null, quiet
     // The engine reads its depth map upscaled 5 times with edge preserving weights (DmResampler); only where its own depth map is what the picture uses.
     // Lytro's depth maps seen through the engine's rays sit about 1 lambda off the plain rays (b4-1e -0.9, b4-3 -1.1 from the app's ray table estimate; the estimate is -4.5 on b4-2, where a constant
     // -1 scores as well as none: MAE against the engine's own picture 5.1 vs 5.3 with the estimate, 35.8 when the x5 map did not move with it).
-    const exactGeo = !dbg.legacy && !dbg.noExact && !!lf.geometryBytes && !!lf.rayWarpBytes && !!lf.metadata;
+    const exactGeo = !dbg.noExact && !!lf.geometryBytes && !!lf.rayWarpBytes && !!lf.metadata;
     // With the engine's exact geometry its depth map needs no fitted placement: it is read where the ray falls on the sensor.
     const engineMap = state.depthRaw && state.depthRaw.engineMap ? state.depthRaw.engineMap : state.userDepth && state.depthRaw && state.depthRaw.fromLytro && state.settings.lytroDepth !== false ? state.userDepth : null;
     const exactDepth = exactGeo && !!engineMap && !dbg.noExactDepth;
@@ -2256,27 +2248,19 @@ async function lytroEdof({ id, job, scale = 3, color = null, masks = null, quiet
     if (exactDepth && (!state.depthExact || state.depthExact.src !== engineMap || state.depthExact.key !== exactKey)) {
       state.depthExact = { src: engineMap, key: exactKey, ...engineDepthInFrame(engineMap, state.sampler, state.lf.cam, 5, dbg.dmSimilar ?? 0.8, dbg.dmLevel ?? D5_LEVEL, !dbg.noDmExact) };
     }
-    const engineShift = state.depthRaw && state.depthRaw.fromLytro && state.depthPlain ? (dbg.shiftConst ?? (dbg.legacy ? ENGINE_DEPTH_SHIFT : 0)) * LAMBDA_TO_ALPHA : 0;
-    const place = { ...ENGINE_PLACE, ...(dbg.place || {}) };
+    const place = ENGINE_PLACE;
     const placeKey = JSON.stringify(place);
-    if (engineShift && (!state.depthEngine || state.depthEngine.key !== placeKey || state.depthEngine.src !== state.depthRaw)) {
-      const { outW, outH } = state.sampler;
-      const alpha = withPlace(place, () => userDepthAlpha(state.userDepth, state.sampler, state.lf.cam, 0, lensWarp(state.lens, outW, outH)));
-      state.depthEngine = { key: placeKey, src: state.depthRaw, plain: smoothedDepth(alpha, state.depthRaw.confidence) };
-    }
-    const ownPlace = !engineShift && !state.pp && state.depthPlain && dbg.ownPlace ? { kx: 1, ky: 1, dx: 0, dy: 0, ...dbg.ownPlace } : null;
-    if (ownPlace && (!state.depthOwn || state.depthOwn.key !== JSON.stringify(ownPlace) || state.depthOwn.src !== state.depthPlain)) {
-      state.depthOwn = { key: JSON.stringify(ownPlace), src: state.depthPlain, plain: placedGrid(state.depthPlain, state.sampler.outW, state.sampler.outH, ownPlace) };
-    }
     // A depth measured here is in the frame of the plain views: the engine's rays start where the ray table puts them (up to +-32 lens pixels at the picture corners on b4-1),
     // so the depth is read through the table's origin field (b4-1e edge blocks 10.7 8.6 8.3 -> 6.6 7.8 5.9, whole 3.35 -> 3.07; b4-2 5.36 -> 5.33, b4-3 unchanged).
     // Views rendered through the geometry and ray tables (prepareEngineViews) give a depth that is already in the engine's frame.
-    const viewsEngine = !!state.engineViews && !state.depthRaw?.fromLytro && !dbg.viewsPlaced;
-    const ownField = !engineShift && !state.pp && !viewsEngine && state.depthPlain && state.lf.rayWarpBytes ? (dbg.ownField ?? 1) : 0;
+    const viewsEngine = !!state.engineViews && !state.depthRaw?.fromLytro;
+    const ownField = !state.pp && !viewsEngine && state.depthPlain && state.lf.rayWarpBytes ? 1 : 0;
     if (ownField && (!state.depthOwnF || state.depthOwnF.sign !== ownField || state.depthOwnF.exact !== exactGeo || state.depthOwnF.src !== state.depthPlain)) {
       state.depthOwnF = { sign: ownField, exact: exactGeo, src: state.depthPlain, plain: fieldPlacedGrid(state.depthPlain, state.sampler.outW, state.sampler.outH, ownField, exactGeo) };
     }
-    const ownShift = !engineShift && !state.pp && !viewsEngine && state.depthPlain ? ((dbg.ownShift ?? OWN_DEPTH_SHIFT) === 'table' ? Math.max(0, -activeRayWarpForShift() / LAMBDA_TO_ALPHA - 1) : (dbg.ownShift ?? OWN_DEPTH_SHIFT)) * LAMBDA_TO_ALPHA : 0;
+    // A depth measured here sits this far (lambda) from the engine's rays: the ray table's own estimate of Lytro's lambda offset less the 1 lambda most photos carry (b4-2: 3.5 of the 5 that
+    // gave the sharpest picture; b4-1e and b4-3 about 0).
+    const ownShift = !state.pp && !viewsEngine && state.depthPlain ? Math.max(0, -activeRayWarpForShift() / LAMBDA_TO_ALPHA - 1) * LAMBDA_TO_ALPHA : 0;
     if (dbg.cmpDepth && state.userDepth) {
       // debug: our depth against the engine's in the picture's frame (alpha -> lambda): mean difference, spread, and the fit ours = a * engine + b
       const eng = engineDepthInFrame(state.userDepth, state.sampler, state.lf.cam, 5).plain;
@@ -2293,33 +2277,12 @@ async function lytroEdof({ id, job, scale = 3, color = null, masks = null, quiet
       if (hook('cmpDump')) hook('cmpDump')(eng, ownField ? state.depthOwnF.plain : state.depthPlain, state.sampler.outW, state.sampler.outH);
       console.error('CMPDEPTH', JSON.stringify({ meanEng: sx / m, meanOurs: sy / m, slope, icpt, corr }));
     }
-    if (dbg.printGrid) console.error('DEPTHPATH', JSON.stringify({ exactDepth, engineShift, ownField, hasOffsets: !!state.exactOffsets, fromLytro: !!(state.depthRaw && state.depthRaw.fromLytro), pp: !!state.pp, userDepth: !!state.userDepth }));
-    const depthUsed = exactDepth ? mapF32(state.depthExact.plain, (x) => x + (dbg.shiftConst ?? 0) * LAMBDA_TO_ALPHA) : engineShift ? mapF32(state.depthEngine.plain, (x) => x + engineShift) : ownField ? mapF32(state.depthOwnF.plain, (x, i) => x * (dbg.ownGain ?? 1) + ownShift + (dbg.noExtras ? 0 : state.depth.alpha[i] - state.depthPlain[i])) : ownPlace ? mapF32(state.depthOwn.plain, (x) => x * (dbg.ownGain ?? 1) + ownShift) : ownShift ? mapF32(state.depthPlain, (x) => x * (dbg.ownGain ?? 1) + ownShift) : state.depth.alpha;
+    if (dbg.printGrid) console.error('DEPTHPATH', JSON.stringify({ exactDepth, ownField, hasOffsets: !!state.exactOffsets, fromLytro: !!(state.depthRaw && state.depthRaw.fromLytro), pp: !!state.pp, userDepth: !!state.userDepth }));
+    const depthUsed = exactDepth ? Float32Array.from(state.depthExact.plain) : ownField ? mapF32(state.depthOwnF.plain, (x, i) => x + ownShift + (state.depth.alpha[i] - state.depthPlain[i])) : ownShift ? mapF32(state.depthPlain, (x) => x + ownShift) : state.depth.alpha;
     state.usmMap = null;
     state.usmDepth = state.pp ? null : { lambda: mapF32(depthUsed, (a) => a / LAMBDA_TO_ALPHA), w: state.sampler.outW, h: state.sampler.outH };
     let depth5 = null;
-    if (!state.userDepth && !state.pp && dbg.own5) {
-      // A depth measured here goes through the same upscaling (the engine upscales whatever depth it has): the map is in lambda on the sampler's grid.
-      const { outW, outH } = state.sampler;
-      const k = `own:${outW}x${outH}:${state.depthSmoothingApplied}:${ownPlace ? state.depthOwn.key : ''}`;
-      if (!state.depth5 || state.depth5.key !== k || state.depth5.src !== state.depthPlain) {
-        const lambda = mapF32(ownPlace ? state.depthOwn.plain : state.depthPlain, (a) => a / LAMBDA_TO_ALPHA);
-        let lo = Infinity;
-        let hi = -Infinity;
-        for (const v of lambda) {
-          if (v < lo) lo = v;
-          if (v > hi) hi = v;
-        }
-        const data = mapF32(lambda, (v) => (v - lo) / (hi - lo));
-        state.depth5 = { key: k, src: state.depthPlain, map: userDepthAlphaUpscaled({ width: outW, height: outH, data, min: lo, max: hi, identity: true }, state.sampler, state.lf.cam, 0, null, 5, dbg.dmSimilar ?? 0.8, dbg.dmLevel ?? D5_LEVEL) };
-      }
-      depth5 = state.depth5.map;
-      const grow = dbg.d5Grow ?? D5_GROW;
-      if (grow) {
-        if (state.depth5.grown?.r !== grow || state.depth5.grown.round !== !!dbg.d5Round) state.depth5.grown = { r: grow, round: !!dbg.d5Round, map: dilateNearest(state.depth5.map, grow, !!dbg.d5Round) };
-        depth5 = state.depth5.grown.map;
-      }
-    } else if (state.userDepth && state.settings.lytroDepth !== false && !dbg.noDm5) {
+    if (state.userDepth && state.settings.lytroDepth !== false && !dbg.noDm5) {
       const key = `${state.sampler.outW}x${state.sampler.outH}:${placeKey}`;
       if (!state.depth5 || state.depth5.key !== key || state.depth5.src !== state.userDepth) {
         state.depth5 = { key, src: state.userDepth, map: withPlace(place, () => userDepthAlphaUpscaled(state.userDepth, state.sampler, state.lf.cam, 0, lensWarp(state.lens, state.sampler.outW, state.sampler.outH), 5, dbg.dmSimilar ?? 0.8, dbg.dmLevel ?? D5_LEVEL)) };
@@ -2330,17 +2293,8 @@ async function lytroEdof({ id, job, scale = 3, color = null, masks = null, quiet
         if (state.depth5.grown?.r !== grow || state.depth5.grown.round !== !!dbg.d5Round) state.depth5.grown = { r: grow, round: !!dbg.d5Round, map: dilateNearest(state.depth5.map, grow, !!dbg.d5Round) };
         depth5 = state.depth5.grown.map;
       }
-      // the upscaled map moves with the depth the march range comes from, or the two disagree
-      if (engineShift) {
-        const key2 = `${engineShift}:${grow}:${!!dbg.d5Round}`;
-        if (!state.depth5.shifted || state.depth5.shiftedKey !== key2) {
-          state.depth5.shifted = { ...depth5, data: mapF32(depth5.data, (x) => x + engineShift) };
-          state.depth5.shiftedKey = key2;
-        }
-        depth5 = state.depth5.shifted;
-      }
     }
-    if (exactDepth) depth5 = dbg.shiftConst ? { ...state.depthExact.up, data: mapF32(state.depthExact.up.data, (x) => x + dbg.shiftConst * LAMBDA_TO_ALPHA) } : state.depthExact.up;
+    if (exactDepth) depth5 = state.depthExact.up;
     progress('Splatting the rays', 0);
     if (state.modulation === undefined) {
       const loaded = lf.readModulation ? await loadModulation(lf) : null;
@@ -2353,15 +2307,15 @@ async function lytroEdof({ id, job, scale = 3, color = null, masks = null, quiet
       modulation: dbg.noModulation ? null : state.modulation,
       geoTable: lf.geometryBytes ? parseGeometryTable(lf.geometryBytes) : null,
       lensShift: exactGeo ? await lensShiftForPhoto(id) : null,
-      raw: lf.raw, cam: lf.cam, dev, grid: exactGeo ? engineLatticeIdx(lf) : probeGrid(dbg.engineGrid ? engineGrid(lf.metadata, lf.cam.width, lf.cam.height, lf.grid) : lf.grid, dbg), sampleGrid: { ...lf.grid, ox: 0, oy: 0, rotation: 0 }, sampler, vignetting: state.vignetting, depth: depthUsed, scale, lens: cs.lens, W, H,
+      raw: lf.raw, cam: lf.cam, dev, grid: exactGeo ? engineLatticeIdx(lf) : probeGrid(lf.grid, dbg), sampleGrid: { ...lf.grid, ox: 0, oy: 0, rotation: 0 }, sampler, vignetting: state.vignetting, depth: depthUsed, scale, lens: cs.lens, W, H,
       // As the engine loads the table: the chief ray angle is removed and the spatial scale applied, but not the focus plane offset (cfg 0x26c0 is off), so the table keeps its defocus term and the engine depth maps apply as they are.
-      rayWarp: dbg.noTable || !lf.rayWarpBytes ? null : (state.rayWarpEdof ||= parseRayWarp(lf.rayWarpBytes, lf.cam.width, lf.cam.height, { tilt: false, chief: true, ...(dbg.rwOpts || {}) })),
+      rayWarp: dbg.noTable || !lf.rayWarpBytes ? null : (state.rayWarpEdof ||= parseRayWarp(lf.rayWarpBytes, lf.cam.width, lf.cam.height, { tilt: false, chief: true })),
       onProgress: (p) => progress('Splatting the rays', p),
     }, {
       ...LYTRO_SPLAT,
       exact: exactGeo,
       bisg: exactGeo && !dbg.noBisg,
-      aperture: dbg.legacy ? engineAperture(lf.cam) : engineAperture(lf.cam, exactGeo ? (dbg.apFraction ?? (exactDepth ? EXACT_APERTURE_FRACTION : EXACT_APERTURE_FRACTION_OWN)) : ENGINE_APERTURE_FRACTION),
+      aperture: engineAperture(lf.cam, exactGeo ? (exactDepth ? EXACT_APERTURE_FRACTION : EXACT_APERTURE_FRACTION_OWN) : ENGINE_APERTURE_FRACTION),
       // The sensor side (corrected plane, demosaic, luma boost, ray splat) on the GPU when there is one; the CPU does it otherwise.
       gpu: state.gpu && !dbg.noGpuEngine ? (input) => {
         try {
@@ -2373,7 +2327,6 @@ async function lytroEdof({ id, job, scale = 3, color = null, masks = null, quiet
           return null;
         }
       } : null,
-      ...(dbg.splat || {}),
     });
     if (state.jobs.superres !== job) return { cancelled: true };
     progress('Filling holes', 0);
@@ -2393,7 +2346,7 @@ async function lytroEdof({ id, job, scale = 3, color = null, masks = null, quiet
     }
     out = img;
     // The engine's JointAdaptiveFilter (method 10) runs the photo's own reconstruction kernel PNG; the designed filters are only its fallback for photos without one.
-    if (!dbg.noBank && (dbg.bank === 'engine' || (dbg.bank !== 'photo' && !lf.reconFilter))) {
+    if (!dbg.noBank && !lf.reconFilter) {
       progress('Reconstructing with the filter bank', 0);
       let lo = Infinity;
       let hi = -Infinity;
@@ -2405,10 +2358,8 @@ async function lytroEdof({ id, job, scale = 3, color = null, masks = null, quiet
       // the standardized lightfield: 14 px disks
       const imgW = (lf.cam.width * 14) / lf.grid.pitch;
       const imgH = (lf.cam.height * 14) / lf.grid.pitch;
-      // opts: the engine's filters are keyed by its own lambda, which differs from the plain-ray lambda of a depth measured here by a per-photo amount
-      const bz = dbg.bankShift ? mapF32(sp.zMap, (z) => z + dbg.bankShift) : sp.zMap;
-      const bank = buildEngineBank(W * (dbg.bankSize || 1), H * (dbg.bankSize || 1), imgW, imgH, lo + (dbg.bankShift || 0), hi + (dbg.bankShift || 0));
-      const r = applyBank(img, bz, W, H, bank);
+      const bank = buildEngineBank(W, H, imgW, imgH, lo, hi);
+      const r = applyBank(img, sp.zMap, W, H, bank);
       out = r.rgb;
       for (let p = 0; p < W * H; p++) if (r.wsum[p] > 0) for (let c = 0; c < 3; c++) out[3 * p + c] /= r.wsum[p];
     } else if (!dbg.noBank && lf.reconFilter) {
@@ -2418,7 +2369,7 @@ async function lytroEdof({ id, job, scale = 3, color = null, masks = null, quiet
         if (lfJob.stale()) return { cancelled: true };
         state.reconSource = source;
       }
-      const bank = buildBank(state.reconSource, W, H, { ...LYTRO_BANK, ...(dbg.bank || {}) });
+      const bank = buildBank(state.reconSource, W, H, LYTRO_BANK);
       const r = applyBank(img, sp.zMap, W, H, bank);
       out = r.rgb;
       for (let p = 0; p < W * H; p++) if (r.wsum[p] > 0) for (let c = 0; c < 3; c++) out[3 * p + c] /= r.wsum[p];
@@ -2602,7 +2553,7 @@ async function measureWhiteImage({ id, bytes, meta }) {
 // (lens pitches, lens axes) times the pitch. Returned as the offset of each lens from the app's grid, the whole of it (no common shift removed), or null without the tables.
 function exactLensOffsets() {
   const { lf } = state;
-  if (debugFlags().legacy || debugFlags().noExact) return null;
+  if (debugFlags().noExact) return null;
   if (!lf.geometryBytes || !lf.metadata || !lf.raw) return null;
   const geo = (state.geoTableExact ||= parseGeometryTable(lf.geometryBytes));
   if (!geo) return null;
@@ -3458,7 +3409,7 @@ const DEPTH_VIEW_RING = [0, 45, 90, 135, null, 180, 225, 270, 315];
 function engineDepthAvailable() {
   const { lf } = state;
   const dbg = debugFlags();
-  return !!lf && state.settings.engineViews !== false && dbg.engineViews !== false && !dbg.legacy && !dbg.noExact && !state.pp && !!lf.geometryBytes && !!lf.rayWarpBytes && !!lf.metadata;
+  return !!lf && state.settings.engineViews !== false && dbg.engineViews !== false && !dbg.noExact && !state.pp && !!lf.geometryBytes && !!lf.rayWarpBytes && !!lf.metadata;
 }
 
 // The engine's demodulation plane for the photo (core/enginemod.js): the white image run through the engine's Fit (hot pixel list, per-colour means, response curve, disk
@@ -3522,7 +3473,7 @@ async function prepareEngineViews(id) {
   const lfJob = makeJobGuard(() => state.lf);
   const dbg = debugFlags();
   // On by default for raw photos (settings.engineViews = false turns it off): the GPU ray splat when there is one (gpu/lytroengine.js, agrees with the CPU to about 1 %), else the CPU (about a minute on a full sensor).
-  if (!lf || !engineDepthAvailable() || dbg.legacy || dbg.noExact || state.pp || !lf.geometryBytes || !lf.rayWarpBytes || !lf.metadata) return;
+  if (!lf || !engineDepthAvailable() || dbg.noExact || state.pp || !lf.geometryBytes || !lf.rayWarpBytes || !lf.metadata) return;
   if (!state.vignetting) state.vignetting = estimateVignetting(lf.raw, lf.cam, dev, lf.grid);
   if (state.modulation === undefined) {
     const loaded = lf.readModulation ? await loadModulation(lf) : null;
@@ -3531,10 +3482,9 @@ async function prepareEngineViews(id) {
   }
   if (!state.modulation) return;
   // the engine's aperture raster (256 x 256, dumped from MNOAPTask): discs of radius 7.65 cells = 0.06 pitches around the 0.25 ring
-  const radius = dbg.viewRadius ?? 0.06;
-  const ring = dbg.viewRing ?? 0.25;
+  const radius = 0.06;
+  const ring = 0.25;
   const views = DEPTH_VIEW_RING.map((deg) => ({ deg, u: deg === null ? 0 : ring * Math.cos((deg * Math.PI) / 180), v: deg === null ? 0 : ring * Math.sin((deg * Math.PI) / 180), r2: radius * radius }));
-  if (dbg.viewOnly) views.splice(0, views.length, { deg: null, u: 0, v: 0, r2: dbg.viewOnly * dbg.viewOnly });
   // The engine measures depth on its own raster: one sample per lens pitch over the whole sensor (the standardized image over the pitch), texel (i, j) centred at ((i + 0.5) / W, (j + 0.5) / H) of the sensor.
   const raster = !dbg.noEngineRaster;
   const W = raster ? Math.round(lf.cam.width / lf.grid.pitch) : sampler.outW;
@@ -3545,14 +3495,14 @@ async function prepareEngineViews(id) {
     modulation: state.modulation,
     geoTable: parseGeometryTable(lf.geometryBytes),
     raw: lf.raw, cam: lf.cam, dev, grid: engineLatticeIdx(lf), sampleGrid: { ...lf.grid, ox: 0, oy: 0, rotation: 0 }, sampler, vignetting: state.vignetting, depth: new Float32Array(W * H), scale: 1, lens: null, W, H,
-    rayWarp: (state.rayWarpEdof ||= parseRayWarp(lf.rayWarpBytes, lf.cam.width, lf.cam.height, { tilt: false, chief: true, ...(dbg.rwOpts || {}) })),
+    rayWarp: (state.rayWarpEdof ||= parseRayWarp(lf.rayWarpBytes, lf.cam.width, lf.cam.height, { tilt: false, chief: true })),
     onProgress: (p) => post({ id, type: 'progress', stage: 'Rendering the depth views', progress: p }),
   }, { ...LYTRO_SPLAT, exact: true, bisg: !dbg.noBisg, aperture: engineAperture(lf.cam, EXACT_APERTURE_FRACTION), gpu: state.gpu && !dbg.noGpuEngine && !dbg.noGpuViews ? (input) => {
       try {
-        // the blur after the splat runs there too, before the read-back (viewKernel === null turns it off)
-        const kx = dbg.viewKernel === null ? null : dbg.viewKernel || VIEW_KERNEL;
-        const ky = dbg.viewKernel === null ? null : dbg.viewKernelY || dbg.viewKernel || VIEW_KERNEL;
-        const onGpu = !!(kx && ky && kx.length <= 9 && ky.length <= 9) && !dbg.noGpuBlur;
+        // the blur after the splat runs there too, before the read-back
+        const kx = VIEW_KERNEL;
+        const ky = VIEW_KERNEL;
+        const onGpu = !dbg.noGpuBlur;
         const blur = onGpu ? { kx, ky, keepRaw: !!dbg.blurCheck } : null;
         const acc = lytroSplatGpu(state.gpu, blur ? { ...input, viewBlur: blur } : input, (p) => post({ id, type: 'progress', stage: 'Rendering the depth views', progress: p }));
         if (acc && blur && blur.raw) {
@@ -3581,12 +3531,12 @@ async function prepareEngineViews(id) {
         gpuFellBack('Rendering the depth views', e);
         return null;
       }
-    } : null, views, sensorRaster: raster, sharpen: { ...LYTRO_SPLAT.sharpen, amount: VIEW_SHARPEN }, ...(dbg.splat || {}) });
+    } : null, views, sensorRaster: raster, sharpen: { ...LYTRO_SPLAT.sharpen, amount: VIEW_SHARPEN } });
   if (dbg.logTime) console.error('VIEWS_MS', Date.now() - tViews);
   const pitch = lf.grid.pitch;
   const list = sp.views.map((acc, k) => {
     const rgb = new Float32Array(W * H * 3);
-    if (dbg.viewKernel !== null && !blurredOnGpu) filterPremultiplied(acc, W, H, dbg.viewKernel || VIEW_KERNEL, dbg.viewKernelY || dbg.viewKernel || VIEW_KERNEL);
+    if (!blurredOnGpu) filterPremultiplied(acc, W, H, VIEW_KERNEL, VIEW_KERNEL);
     const filled = fillHoles(acc, W, H);
     for (let p = 0; p < W * H; p++) {
       const a = acc[4 * p + 3];
@@ -3600,23 +3550,15 @@ async function prepareEngineViews(id) {
 }
 
 function depthViews() {
-  if (state.engineViews) {
-    const k = debugFlags().viewShiftScale;
-    return k ? Object.assign(state.engineViews.map((v) => ({ ...v, u: v.u * k, v: v.v * k })), { raster: state.engineViews.raster }) : state.engineViews;
-  }
+  if (state.engineViews) return state.engineViews;
   const pitch = state.lf.grid.pitch;
-  const place = (deg) => (deg === null ? { u: 0, v: 0 } : { u: 0.4 * pitch * Math.cos((deg * Math.PI) / 180), v: 0.4 * pitch * Math.sin((deg * Math.PI) / 180) });
-  // The tnt engine's own set (GetBlitzenVersion1Configuration: sub-aperture radius 0.25, step 45): a ring of eight views at `r` lens
+  // The tnt engine's own set (GetBlitzenVersion1Configuration: sub-aperture radius 0.25, step 45): a ring of eight views at 0.25 lens
   // pitches, 45 degrees apart, and the center. Measured against its depth map this gives the closest depth (MAE 0.93 lambda against 1.0 for the stack's seven views at 0.4).
-  const dv = debugFlags().depthViews || { r: 0.25 };
-  const ring = dv ? [0, 45, 90, 135, null, 180, 225, 270, 315] : [210, 150, 270, null, 90, 330, 30];
-  const radius = dv && dv.r ? dv.r : 0.4;
-  const place2 = (deg) => (deg === null ? { u: 0, v: 0 } : { u: radius * pitch * Math.cos((deg * Math.PI) / 180), v: radius * pitch * Math.sin((deg * Math.PI) / 180) });
-  return ring.map((deg) => {
-    const q = dv ? place2(deg) : place(deg);
-    const u = q.u + (dv && dv.off ? dv.off[0] * pitch : 0);
-    const v = q.v + (dv && dv.off ? dv.off[1] * pitch : 0);
-    const raw = renderDisc(u, v, debugFlags().viewAp ?? 0);
+  const radius = 0.25;
+  return [0, 45, 90, 135, null, 180, 225, 270, 315].map((deg) => {
+    const u = deg === null ? 0 : radius * pitch * Math.cos((deg * Math.PI) / 180);
+    const v = deg === null ? 0 : radius * pitch * Math.sin((deg * Math.PI) / 180);
+    const raw = renderDisc(u, v, 0);
     return { u, v, rgb: state.gpu || DEPTH_PASSES.engineView ? raw : equalize(raw), gain: 1, detail: state.settings.detail };
   });
 }
@@ -3624,10 +3566,9 @@ function depthViews() {
 // The colour matrix of the engine's depth views (its final image pipeline: camera colour matrix on the engine's colour units, then the HDTV gamma).
 function engineViewMatrix() {
   const ccm = state.lf && state.lf.cam && state.lf.cam.ccm;
-  const o = debugFlags();
-  if (o.engineView === false || state.pp || !state.engineScale || !Array.isArray(ccm) || ccm.length !== 9) return null;
+  if (state.pp || !state.engineScale || !Array.isArray(ccm) || ccm.length !== 9) return null;
   // the views: the stored matrix (as-shot temperature) with the engine's gains over the camera's (b4-2 against the engine's views: colour error 0.0120 -> 0.0067); the final picture takes its matrix at the engine's temperature instead
-  const cct = o.viewCct;
+  const cct = debugFlags().viewCct;
   const base = cct ? blendedCcm(state.lf.cam.perCcm, cct, ccm) : ccm;
   const rel = engineWbRel(state.settings);
   return base.map((v, i) => v * state.engineScale[i % 3] * rel[i % 3]);
@@ -3692,7 +3633,7 @@ async function measureLytro(progress) {
   // The maker's tool compares the views as they are: linear light, full scale (1.0) at the sensor's clip level,
   // no brightness curve and no smoothing (its cost cap 0.2, blown-out level 0.95 and flat level 0.15 are in those units).
   Object.assign(DEPTH_LCOST, { gamma: 1, normQ: 0, fixedTop: state.dev.clip || 1 });
-  DEPTH_PASSES.noisy = debugFlags().noisy ?? 0.075;
+  DEPTH_PASSES.noisy = 0.075;
   DEPTH_PASSES.engineView = engineViewMatrix();
   if (debugFlags().printGrid) console.error("ENGINEVIEW", JSON.stringify(DEPTH_PASSES.engineView));
   {
@@ -3703,15 +3644,14 @@ async function measureLytro(progress) {
     if (o.lcost) Object.assign(DEPTH_LCOST, o.lcost);
     if (o.passes) Object.assign(DEPTH_PASSES, o.passes);
   }
-  if (debugFlags().depthViews && debugFlags().depthViews.single) DEPTH_PASSES.refs = [4];
   let measured = null;
-  const kept = !debugFlags().oldEstimator ? depthCacheFor(raster) : null;
+  const kept = depthCacheFor(raster);
   if (kept) {
     measured = { alpha: Float32Array.from(kept.alpha), cost: null, meanCost: null };
     state.depthCacheOut = { key: kept.key, w: kept.w, h: kept.h, alpha: kept.alpha };
   }
   let engineMeasured = false;
-  if (!measured && raster && !debugFlags().oldEstimator && state.engineViews) {
+  if (!measured && raster && state.engineViews) {
     engineMeasured = true;
     // The engine's own estimator on its views (core/enginedepth.js): in the engine's order, the centre last.
     const colors = viewColors(depthViews(), outW * outH, outW, outH);
@@ -3742,7 +3682,7 @@ async function measureLytro(progress) {
     }
   }
   if (!measured) measured = measureMatch(depthViews(), outW, outH, { onProgress: progress });
-  if (raster && measured && !debugFlags().rasterFinish) {
+  if (raster && measured) {
     // On the engine's raster the measurement is final as the engine leaves it (sub label estimate, 3 x 3 median); it is read into the picture's frame the way the engine reads its own map.
     const lam = mapF32(measured.alpha, (a) => a / LAMBDA_TO_ALPHA);
     let lo = Infinity;
@@ -3831,24 +3771,6 @@ function withPlace(p, fn) {
   }
 }
 
-// A depth map on the sampler's grid read at a placed position (userdepth.js DEPTH_MAP_PLACE form: scale about the center, then a shift, in texels), bilinear.
-function placedGrid(alpha, w, h, P) {
-  const out = new Float32Array(alpha.length);
-  for (let y = 0; y < h; y++) {
-    for (let x = 0; x < w; x++) {
-      const X = Math.min(w - 1.001, Math.max(0, (x + 0.5 - w / 2) * P.kx + w / 2 + P.dx - 0.5));
-      const Y = Math.min(h - 1.001, Math.max(0, (y + 0.5 - h / 2) * P.ky + h / 2 + P.dy - 0.5));
-      const x0 = Math.floor(X);
-      const y0 = Math.floor(Y);
-      const fx = X - x0;
-      const fy = Y - y0;
-      const q = y0 * w + x0;
-      out[y * w + x] = (alpha[q] * (1 - fx) + alpha[q + 1] * fx) * (1 - fy) + (alpha[q + w] * (1 - fx) + alpha[q + w + 1] * fx) * fy;
-    }
-  }
-  return out;
-}
-
 // A depth map on the sampler's grid moved through the ray table's origin field (where each lens's rays start in the engine's picture, at the lens center): out(p) = alpha(p - sign * origin(p)).
 function fieldPlacedGrid(alpha, w, h, sign, exact = false) {
   const rw = state.rayWarpEdof || (state.rayWarpEdof = parseRayWarp(state.lf.rayWarpBytes, state.lf.cam.width, state.lf.cam.height, { tilt: false, chief: true }));
@@ -3903,14 +3825,6 @@ function fieldPlacedGrid(alpha, w, h, sign, exact = false) {
     }
   }
   return out;
-}
-
-// A depth map (alpha, the sampler's grid) smoothed by the Depth > Smoothing setting, guided by the picture.
-function smoothedDepth(alpha, confidence) {
-  const { outW, outH } = state.sampler;
-  const guide = equalizedCenter();
-  const smooth = state.gpu ? state.gpu.smoothDepth.bind(state.gpu) : smoothDepth;
-  return smooth(alpha, outW, outH, guide, { amount: state.settings.depthSmoothing ?? 0.3, confidence, step: state.depthRaw && state.depthRaw.flat ? DEPTH_STEP : 0 });
 }
 
 // The ray table's estimate of how far Lytro's lambda sits from the plain rays' (alpha; negative on these photos), whatever the depth source.

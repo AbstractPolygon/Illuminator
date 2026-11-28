@@ -16,6 +16,7 @@ import { sensorToOutput } from './render.js';
 import { LAMBDA_TO_ALPHA } from './recipe.js';
 import { bufferReader, readLightFieldPicture } from './lfp.js';
 import { decodeDepth } from './processed.js';
+import { inflate } from './helpers.js';
 
 const FIT = { kx: 1, ky: 0.995, dx: -1 / 2022, dy: -1 / 1404 };
 // Debug: the warped path's depth map placement, texels: X = (X - W / 2) * kx + W / 2 + dx (likewise Y).
@@ -35,30 +36,6 @@ export function parseDepthRange(text) {
   } catch {
     return null;
   }
-}
-
-// `limit` stops a decompression bomb: the stream is cancelled once it yields more than the image can hold.
-async function inflate(bytes, limit = Infinity) {
-  const reader = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate')).getReader();
-  const parts = [];
-  let total = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    total += value.length;
-    if (total > limit) {
-      await reader.cancel();
-      return null;
-    }
-    parts.push(value);
-  }
-  const out = new Uint8Array(total);
-  let at = 0;
-  for (const p of parts) {
-    out.set(p, at);
-    at += p.length;
-  }
-  return out;
 }
 
 // Decodes a non-interlaced PNG to one channel (gray, or the first of RGB)

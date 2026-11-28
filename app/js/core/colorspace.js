@@ -4,6 +4,8 @@
 // The picture itself is made in sRGB: converting it does not add colors
 // beyond sRGB's range, it re-encodes the same colors and tags them.
 
+import { concatBytes as concat, crc32, deflate } from './helpers.js';
+
 const D65 = [0.3127, 0.329];
 const D50 = [0.3457, 0.3585];
 
@@ -255,27 +257,6 @@ export function iccProfile(id, { linear = false } = {}) {
 
 // ---------------------------------------------------------------- embedding
 
-const CRC_TABLE = (() => {
-  const t = new Uint32Array(256);
-  for (let n = 0; n < 256; n++) {
-    let c = n;
-    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
-    t[n] = c >>> 0;
-  }
-  return t;
-})();
-
-function crc32(bytes) {
-  let c = 0xffffffff;
-  for (let i = 0; i < bytes.length; i++) c = CRC_TABLE[(c ^ bytes[i]) & 255] ^ (c >>> 8);
-  return (c ^ 0xffffffff) >>> 0;
-}
-
-async function deflate(bytes) {
-  const stream = new Blob([bytes]).stream().pipeThrough(new CompressionStream('deflate'));
-  return new Uint8Array(await new Response(stream).arrayBuffer());
-}
-
 // The PNG 'iCCP' chunk (profile name, a zero, method 0, the deflated profile) as chunk bytes.
 export async function pngProfileChunk(id) {
   const name = COLOR_SPACES[id].description.slice(0, 79);
@@ -341,14 +322,4 @@ export function tagJpeg(jpeg, id) {
   if (!placed) parts.push(seg);
   parts.push(jpeg.subarray(at));
   return concat(parts);
-}
-
-function concat(parts) {
-  const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
-  let at = 0;
-  for (const p of parts) {
-    out.set(p, at);
-    at += p.length;
-  }
-  return out;
 }

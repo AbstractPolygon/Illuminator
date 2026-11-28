@@ -8,6 +8,7 @@
 import { cameraModel } from './l16geometry.js';
 import { decodeFrame } from './lri.js';
 import { smoothDepth } from './depth.js';
+import { boxBlur } from './helpers.js';
 
 const mul3 = (a, b) => {
   const o = new Array(9);
@@ -73,30 +74,6 @@ function normalizeLocally(g, w, h, r) {
   for (let i = 0; i < g.length; i++) {
     const sd = Math.sqrt(Math.max(0, mean2[i] - mean[i] * mean[i]));
     out[i] = (g[i] - mean[i]) / (sd + 0.02 * mean[i] + 2);
-  }
-  return out;
-}
-
-export function boxBlur(src, w, h, r) {
-  const tmp = new Float32Array(w * h);
-  const out = new Float32Array(w * h);
-  const n = 2 * r + 1;
-  for (let y = 0; y < h; y++) {
-    const row = y * w;
-    let acc = 0;
-    for (let x = -r; x <= r; x++) acc += src[row + Math.min(w - 1, Math.max(0, x))];
-    for (let x = 0; x < w; x++) {
-      tmp[row + x] = acc / n;
-      acc += src[row + Math.min(w - 1, x + r + 1)] - src[row + Math.max(0, x - r)];
-    }
-  }
-  for (let x = 0; x < w; x++) {
-    let acc = 0;
-    for (let y = -r; y <= r; y++) acc += tmp[Math.min(h - 1, Math.max(0, y)) * w + x];
-    for (let y = 0; y < h; y++) {
-      out[y * w + x] = acc / n;
-      acc += tmp[Math.min(h - 1, y + r + 1) * w + x] - tmp[Math.max(0, y - r) * w + x];
-    }
   }
   return out;
 }

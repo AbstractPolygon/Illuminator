@@ -6,6 +6,8 @@
 // three zone weights (they add up to 1), and each channel moves by the weighted sum of the zones' offsets there.
 //   offset of a zone = saturation * COLOR_STRENGTH * (the hue's color minus its own brightness, so the tint carries no light) + luminance * LUMA_STRENGTH on every channel
 
+import { smoothstep } from './helpers.js';
+
 export const ZONES = ['shadows', 'mids', 'highlights'];
 export const COLOR_STRENGTH = 0.28;
 export const LUMA_STRENGTH = 0.2;
@@ -35,11 +37,6 @@ export function gradeParams(grade) {
   const shift = -0.25 * balance;
   const width = 0.12 + 0.28 * blend;
   return { offsets, low: 0.25 + shift, high: 0.75 + shift, width };
-}
-
-function smoothstep(a, b, x) {
-  const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
-  return t * t * (3 - 2 * t);
 }
 
 // The weights of the shadows, midtones and highlights at gamma-space brightness x (they add up to 1).

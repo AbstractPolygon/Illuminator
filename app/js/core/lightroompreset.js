@@ -2,6 +2,8 @@
 // highlights, shadows, whites, blacks, texture, clarity, dehaze, saturation, vibrance, the tone curve, the saturation of each color (the eight of Lightroom onto the six here), and the noise
 // reduction. What has none (hue and luminance of each color, sharpening, vignette, defringe, split toning, the parametric curve) is listed in `skipped`.
 
+import { clamp01 } from './helpers.js';
+
 const attr = (text, name) => {
   const m = new RegExp(`crs:${name}\\s*=\\s*"([^"]*)"`).exec(text);
   return m ? m[1] : null;
@@ -20,8 +22,7 @@ function curveOf(text) {
   const points = [...m[1].matchAll(/<rdf:li>\s*([-\d.]+)\s*,\s*([-\d.]+)\s*<\/rdf:li>/g)].map((p) => [parseFloat(p[1]) / 255, parseFloat(p[2]) / 255]);
   if (points.length < 2) return null;
   if (points.every(([x, y]) => Math.abs(x - y) < 1e-3)) return null;
-  const clamp = (v) => Math.min(1, Math.max(0, v));
-  return points.map(([x, y]) => `${+clamp(x).toFixed(4)},${+clamp(y).toFixed(4)}`).join(';');
+  return points.map(([x, y]) => `${+clamp01(x).toFixed(4)},${+clamp01(y).toFixed(4)}`).join(';');
 }
 
 const SKIPPED = [

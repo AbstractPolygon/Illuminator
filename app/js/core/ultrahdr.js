@@ -6,6 +6,8 @@
 //   hdr (linear light, white = 1) = sdr (linear light) * 2 ^ (gain * GAIN_LOG2_MAX)      per channel, gain = the gain map's value from 0 to 1
 // so a gain map value of 0 leaves a color as it is and 1 makes it 2 ^ GAIN_LOG2_MAX times brighter.
 
+import { concatBytes as concat } from './helpers.js';
+
 // The most a color can be brighter than white in a file: 3 stops, 8 times. (A brighter highlight is held at 8.)
 export const GAIN_LOG2_MAX = 3;
 
@@ -91,16 +93,6 @@ function mpfSegment(primaryLength, gainLength, gainOffset) {
   v.setUint32(p + 4, gainLength);
   v.setUint32(p + 8, gainOffset);
   return segment(0xe2, out);
-}
-
-function concat(parts) {
-  const out = new Uint8Array(parts.reduce((n, a) => n + a.length, 0));
-  let at = 0;
-  for (const a of parts) {
-    out.set(a, at);
-    at += a.length;
-  }
-  return out;
 }
 
 // The file from the two JPEGs: `base`, the ordinary picture (sRGB, 8 bits), and `gain`, the gain map (a JPEG as big as `base` or smaller; its three channels are the gain of red,

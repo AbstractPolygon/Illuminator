@@ -5,6 +5,8 @@
 // and color fields follow Adobe Camera Raw (crs:*), so most map one to one;
 // focus, spread and tilt are in lambda, converted with LAMBDA_TO_ALPHA.
 
+import { clamp } from './helpers.js';
+
 // Illuminator focus value per Lytro lambda, measured by fitting our depth
 // map of an ILLUM photo against Lytro Desktop's for the same shot
 // (alpha = 0.0814 lambda + 0.001, r = 0.998).
@@ -28,7 +30,6 @@ export function findRecipe(toc) {
 }
 
 const num = (v, fallback) => (typeof v === 'number' && Number.isFinite(v) ? v : fallback);
-const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 
 // ctx: { nativeF (camera f-number), asShot (kelvin), radius (camera view
 // drag radius), viewWidth (camera view width in pixels) }.

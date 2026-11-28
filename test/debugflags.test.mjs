@@ -8,12 +8,12 @@ test('debugFlags is an empty object when nothing is set, and the harness object 
   try {
     delete globalThis.__lytro;
     assert.equal(typeof debugFlags(), 'object');
-    assert.equal(debugFlags().legacy, undefined);
+    assert.equal(debugFlags().noGpuBlur, undefined);
     assert.equal(debugFlags(), debugFlags());
-    assert.throws(() => { 'use strict'; debugFlags().legacy = true; }, TypeError);
-    globalThis.__lytro = { legacy: true, viewRing: 0.3 };
-    assert.equal(debugFlags().legacy, true);
-    assert.equal(debugFlags().viewRing, 0.3);
+    assert.throws(() => { 'use strict'; debugFlags().noGpuBlur = true; }, TypeError);
+    globalThis.__lytro = { noGpuBlur: true, dmSimilar: 0.3 };
+    assert.equal(debugFlags().noGpuBlur, true);
+    assert.equal(debugFlags().dmSimilar, 0.3);
   } finally {
     if (saved === undefined) delete globalThis.__lytro;
     else globalThis.__lytro = saved;

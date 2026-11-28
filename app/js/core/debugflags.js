@@ -1,8 +1,8 @@
 // Debug and test switches, in one place. docs/debug-flags.md lists every one the code reads (generated: node scripts/debug-flags.mjs).
 //
 // Nothing here is set by the app itself: a test harness or the browser console sets them (in the worker, usually by prepending a line to worker.js).
-//   * `debugFlags()` is the `__lytro` object: named switches that change how a stage runs (`noGpuBlur`, `legacy`, `printColor`, tuning values such as `viewRing`).
-//     It is always an object, so `debugFlags().legacy` is undefined when nothing was set.
+//   * `debugFlags()` is the `__lytro` object: named switches that change how a stage runs (`noGpuBlur`, `noExact`, `printColor`, tuning values such as `dmSimilar`).
+//     It is always an object, so `debugFlags().noGpuBlur` is undefined when nothing was set.
 //   * `hook(name)` reads a global `__name` a harness set: a function the code calls with a stage's result to dump or inspect it (`__awbDump`, `__depthFinal`), or a value that
 //     overrides one (`__depthOverride`, `__forceStyle`). `setHook(name, value)` publishes a result for a harness to read (`__lytroStats`, `__focusMetrics`).
 

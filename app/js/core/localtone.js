@@ -9,6 +9,8 @@
 //            out there in proportion; below 0, haze of that color is added evenly.
 // Sizes are for a picture one pixel per lens wide (the view); localToneForSize scales them for finer pictures.
 
+import { clamp } from './helpers.js';
+
 const LUMA = [0.2126, 0.7152, 0.0722];
 export const LOCAL_TONE = { textureSigma: 1.5, claritySigma: 10, hazeRadius: 6, hazeSigma: 6, minTransmission: 0.12 };
 
@@ -17,10 +19,6 @@ export function makeLocalTone(settings = {}) {
   const t = settings.tone || {};
   const p = { texture: clamp(t.texture || 0, -1, 1), clarity: clamp(t.clarity || 0, -1, 1), dehaze: clamp(t.dehaze || 0, -1, 1), scale: 1, air: null };
   return p.texture || p.clarity || p.dehaze ? p : null;
-}
-
-function clamp(v, lo, hi) {
-  return Math.min(hi, Math.max(lo, v));
 }
 
 // For a picture with more pixels per lens than the view: the sizes grow with it (as the sharpening's radius does, core/detail.js detailForSize).

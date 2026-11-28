@@ -10,6 +10,7 @@
 // detail: the light field's detail is set by Rendering > Full resolution.
 
 import { easu, rcas, rcasStrength } from './fsr.js';
+import { boxBlur } from './helpers.js';
 
 const A = 3; // the Lanczos filter's lobes (`lobes` picks another)
 
@@ -106,38 +107,11 @@ export function upscale(img, W, H, { method = 'lanczos', sharpen = 0, lobes = A 
 // difference from a box-blurred copy whose radius follows the enlargement.
 function unsharp(px, W, H, amount, factor) {
   const r = Math.max(1, Math.round(factor));
-  const blur = boxBlur(px, W, H, r);
+  const blur = boxBlur(px, W, H, r, { channels: 3, stride: 4 });
   const k = amount * 1.5;
   for (let i = 0; i < px.length; i += 4) {
     for (let c = 0; c < 3; c++) px[i + c] += (px[i + c] - blur[i + c]) * k;
   }
-}
-
-function boxBlur(px, W, H, r) {
-  const tmp = new Float32Array(px.length);
-  const out = new Float32Array(px.length);
-  const n = 2 * r + 1;
-  for (let y = 0; y < H; y++) {
-    for (let c = 0; c < 3; c++) {
-      let sum = 0;
-      for (let x = -r; x <= r; x++) sum += px[(y * W + clampIndex(x, W)) * 4 + c];
-      for (let x = 0; x < W; x++) {
-        tmp[(y * W + x) * 4 + c] = sum / n;
-        sum += px[(y * W + clampIndex(x + r + 1, W)) * 4 + c] - px[(y * W + clampIndex(x - r, W)) * 4 + c];
-      }
-    }
-  }
-  for (let x = 0; x < W; x++) {
-    for (let c = 0; c < 3; c++) {
-      let sum = 0;
-      for (let y = -r; y <= r; y++) sum += tmp[(clampIndex(y, H) * W + x) * 4 + c];
-      for (let y = 0; y < H; y++) {
-        out[(y * W + x) * 4 + c] = sum / n;
-        sum += tmp[(clampIndex(y + r + 1, H) * W + x) * 4 + c] - tmp[(clampIndex(y - r, H) * W + x) * 4 + c];
-      }
-    }
-  }
-  return out;
 }
 
 // The size `w` x `h` enlarged by `factor`, in whole pixels (even, for video

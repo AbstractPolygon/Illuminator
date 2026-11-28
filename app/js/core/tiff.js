@@ -2,13 +2,10 @@
 // plane (RGBRGB...), in strips of about a megabyte, each compressed with Deflate and the floating-point predictor (Adobe Technical Note 3), which makes smooth pictures much smaller;
 // the ICC profile (linear sRGB) is in the file so a program reads the numbers right. Read by Photoshop, Affinity, Krita, Blender, DaVinci Resolve, libtiff and others.
 
+import { deflate } from './helpers.js';
+
 const T = { SHORT: 3, LONG: 4, UNDEFINED: 7 };
 const STRIP_BYTES = 1 << 20;
-
-async function deflate(bytes) {
-  const stream = new Blob([bytes]).stream().pipeThrough(new CompressionStream('deflate'));
-  return new Uint8Array(await new Response(stream).arrayBuffer());
-}
 
 // One row of floats made ready for Deflate (Technical Note 3): the bytes of all the values split into four planes, most significant byte first, then each byte
 // replaced by its difference from the same byte of the previous pixel.
